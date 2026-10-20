@@ -1,0 +1,306 @@
+package runner
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"slices"
+	"strings"
+	"time"
+
+	"lazydev/internal/config"
+	"lazydev/internal/devserver"
+	"lazydev/internal/git"
+	"lazydev/internal/hooks"
+	"lazydev/internal/project"
+	"lazydev/internal/runlog"
+	"lazydev/internal/state"
+	"lazydev/internal/worktree"
+)
+
+// resultMergeReady ist der Erfolgswert unter "## Ergebnis" im Bericht von /merge-prd.
+const resultMergeReady = "bereit für fast-forward"
+
+// mergePollInterval ist der Abstand, in dem ein PRD in der Merge-Queue auf die Sperre oder einen
+// sauberen Hauptordner prüft. Tests verkürzen ihn.
+var mergePollInterval = 5 * time.Second
+
+// NoteMainDirty steht im Zustand, solange der Hauptordner den Fast-Forward blockiert.
+const NoteMainDirty = "Hauptordner nicht sauber"
+
+func mergeLock(projectID string) string {
+	return projectID + ".merge"
+}
+
+// mergeStep bringt den Branch per Rebase auf main, prüft ihn und führt den Fast-Forward im
+// Hauptordner aus. Pro Projekt mergt immer nur ein Runner, die anderen warten in der
+// Merge-Queue.
+func mergeStep(ctx context.Context, cfg *config.Config, t Target, prdName string, r *state.Run, log *runlog.Logger) (int, error) {
+	unlock, err := waitMergeLock(ctx, t.ID, log)
+	if err != nil {
+		return 1, err
+	}
+	defer unlock()
+	r.Phase = project.PhaseMerge
+	r.Note = ""
+	if err := state.Save(t.ID, prdName, r); err != nil {
+		return 1, err
+	}
+	h := hooks.For(t.Config)
+	e := env(t, r, log)
+	m := merger{ctx: ctx, cfg: cfg, t: t, prdName: prdName, r: r, log: log, h: h, e: e}
+	if err := m.run(); err != nil {
+		return 1, err
+	}
+	return 0, nil
+}
+
+type merger struct {
+	ctx     context.Context
+	cfg     *config.Config
+	t       Target
+	prdName string
+	r       *state.Run
+	log     *runlog.Logger
+	h       hooks.Hooks
+	e       hooks.Env
+}
+
+func (m merger) run() error {
+	wt, main := m.r.Worktree, m.t.Dir()
+	if pid := devserver.PID(m.t.ID, m.prdName); pid != 0 {
+		m.log.Printf("Stoppe den Dev-Server im Worktree (PID %d)", pid)
+		if err := devserver.Stop(m.t.ID, m.prdName); err != nil {
+			return err
+		}
+	}
+	if err := m.h.Clean(m.e); err != nil {
+		return err
+	}
+	if err := requireClean(wt, "Worktree"); err != nil {
+		return err
+	}
+	oldBase, err := git.Run(wt, "merge-base", project.MainBranch, "HEAD")
+	if err != nil {
+		return err
+	}
+
+	m.log.Printf("$ git rebase %s", project.MainBranch)
+	if _, err := git.Run(wt, "rebase", project.MainBranch); err != nil {
+		m.log.Printf("Konflikt beim Rebase: %v", err)
+		if _, err := git.Run(wt, "rebase", "--abort"); err != nil {
+			m.log.Printf("git rebase --abort: %v", err)
+		}
+		if err := m.mergePRD(""); err != nil {
+			return err
+		}
+	}
+	if err := m.resetDatabaseIfMigrated(oldBase, project.MainBranch); err != nil {
+		return err
+	}
+
+	if err := m.h.Check(m.e); err != nil {
+		m.log.Printf("Prüfung rot: %v", err)
+		head, _ := git.Run(wt, "rev-parse", "HEAD")
+		if err := m.mergePRD("Prüfung nach dem Rebase fehlgeschlagen: " + err.Error()); err != nil {
+			return err
+		}
+		if err := m.resetDatabaseIfMigrated(head, "HEAD"); err != nil {
+			return err
+		}
+		if err := m.h.Check(m.e); err != nil {
+			return fmt.Errorf("Prüfung nach /merge-prd weiter rot: %w", err)
+		}
+	}
+
+	if err := m.waitMainClean(); err != nil {
+		return err
+	}
+	mainBefore, err := git.Run(main, "rev-parse", project.MainBranch)
+	if err != nil {
+		return err
+	}
+	m.log.Printf("$ git merge --ff-only %s", m.r.Branch)
+	if _, err := git.Run(main, "merge", "--ff-only", m.r.Branch); err != nil {
+		return err
+	}
+	m.log.Printf("%s steht auf %s", project.MainBranch, m.r.Branch)
+
+	var notes []string
+	if m.h.MigrationsDir != "" {
+		if changed, _ := changedFiles(main, mainBefore, project.MainBranch, m.h.MigrationsDir); len(changed) > 0 {
+			notes = append(notes, "Neue Migrationen: pnpm db:migrate im Hauptordner ausführen")
+		}
+	}
+	if err := m.cleanup(); err != nil {
+		m.log.Printf("Aufräumen unvollständig: %v", err)
+		notes = append(notes, "Aufräumen unvollständig: "+err.Error())
+	}
+	m.r.Note = strings.Join(notes, ". ")
+	return nil
+}
+
+// mergePRD lässt /merge-prd den Branch auf main bringen. context ist der Fehlerkontext.
+func (m merger) mergePRD(context string) error {
+	prompt := "/merge-prd " + m.r.Branch
+	if context != "" {
+		prompt += " " + context
+	}
+	s, exitCode, err := runClaude(m.ctx, m.cfg, m.t, m.prdName, m.r, prompt, m.log)
+	if err == nil {
+		err = checkSummary(s, exitCode)
+	}
+	if err == nil {
+		err = checkReport(s.Result, "/merge-prd", resultMergeReady, "Offene Punkte")
+	}
+	if err != nil {
+		return err
+	}
+	// Der Bericht allein reicht nicht: Der Branch muss wirklich auf main stehen.
+	wt := m.r.Worktree
+	if _, err := git.Run(wt, "merge-base", "--is-ancestor", project.MainBranch, "HEAD"); err != nil {
+		return fmt.Errorf("nach /merge-prd steht %s nicht auf %s", m.r.Branch, project.MainBranch)
+	}
+	if err := m.h.Clean(m.e); err != nil {
+		return err
+	}
+	return requireClean(wt, "Worktree nach /merge-prd")
+}
+
+// resetDatabaseIfMigrated legt die Worktree-Datenbanken neu an, wenn sich Migrationen zwischen
+// from und to geändert haben.
+func (m merger) resetDatabaseIfMigrated(from, to string) error {
+	if m.h.MigrationsDir == "" {
+		return nil
+	}
+	changed, err := changedFiles(m.r.Worktree, from, to, m.h.MigrationsDir)
+	if err != nil || len(changed) == 0 {
+		return err
+	}
+	m.log.Printf("Migrationen geändert (%d Dateien), lege die Worktree-Datenbanken neu an", len(changed))
+	return m.h.ResetDatabase(m.e)
+}
+
+// waitMainClean wartet, bis der Hauptordner auf main steht und sauber ist. Ungetrackte PRDs und
+// die Dateien aus IgnoreDirty stören nicht.
+func (m merger) waitMainClean() error {
+	waiting := false
+	for {
+		problem, err := mainDirProblem(m.t.Dir(), m.h.IgnoreDirty)
+		if err != nil {
+			return err
+		}
+		if problem == "" {
+			if waiting {
+				m.r.Note = ""
+				return state.Save(m.t.ID, m.prdName, m.r)
+			}
+			return nil
+		}
+		if !waiting {
+			m.log.Printf("%s: %s. Der Merge wartet.", NoteMainDirty, problem)
+			m.r.Phase = project.PhaseMergeQueue
+			m.r.Note = NoteMainDirty + ": " + problem
+			if err := state.Save(m.t.ID, m.prdName, m.r); err != nil {
+				return err
+			}
+			waiting = true
+		}
+		if err := sleep(m.ctx, mergePollInterval); err != nil {
+			return err
+		}
+	}
+}
+
+// mainDirProblem beschreibt, was den Fast-Forward im Hauptordner blockiert. Leer heißt: nichts.
+func mainDirProblem(dir string, ignore []string) (string, error) {
+	branch, err := git.Run(dir, "rev-parse", "--abbrev-ref", "HEAD")
+	if err != nil {
+		return "", err
+	}
+	if branch != project.MainBranch {
+		return fmt.Sprintf("Branch %s statt %s", branch, project.MainBranch), nil
+	}
+	out, err := git.Run(dir, "status", "--porcelain", "--untracked-files=all")
+	if err != nil {
+		return "", err
+	}
+	var dirty []string
+	for _, line := range git.Lines(out) {
+		if len(line) < 4 {
+			continue
+		}
+		path := line[3:]
+		if strings.HasPrefix(line, "?? ") && strings.HasPrefix(path, project.PRDDir+"/") {
+			continue
+		}
+		if slices.Contains(ignore, path) {
+			continue
+		}
+		dirty = append(dirty, path)
+	}
+	if len(dirty) > 0 {
+		return "geändert: " + strings.Join(dirty, ", "), nil
+	}
+	return "", nil
+}
+
+// cleanup entfernt nach dem Fast-Forward Datenbanken, Worktree und Branch. Der Branch ist
+// gemergt, git branch -d reicht also.
+func (m merger) cleanup() error {
+	var errs []error
+	if err := m.h.Teardown(m.e); err != nil {
+		errs = append(errs, err)
+	}
+	m.log.Printf("Entferne Worktree %s und Branch %s", m.r.Worktree, m.r.Branch)
+	if err := worktree.Remove(m.t.Dir(), m.r.Worktree, m.r.Branch, false); err != nil {
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
+}
+
+// waitMergeLock wartet auf den Merge-Slot des Projekts. Ein Abbruch über ctx beendet das Warten.
+func waitMergeLock(ctx context.Context, projectID string, log *runlog.Logger) (func(), error) {
+	logged := false
+	for {
+		unlock, ok, err := state.TryLock(mergeLock(projectID))
+		if err != nil || ok {
+			return unlock, err
+		}
+		if !logged {
+			log.Printf("Ein anderes PRD mergt gerade, warte auf den Merge-Slot")
+			logged = true
+		}
+		if err := sleep(ctx, mergePollInterval); err != nil {
+			return nil, err
+		}
+	}
+}
+
+func requireClean(dir, what string) error {
+	out, err := git.Run(dir, "status", "--porcelain")
+	if err != nil {
+		return err
+	}
+	if dirty := git.Lines(out); len(dirty) > 0 {
+		return fmt.Errorf("%s nicht sauber: %s", what, strings.Join(dirty, ", "))
+	}
+	return nil
+}
+
+func changedFiles(dir, from, to, path string) ([]string, error) {
+	out, err := git.Run(dir, "diff", "--name-only", from, to, "--", path)
+	if err != nil {
+		return nil, err
+	}
+	return git.Lines(out), nil
+}
+
+func sleep(ctx context.Context, d time.Duration) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
+}

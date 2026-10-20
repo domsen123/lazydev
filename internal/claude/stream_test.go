@@ -1,0 +1,75 @@
+package claude
+
+import (
+	"strings"
+	"testing"
+)
+
+const report = `Fertig.
+
+## Ergebnis
+umgesetzt
+
+## Offene Fragen
+- keine
+
+## Nicht geprüft
+- Browser
+`
+
+func TestSection(t *testing.T) {
+	if got, ok := Section(report, "Ergebnis"); !ok || got != "umgesetzt" {
+		t.Errorf("Ergebnis = %q, %v", got, ok)
+	}
+	if got, _ := Section(report, "Offene Fragen"); got != "- keine" {
+		t.Errorf("Offene Fragen = %q", got)
+	}
+	if _, ok := Section(report, "Fehlt"); ok {
+		t.Error("fehlender Abschnitt gefunden")
+	}
+}
+
+func TestSummaryTakesLastResult(t *testing.T) {
+	var s Summary
+	lines := []string{
+		`{"type":"system","subtype":"hook_started"}`,
+		`{"type":"system","subtype":"init","session_id":"a"}`,
+		`{"type":"result","is_error":false,"result":"erste Runde","total_cost_usd":0.1}`,
+		`kein json`,
+		`{"type":"system","subtype":"init","session_id":"a"}`,
+		`{"type":"result","is_error":true,"result":"zweite Runde","total_cost_usd":0.4}`,
+	}
+	for _, l := range lines {
+		if e, ok := ParseEvent([]byte(l)); ok {
+			s.Add(e)
+		}
+	}
+	if s.SessionID != "a" || !s.HasResult || !s.IsError || s.Result != "zweite Runde" || s.CostUSD != 0.4 {
+		t.Errorf("Summary = %+v", s)
+	}
+}
+
+func TestDescribe(t *testing.T) {
+	cases := map[string]string{
+		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"pnpm typecheck"}}]}}`: "Bash pnpm typecheck",
+		`{"type":"assistant","message":{"content":[{"type":"text","text":"\nHallo\nWelt"}]}}`:                                 "Hallo",
+		`{"type":"user","message":{"content":[{"type":"tool_result","is_error":true,"content":"kaputt\nmehr"}]}}`:             "Fehler: kaputt",
+		`{"type":"system","subtype":"permission_denied","tool_name":"Bash"}`:                                                  "abgelehnt: Bash",
+		`{"type":"stderr","text":"warn"}`: "stderr: warn",
+	}
+	for line, want := range cases {
+		if got := strings.Join(Describe([]byte(line)), "|"); got != want {
+			t.Errorf("Describe(%s) = %q, erwartet %q", line, got, want)
+		}
+	}
+	if got := Describe([]byte(`{"type":"rate_limit_event"}`)); got != nil {
+		t.Errorf("rate_limit_event = %q", got)
+	}
+}
+
+func TestArgsJoinAllowedTools(t *testing.T) {
+	args := Options{Prompt: "/x", AllowedTools: []string{"Read", "Bash(git status:*)"}}.Args()
+	if got := args[len(args)-1]; got != "Read,Bash(git status:*)" {
+		t.Errorf("allowedTools = %q", got)
+	}
+}
