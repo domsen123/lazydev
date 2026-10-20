@@ -6,8 +6,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 lazydev ist eine Go-TUI (Bubble Tea) für den PRD-Workflow mit Claude Code. Jedes PRD läuft in einem eigenen
 Git-Worktree mit eigener Datenbank und eigenem Port und wird per Fast-Forward nach `main` gemergt.
-`SPEC.md` ist die verbindliche Beschreibung des Verhaltens. Um Verhalten zu ändern, passe `SPEC.md` und
-`README.md` mit an.
+`SPEC.md` ist die verbindliche Beschreibung des Verhaltens. Um Verhalten zu ändern, passe `SPEC.md`,
+`README.md` und `README.de.md` mit an.
 
 ## Befehle
 
@@ -91,6 +91,7 @@ lazydev beachtet `XDG_CONFIG_HOME`, `XDG_STATE_HOME` und `XDG_DATA_HOME`. Zustan
 
 ## Konventionen
 
-- Alle Texte sind deutsch: UI-Strings, Fehlermeldungen, Kommentare und Doku.
-- Commits folgen Conventional Commits, z. B. `feat(tui): …`.
+- Alle Texte sind deutsch: UI-Strings, Fehlermeldungen, Kommentare und Doku. Ausnahme: `README.md` ist
+  englisch, `README.de.md` ist die deutsche Fassung mit gleichem Inhalt. Ändere immer beide.
+- Commits folgen Conventional Commits und sind englisch, z. B. `feat(tui): show keys for focus and state`.
 - Commits, die lazydev selbst erstellt, schreibt es mit `git commit` ohne Claude und ohne Trailer.

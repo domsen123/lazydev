@@ -1,24 +1,29 @@
 # lazydev
 
-lazydev ist eine Terminal-Oberfläche für den PRD-Workflow mit Claude Code. Du siehst alle Projekte und
-ihre PRDs, startest die Umsetzung mit einer Taste und verfolgst das Log live. Jedes PRD läuft in einem
-eigenen Git-Worktree mit eigener Datenbank und eigenem Port. Nach dem Review mergt lazydev den Branch per
-Fast-Forward in `main` und räumt auf.
+<p align="center">
+  <b>English</b> · <a href="README.de.md">Deutsch</a>
+</p>
 
-Die vollständige Beschreibung des Verhaltens steht in [SPEC.md](SPEC.md).
+lazydev is a terminal UI for the PRD workflow with Claude Code. You see all projects and their PRDs, start
+the implementation with a single key, and follow the log live. Each PRD runs in its own Git worktree with
+its own database and port. After the review, lazydev fast-forward merges the branch into `main` and cleans
+up.
 
-## Voraussetzungen
+The UI, the prompts, and [SPEC.md](SPEC.md), the full description of the behavior, are in German. This
+README gives the German UI labels in quotes, followed by a translation.
 
-- Linux mit `/proc`. lazydev nutzt `setsid`, `flock` und `/proc` für Prozesse und Ports.
-- Go 1.27 oder neuer zum Bauen.
-- `git` und [Claude Code](https://claude.com/claude-code) (`claude`) im `PATH`.
-- Die globalen Commands `/create-prd`, `/implement-prd`, `/arewedone` und `/merge-prd` unter
-  `~/.claude/commands/` und der Agent `committer`.
-- Für das Preset `nuxt-drizzle`: Docker, `pnpm` und die Compose-Container des Projekts.
-- Für die Box „Issues“: das [GitHub CLI](https://cli.github.com) (`gh`) im `PATH`, angemeldet mit
+## Requirements
+
+- Linux with `/proc`. lazydev uses `setsid`, `flock`, and `/proc` for processes and ports.
+- Go 1.27 or later to build.
+- `git` and [Claude Code](https://claude.com/claude-code) (`claude`) in your `PATH`.
+- The global commands `/create-prd`, `/implement-prd`, `/arewedone`, and `/merge-prd` in
+  `~/.claude/commands/`, and the `committer` agent.
+- For the `nuxt-drizzle` preset: Docker, `pnpm`, and the project's Compose containers.
+- For the "Issues" box: the [GitHub CLI](https://cli.github.com) (`gh`) in your `PATH`, signed in with
   `gh auth login`.
-- Optional: [Herdr](https://herdr.dev). In Herdr öffnen `o`, `w` und `L` einen neuen Pane statt die
-  Oberfläche zu unterbrechen.
+- Optional: [Herdr](https://herdr.dev). Inside Herdr, `o`, `w`, and `L` open a new pane instead of
+  suspending the UI.
 
 ## Installation
 
@@ -26,161 +31,162 @@ Die vollständige Beschreibung des Verhaltens steht in [SPEC.md](SPEC.md).
 make install
 ```
 
-Der Befehl legt die Binärdatei unter `~/.local/bin/lazydev` ab. Um einen anderen Ort zu nutzen, setze
-`PREFIX`, z. B. `make install PREFIX=/usr/local`.
+This command installs the binary to `~/.local/bin/lazydev`. To use a different location, set `PREFIX`, for
+example `make install PREFIX=/usr/local`.
 
-Eine laufende TUI behält ihren Code. Um eine neue Version zu nutzen, führe `make install` aus und starte
-lazydev neu. Runner, die danach starten, nutzen die neue Version. Für die Entwicklung startet
-`go run ./cmd/lazydev` ohne Installation.
+A running TUI keeps its code. To use a new version, run `make install` and restart lazydev. Runners that
+start afterwards use the new version. For development, `go run ./cmd/lazydev` starts the TUI without
+installing it.
 
-## Erste Schritte
+## Get started
 
-1. Starte `lazydev`.
-2. Drücke `a`, gib den Pfad eines Projekts ein und bestätige mit `Enter`. `Tab` vervollständigt den Pfad.
-   lazydev erkennt das Preset `nuxt-drizzle` an `drizzle.config.ts` und `server/database/migrations`.
-3. Drücke `n`, wähle ein Template und beschreibe das Feature in einem Satz. Im Chat-Fenster stellt Claude
-   seine Fragen. Das fertige PRD erscheint ungetrackt unter `prd/<bereich>/<name>.md`.
-   Jede Runde läuft im Hintergrund weiter, auch nach `Esc` oder `q`. Stellt Claude eine Rückfrage oder
-   scheitert eine Runde, erscheint der Chat in der Box „Benachrichtigungen“ rechts neben den PRDs. Das
-   Projekt zeigt dann ` <anzahl>✉`. Um den Chat wieder zu öffnen, drücke `N` oder `Enter` in der Box.
-   - **Nuxt-Feature** nutzt `/create-prd` und `/implement-prd`, mit Datenmodell und UI-Handoff.
-   - **Einfach** gilt für Projekte ohne Datenmodell, UI-Handoff und Architektur-Doku. Die Prompts bringt
-     lazydev selbst mit. Um Prüfbefehle wie `make test` freizugeben, trage sie unter `allowedTools` des
-     Projekts ein, z. B. `Bash(make test:*)`.
-4. Wähle das PRD und drücke `s`. lazydev legt den Worktree an, setzt die Datenbanken auf, führt
-   `/implement-prd` (bei „Einfach“ den eigenen Prompt) und `/arewedone` aus und mergt.
-5. Verfolge den Lauf im Log unten. Mit `l` siehst du es in voller Höhe.
+1. Start `lazydev`.
+2. Press `a`, enter the path of a project, and confirm with `Enter`. `Tab` completes the path. lazydev
+   detects the `nuxt-drizzle` preset from `drizzle.config.ts` and `server/database/migrations`.
+3. Press `n`, choose a template, and describe the feature in one sentence. Claude asks its questions in the
+   chat window. The finished PRD appears untracked at `prd/<area>/<name>.md`.
+   Each round keeps running in the background, even after `Esc` or `q`. When Claude asks a question or a
+   round fails, the chat appears in the "Benachrichtigungen" (notifications) box to the right of the PRDs.
+   The project then shows ` <count>✉`. To reopen the chat, press `N`, or `Enter` in the box.
+   - **Nuxt-Feature** uses `/create-prd` and `/implement-prd`, with a data model and a UI handoff.
+   - **Einfach** (simple) is for projects without a data model, UI handoff, or architecture docs. lazydev
+     ships its own prompts for it. To allow check commands such as `make test`, add them to the
+     project's `allowedTools`, for example `Bash(make test:*)`.
+4. Select the PRD and press `s`. lazydev creates the worktree, sets up the databases, runs `/implement-prd`
+   (its own prompt for "Einfach") and `/arewedone`, and merges.
+5. Follow the run in the log at the bottom. Press `l` to show it at full height.
 
-Am unteren Rand der PRD-Liste stehen die Docker-Services des Projekts mit Status, Ports und Image,
-darunter die laufenden Dev-Server. Um Container zu starten, zu stoppen oder ihre Logs zu sehen, drücke `D`.
+The bottom of the PRD list shows the project's Docker services with status, ports, and image, followed by
+the running dev servers. To start or stop containers or to see their logs, press `D`.
 
-Zeigt `origin` eines Projekts auf `github.com`, lädt lazydev die bis zu 30 neuesten offenen Issues über
-`gh`. Das passiert beim Start, alle 30 Minuten und mit `r`. Hat das Projekt offene Issues, erscheint die Box
-„Issues“ in der rechten Spalte, unter „Benachrichtigungen“ oder allein. Das Projekt zeigt ` <anzahl>#`. In der Box zeigt `Enter`
-das Issue im Fenster, `o` öffnet es im Browser. Um aus einem Issue ein PRD zu machen, drücke `n`, wähle das
-Template und bestätige mit `Enter`. Der Chat startet mit Titel und Text des Issues. Nach einem Neustart
-zeigt lazydev sofort den letzten Stand. Scheitert `gh`, nennt die Statuszeile den Grund.
+If a project's `origin` points to `github.com`, lazydev loads up to 30 of the newest open issues through
+`gh`. It does so at startup, every 30 minutes, and when you press `r`. If the project has open issues, the
+"Issues" box appears in the right column, below "Benachrichtigungen" or on its own. The project shows
+` <count>#`. In the box, `Enter` shows the issue in a window and `o` opens it in the browser. To turn an
+issue into a PRD, press `n`, choose the template, and confirm with `Enter`. The chat starts with the
+issue's title and body. After a restart, lazydev shows the last state right away. If `gh` fails, the status
+line shows the reason.
 
-## Tasten
+## Keys
 
-Die Fußzeile zeigt nur die Tasten, die im aktiven Fokus und für das gewählte PRD gerade wirken. Alle
-anderen Tasten funktionieren trotzdem, `?` zeigt die vollständige Liste.
+The footer shows only the keys that work in the focused box and for the selected PRD. All other keys still
+work, and `?` shows the full list.
 
-| Taste | Wirkung |
+| Key | Action |
 |---|---|
-| `↑` `↓` / `j` `k` | Auswahl in der aktiven Liste |
-| `Tab` / `←` `→` | Fokus wechseln: Projekte, PRDs, Benachrichtigungen, Issues, Log oder Details. Im unteren Bereich scrollen `j` `k`. |
-| `a` / `d` | Projekt hinzufügen / aus der Liste entfernen |
-| `n` | Neues PRD: Template wählen (Nuxt-Feature oder Einfach), dann Chat-Fenster mit Opus |
-| `N` | Älteste Rückfrage eines Chats über alle Projekte öffnen |
-| `Enter` / `X` | In „Benachrichtigungen“: Chat öffnen / Chat beenden, mit Rückfrage |
-| `Enter` / `o` / `n` | In „Issues“: Issue im Fenster ansehen / im Browser öffnen / PRD-Chat aus dem Issue starten |
-| `Esc` | Im Chat: Fenster ausblenden. Die Runde läuft weiter. |
-| `Ctrl+X` | Im Chat: Chat beenden, mit Rückfrage. Eine laufende Runde bricht ab, das Log bleibt. |
-| `Ctrl+R` | Im Chat: nach einem Fehler die letzte Runde wiederholen |
-| `v` | PRD vollständig als Markdown im Fenster ansehen. Darin öffnet `o` die Datei im Editor. |
-| `s` | Umsetzung starten. Nach Fehler oder Abbruch geht es beim gescheiterten Schritt weiter. |
-| `m` | Merge freigeben, wenn `autoMerge` aus ist oder der Merge scheiterte |
-| `x` | Runner abbrechen. Der Worktree bleibt. |
-| `X` | PRD verwerfen: Datenbanken, Worktree und Branch löschen, PRD zurück in den Hauptordner |
-| `o` | Letzte Claude-Sitzung des PRDs im Worktree öffnen |
-| `p` | Dev-Server im Worktree starten oder stoppen |
-| `w` | Shell im Worktree öffnen |
-| `e` | Erledigte PRDs auf- und zuklappen. Beim Start sind sie zugeklappt. |
-| `S` | PRDs nach Name oder Erstellzeit sortieren, neueste zuerst |
-| `D` | Docker-Ansicht: `U` compose up, `S` compose stop, `L` Logs |
-| `l` | Log in voller Höhe |
-| `Enter` | Im Log: vollständiges Ereignis |
-| `u` | Claude-Limits und Verbrauch. `r` aktualisiert mit einer kurzen Anfrage an Haiku. |
-| `r` | Neu einlesen, Issues neu laden |
-| `?` | Hilfe |
-| `q` | Beenden. Laufende Runner und Chats arbeiten weiter. |
+| `↑` `↓` / `j` `k` | Move the selection in the focused list |
+| `Tab` / `←` `→` | Move the focus: projects, PRDs, notifications, issues, log, or details. In the bottom area, `j` `k` scroll. |
+| `a` / `d` | Add a project / remove it from the list |
+| `n` | New PRD: choose a template (Nuxt-Feature or Einfach), then a chat window with Opus |
+| `N` | Open the oldest open question of a chat across all projects |
+| `Enter` / `X` | In "Benachrichtigungen": open the chat / end the chat, with confirmation |
+| `Enter` / `o` / `n` | In "Issues": show the issue in a window / open it in the browser / start a PRD chat from the issue |
+| `Esc` | In the chat: hide the window. The round keeps running. |
+| `Ctrl+X` | In the chat: end the chat, with confirmation. A running round stops, the log stays. |
+| `Ctrl+R` | In the chat: retry the last round after an error |
+| `v` | Show the full PRD as Markdown in a window. Inside, `o` opens the file in your editor. |
+| `s` | Start the implementation. After an error or an abort, it continues at the failed step. |
+| `m` | Approve the merge when `autoMerge` is off or the merge failed |
+| `x` | Stop the runner. The worktree stays. |
+| `X` | Discard the PRD: delete databases, worktree, and branch, and move the PRD back to the main folder |
+| `o` | Open the PRD's last Claude session in the worktree |
+| `p` | Start or stop the dev server in the worktree |
+| `w` | Open a shell in the worktree |
+| `e` | Expand or collapse finished PRDs. They start collapsed. |
+| `S` | Sort PRDs by name or by creation time, newest first |
+| `D` | Docker view: `U` compose up, `S` compose stop, `L` logs |
+| `l` | Log at full height |
+| `Enter` | In the log: show the full event |
+| `u` | Claude limits and usage. `r` refreshes them with a short request to Haiku. |
+| `r` | Reload projects and issues |
+| `?` | Help |
+| `q` | Quit. Running runners and chats keep working. |
 
-## Befehle ohne TUI
+## Commands without the TUI
 
 ```sh
-lazydev start <projekt-id> <prd-name>             # Runner im Hintergrund, mit maxParallel
-lazydev run <projekt-id> <prd-name>               # Runner im Vordergrund
-lazydev merge <projekt-id> <prd-name>             # Merge freigeben, wenn autoMerge aus ist
-lazydev stop <projekt-id> <prd-name>              # Runner stoppen
-lazydev teardown [--yes] <projekt-id> <prd-name>  # Lauf verwerfen
-lazydev chat <projekt-id> <chat-id>               # eine Runde eines PRD-Chats, die TUI startet sie
+lazydev start <project-id> <prd-name>             # runner in the background, respects maxParallel
+lazydev run <project-id> <prd-name>               # runner in the foreground
+lazydev merge <project-id> <prd-name>             # approve the merge when autoMerge is off
+lazydev stop <project-id> <prd-name>              # stop the runner
+lazydev teardown [--yes] <project-id> <prd-name>  # discard the run
+lazydev chat <project-id> <chat-id>               # one round of a PRD chat, the TUI starts it
 ```
 
-Die Projekt-ID ist der Ordnername des Projekts. Der PRD-Name ist der Dateiname ohne `.md`. Die Chat-ID
-ist die Startzeit des Chats, z. B. `2026-10-20-140211`.
+The project ID is the name of the project folder. The PRD name is the file name without `.md`. The chat ID
+is the chat's start time, for example `2026-10-20-140211`.
 
-## Konfiguration
+## Configuration
 
-lazydev liest `~/.config/lazydev/config.yaml`. Mit `LAZYDEV_CONFIG` nutzt du eine andere Datei. Die TUI
-schreibt die Datei selbst, wenn du Projekte hinzufügst oder entfernst.
+lazydev reads `~/.config/lazydev/config.yaml`. To use a different file, set `LAZYDEV_CONFIG`. The TUI
+writes the file itself when you add or remove projects.
 
 ```yaml
-maxParallel: 3               # gleichzeitige Runner über alle Projekte
-portBase: 3100               # erster Port für Worktrees
+maxParallel: 3               # concurrent runners across all projects
+portBase: 3100               # first port for worktrees
 claude:
   binary: claude
 projects:
   - path: ~/development/nuxt/nuxt-drizzle
     preset: nuxt-drizzle
-    autoMerge: true          # Standard. false: Merge erst nach m
-    allowedTools:            # ergänzt die Freigaben für Claude
+    autoMerge: true          # default. false: merge only after m
+    allowedTools:            # extends the tools Claude may use
       - "Bash(pnpm test:e2e:*)"
-    hooks:                   # ersetzt einzelne Hooks des Presets
+    hooks:                   # replaces single hooks of the preset
       setup: ./scripts/lazydev-setup.sh
       teardown: ./scripts/lazydev-teardown.sh
       check: ./scripts/lazydev-check.sh
       dev: ./scripts/lazydev-dev.sh
 ```
 
-Hook-Skripte laufen im Worktree. Relative Pfade gelten ab dem Hauptordner des Projekts. Die Skripte
-bekommen `LAZYDEV_PROJECT`, `LAZYDEV_WORKTREE`, `LAZYDEV_BRANCH`, `LAZYDEV_PORT` und `LAZYDEV_SLUG`.
+Hook scripts run in the worktree. Relative paths start at the project's main folder. The scripts receive
+`LAZYDEV_PROJECT`, `LAZYDEV_WORKTREE`, `LAZYDEV_BRANCH`, `LAZYDEV_PORT`, and `LAZYDEV_SLUG`.
 
-## Preset nuxt-drizzle
+## The nuxt-drizzle preset
 
 - **Setup:**
-  - kopiert `.env` und `.env.test` in den Worktree,
-  - hängt `_<slug>` an `NUXT_DATABASE_NAME` und setzt `PORT`,
-  - legt beide Datenbanken per `docker exec … createdb` an,
-  - führt `pnpm install`, `pnpm db:migrate` und `pnpm test:db:push` aus.
-- **Prüfung vor dem Merge:** `pnpm lint`, `pnpm typecheck`, `pnpm test:run`.
-- **Dev-Server:** `pnpm dev` auf dem Port des Worktrees.
-- **Teardown:** löscht nur Datenbanken mit `_<slug>` im Namen. Die Haupt-Datenbanken bleiben unberührt.
+  - copies `.env` and `.env.test` into the worktree,
+  - appends `_<slug>` to `NUXT_DATABASE_NAME` and sets `PORT`,
+  - creates both databases with `docker exec … createdb`,
+  - runs `pnpm install`, `pnpm db:migrate`, and `pnpm test:db:push`.
+- **Checks before the merge:** `pnpm lint`, `pnpm typecheck`, `pnpm test:run`.
+- **Dev server:** `pnpm dev` on the worktree's port.
+- **Teardown:** deletes only databases with `_<slug>` in their name. The main databases stay untouched.
 
-## Dateien
+## Files
 
-| Was | Pfad |
+| What | Path |
 |---|---|
-| Konfiguration | `~/.config/lazydev/config.yaml` |
-| Lauf-Zustand | `~/.local/state/lazydev/runs/<projekt-id>/<prd-name>.json` |
-| Log pro Schritt | `~/.local/state/lazydev/runs/<projekt-id>/<prd-name>.<schritt>.jsonl` |
-| Ausgabe des Runners | `~/.local/state/lazydev/runs/<projekt-id>/<prd-name>.runner.log` |
-| Dev-Server | `~/.local/state/lazydev/runs/<projekt-id>/<prd-name>.dev.log` |
-| Letzter Stand der Claude-Limits | `~/.local/state/lazydev/usage.json` |
-| Zustand des Chats für `n` | `~/.local/state/lazydev/chats/<projekt-id>/<chat-id>.json` |
-| Log des Chats für `n` | `~/.local/state/lazydev/chats/<projekt-id>/<chat-id>.jsonl` |
-| Letzter Stand der GitHub-Issues | `~/.local/state/lazydev/issues/<projekt-id>.json` |
-| Worktrees | `~/.local/share/lazydev/worktrees/<projekt-id>/<prd-name>/` |
+| Configuration | `~/.config/lazydev/config.yaml` |
+| Run state | `~/.local/state/lazydev/runs/<project-id>/<prd-name>.json` |
+| Log per step | `~/.local/state/lazydev/runs/<project-id>/<prd-name>.<step>.jsonl` |
+| Runner output | `~/.local/state/lazydev/runs/<project-id>/<prd-name>.runner.log` |
+| Dev server | `~/.local/state/lazydev/runs/<project-id>/<prd-name>.dev.log` |
+| Last state of the Claude limits | `~/.local/state/lazydev/usage.json` |
+| State of the chat for `n` | `~/.local/state/lazydev/chats/<project-id>/<chat-id>.json` |
+| Log of the chat for `n` | `~/.local/state/lazydev/chats/<project-id>/<chat-id>.jsonl` |
+| Last state of the GitHub issues | `~/.local/state/lazydev/issues/<project-id>.json` |
+| Worktrees | `~/.local/share/lazydev/worktrees/<project-id>/<prd-name>/` |
 
-lazydev beachtet `XDG_CONFIG_HOME`, `XDG_STATE_HOME` und `XDG_DATA_HOME`.
+lazydev respects `XDG_CONFIG_HOME`, `XDG_STATE_HOME`, and `XDG_DATA_HOME`.
 
-## Fehler beheben
+## Troubleshooting
 
-- **Ein PRD steht auf „Fehler“.** Die Kopfzeile des Logs nennt den Grund. Mit `o` fragst du in der Sitzung
-  nach, mit `s` startest du den Schritt neu.
-- **Ein PRD steht auf „abgebrochen“, ohne dass du `x` gedrückt hast.** Der Runner endete unerwartet. Seine
-  Ausgabe steht in `<prd-name>.runner.log`.
-- **Der Merge wartet mit „Hauptordner nicht sauber“.** Committe oder verwirf die Änderungen im Hauptordner.
-  Der Merge prüft alle 5 Sekunden neu.
-- **Im Chat für `n` erscheint ein roter Fehler wie `Brace expansion`.** Claude hat einen Befehl versucht,
-  den der Chat nicht freigibt, und liest die Dateien danach mit Read und Grep. Das PRD entsteht trotzdem.
-  Alle Ereignisse stehen im Chat-Log.
-- **Claude lehnt einen Befehl ab.** Die Zeile `abgelehnt: …` im Log nennt das Tool. Um es freizugeben,
-  ergänze `allowedTools` in der Projekt-Konfiguration.
+- **A PRD shows "Fehler" (error).** The header line of the log names the reason. Press `o` to ask in the
+  session, or `s` to restart the step.
+- **A PRD shows "abgebrochen" (aborted) although you didn't press `x`.** The runner ended unexpectedly. Its
+  output is in `<prd-name>.runner.log`.
+- **The merge waits with "Hauptordner nicht sauber" (main folder not clean).** Commit or discard the changes
+  in the main folder. The merge checks again every 5 seconds.
+- **The chat for `n` shows a red error such as `Brace expansion`.** Claude tried a command that the chat
+  doesn't allow and then reads the files with Read and Grep. The PRD is still created. The chat log
+  contains all events.
+- **Claude denies a command.** The line `abgelehnt: …` (denied) in the log names the tool. To allow it, add
+  it to `allowedTools` in the project configuration.
 
-## Entwicklung
+## Development
 
 ```sh
-make test     # go vet und go test
-make build    # Binärdatei unter bin/lazydev
+make test     # go vet and go test
+make build    # binary at bin/lazydev
 ```
