@@ -1,6 +1,6 @@
 # PRD: Globale Rechte und Permission-Modus für Claude-Schritte
 
-> Status: geplant · Template: einfach · Scope: `~/.config/lazydev/settings.json` bekommt `allowedTools` für alle Projekte und `permissionMode` (`acceptEdits` oder `auto`) für jeden Claude-Schritt des Runners. Die Contracts verbieten `cd` in den Worktree und verkettete Shell-Befehle.
+> Status: umgesetzt (2026-10-21) · Template: einfach · Scope: `~/.config/lazydev/settings.json` bekommt `allowedTools` für alle Projekte und `permissionMode` (`acceptEdits` oder `auto`) für jeden Claude-Schritt des Runners. Die Contracts verbieten `cd` in den Worktree und verkettete Shell-Befehle.
 
 ## Context
 
