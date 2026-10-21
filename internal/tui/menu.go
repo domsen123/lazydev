@@ -13,11 +13,13 @@ const menuWidth = 39
 
 const (
 	menuTheme = iota
+	menuGit
 	menuQuit
 	menuItems
 )
 
-// menu is the btop style menu that esc opens. Changing the theme applies it right away.
+// menu is the btop style menu that esc opens. Changing the theme applies it right away, Git opens
+// the git cockpit.
 type menu struct {
 	cursor int
 }
@@ -43,6 +45,9 @@ func (m model) updateMenu(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		switch m.menu.cursor {
 		case menuTheme:
 			m.setTheme(m.theme + 1)
+		case menuGit:
+			m.menu = nil
+			m.openCockpit()
 		case menuQuit:
 			return m.quit()
 		}
@@ -75,6 +80,8 @@ func (m model) viewMenu() string {
 		"",
 		row(menuTheme, "Color theme"),
 		row(menuTheme, "‹ "+t.name+" ›"),
+		"",
+		row(menuGit, "Git"),
 		"",
 		row(menuQuit, "Quit"),
 		"",

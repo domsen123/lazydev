@@ -95,6 +95,10 @@ type model struct {
 	wizard *wizard
 	// status is the open status picker of a PRD, nil when closed.
 	status *statusPicker
+	// cockpit is the open git cockpit of the selected project, nil when closed.
+	cockpit *cockpit
+	// gitTabs maps terminal IDs of git cockpit tabs to their action.
+	gitTabs map[int]string
 	// question is an open yes/no question in the footer, nil without one.
 	question *question
 	// waiting is the queue of waiting PRDs as "<id>/<prd>". last is the last log entry and devPIDs
@@ -130,7 +134,7 @@ func newModel(bus *sender) model {
 	create := textinput.New()
 	create.Prompt = " New PRD, what is it about? "
 	create.Placeholder = "empty: Claude asks"
-	m := model{bus: bus, input: in, createInput: create, focus: colCenter, theme: loadTheme()}
+	m := model{bus: bus, input: in, createInput: create, focus: colCenter, theme: loadTheme(), gitTabs: map[int]string{}}
 	ctx, cancel := context.WithCancel(context.Background())
 	m.dockerEvents, m.stopDocker = docker.Events(ctx), cancel
 	projects, err := loadProjects()
@@ -163,7 +167,22 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case terminal.OutputMsg:
 		// Nothing to update, the view reads the emulator.
 	case terminal.ExitMsg:
+		action, ok := m.gitTabs[msg.ID]
+		if !ok {
+			m.removeTerminal(msg.ID)
+			break
+		}
+		delete(m.gitTabs, msg.ID)
+		switch msg.Code {
+		case 0:
+			m.note = "git " + action + ": done"
+		case -1:
+			m.err = "git " + action + " stopped"
+		default:
+			m.err = fmt.Sprintf("git %s failed (exit %d)", action, msg.Code)
+		}
 		m.removeTerminal(msg.ID)
+		return m, fetchGitInfo(m.projects)
 	case quitMsg:
 		return m, tea.Quit
 	case gitInfoMsg:
@@ -511,6 +530,9 @@ func (m model) View() string {
 	if m.status != nil {
 		view = overlay(view, m.viewStatusPicker(), m.width, m.height)
 	}
+	if m.cockpit != nil {
+		view = overlay(view, m.viewCockpit(), m.width, m.height)
+	}
 	if m.menu != nil {
 		view = overlay(view, m.viewMenu(), m.width, m.height)
 	}
@@ -549,6 +571,8 @@ func (m model) footer(t theme) string {
 		return text.Render(ansi.Truncate(" "+m.note, m.width, "…"))
 	case m.status != nil && m.menu == nil:
 		return text.Render(ansi.Truncate(m.status.keys(), m.width, "…"))
+	case m.cockpit != nil && m.menu == nil:
+		return text.Render(ansi.Truncate(m.cockpit.keys(), m.width, "…"))
 	case m.wizardVisible() && m.menu == nil:
 		return text.Render(ansi.Truncate(m.wizard.keys(), m.width, "…"))
 	}
@@ -702,7 +726,7 @@ func (m model) centerBody(width int, t theme) string {
 		lv.ctx = m.logContext(lv)
 	}
 	bar := renderTabs(labels, p.tab, width, tabStyle(p.tab, m.focus == colCenter, t), text)
-	return bar + "\n" + separator + "\n" + p.tabs[p.tab].View(m.focus == colCenter && m.menu == nil && m.status == nil && !m.wizardVisible())
+	return bar + "\n" + separator + "\n" + p.tabs[p.tab].View(m.focus == colCenter && m.menu == nil && m.status == nil && m.cockpit == nil && !m.wizardVisible())
 }
 
 // box draws a box with rounded corners and the title in the top border. outline is the border

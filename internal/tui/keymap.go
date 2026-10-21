@@ -30,6 +30,7 @@ const (
 	actNewTerminal
 	actCloseTab
 	actMenu
+	actGit
 	actQuit
 )
 
@@ -44,6 +45,7 @@ var globalKeys = map[string]action{
 	"alt+t":           actNewTerminal,
 	"alt+w":           actCloseTab,
 	"alt+m":           actMenu, "alt+esc": actMenu,
+	"alt+g": actGit,
 	"alt+q": actQuit, "alt+ctrl+c": actQuit,
 }
 
@@ -54,6 +56,8 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case m.menu != nil:
 		return m.updateMenu(msg)
+	case m.cockpit != nil:
+		return m.updateCockpit(msg)
 	case m.question != nil:
 		return m.updateQuestion(msg)
 	case m.status != nil:
@@ -101,9 +105,12 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.stepFocus(-1, true)
 		return m, nil
 	}
-	// Rule 2: outside a terminal, alt is optional.
-	if next, cmd, ok := m.global("alt+" + key); ok {
-		return next, cmd
+	// Rule 2: outside a terminal, alt is optional. g skips it: rule 3 makes g "to the top" in every
+	// pane, so in a pane without list it must not open the git cockpit.
+	if key != "g" {
+		if next, cmd, ok := m.global("alt+" + key); ok {
+			return next, cmd
+		}
 	}
 	return m, nil
 }
@@ -167,6 +174,8 @@ func (m model) global(key string) (next tea.Model, cmd tea.Cmd, ok bool) {
 		}
 	case actMenu:
 		m.menu = &menu{}
+	case actGit:
+		m.openCockpit()
 	case actQuit:
 		next, cmd := m.quit()
 		return next, cmd, true
@@ -407,21 +416,21 @@ func selectedName(p *projectEntry) string {
 func (m model) footerKeys() string {
 	switch {
 	case m.inTerminal():
-		return " alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+t terminal · alt+w close · alt+m menu · alt+q quit"
+		return " alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+t terminal · alt+w close · alt+g git · alt+m menu · alt+q quit"
 	case m.inLogView():
-		return " j/k scroll · ctrl+d/u page · g/G top/end · z header · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+w close · t terminal · m menu · q quit"
+		return " j/k scroll · ctrl+d/u page · g/G top/end · z header · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+w close · t terminal · alt+g git · m menu · q quit"
 	case m.focus == colLeft || m.current() == nil:
-		return " j/k select · l open · a add · d remove · i edit .lazydev · alt+←/→ pane · alt+shift+←/→ tab · t terminal · m menu · q quit"
+		return " j/k select · l open · a add · d remove · i edit .lazydev · alt+←/→ pane · alt+shift+←/→ tab · t terminal · alt+g git · m menu · q quit"
 	case m.focus == colBottom && m.runListVisible():
-		return " j/k move · l log · s start · x stop · X discard · D dev · i edit .lazydev · z zoom · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · m menu · q quit"
+		return " j/k move · l log · s start · x stop · X discard · D dev · i edit .lazydev · z zoom · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · alt+g git · m menu · q quit"
 	case m.focus == colBottom && m.bottomTab == bottomDetails:
-		return " i edit .lazydev · z zoom · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · m menu · q quit"
+		return " i edit .lazydev · z zoom · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · alt+g git · m menu · q quit"
 	case m.focus == colBottom && m.bottomTab == bottomDocker:
-		return " j/k move · l logs · z zoom · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · m menu · q quit"
+		return " j/k move · l logs · z zoom · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · alt+g git · m menu · q quit"
 	case m.focus == colRight && m.rightTab == rightPRDs:
-		return " j/k move · l open · L log · n new · s start · x stop · X discard · D dev · c status · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · m menu · q quit"
+		return " j/k move · l open · L log · n new · s start · x stop · X discard · D dev · c status · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+g git · m menu · q quit"
 	case m.focus == colRight && m.rightTab == rightFiles:
-		return " j/k move · l open · h back · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · m menu · q quit"
+		return " j/k move · l open · h back · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+g git · m menu · q quit"
 	}
-	return " alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · m menu · q quit"
+	return " alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · alt+g git · m menu · q quit"
 }
