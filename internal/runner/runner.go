@@ -19,6 +19,7 @@ import (
 	"lazydev/internal/claude"
 	"lazydev/internal/config"
 	"lazydev/internal/fsutil"
+	"lazydev/internal/notify"
 	"lazydev/internal/project"
 	"lazydev/internal/repo"
 	"lazydev/internal/state"
@@ -264,7 +265,17 @@ func Run(ctx context.Context, t Target, prdName string) error {
 		}
 	}
 	r.Phase, r.PID = project.PhaseMerged, 0
-	return state.Save(t.ID, prdName, r)
+	if err := state.Save(t.ID, prdName, r); err != nil {
+		return err
+	}
+	// The PRD is merged already, a log that does not open only loses the log line of the notification.
+	log, err := openLog(state.LogPath(t.ID, prdName, state.StepMerge))
+	if err != nil {
+		log = &logger{}
+	}
+	defer log.close()
+	notifyRun(t, r, notify.Merged, log)
+	return nil
 }
 
 // prepare loads the existing run or creates one in phase waiting, so the port is fixed before the
@@ -351,13 +362,17 @@ func runStep(ctx context.Context, t Target, prdName string, r *state.Run, step s
 		log.printf("Aborted")
 		r.EndStep(exitCode, false)
 		r.Phase, r.PID = project.PhaseAborted, 0
-		return errors.Join(fmt.Errorf("%s aborted", step), state.Save(t.ID, prdName, r))
+		saveErr := state.Save(t.ID, prdName, r)
+		notifyRun(t, r, notify.Aborted, log)
+		return errors.Join(fmt.Errorf("%s aborted", step), saveErr)
 	case err != nil:
 		log.printf("Error: %v", err)
 		r.EndStep(exitCode, false)
 		r.Fail(err)
 		r.PID = 0
-		return errors.Join(err, state.Save(t.ID, prdName, r))
+		saveErr := state.Save(t.ID, prdName, r)
+		notifyRun(t, r, notify.Failed, log)
+		return errors.Join(err, saveErr)
 	}
 	r.EndStep(0, true)
 	switch step {

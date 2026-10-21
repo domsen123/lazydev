@@ -11,6 +11,7 @@ import (
 
 	"lazydev/internal/devserver"
 	"lazydev/internal/git"
+	"lazydev/internal/notify"
 	"lazydev/internal/project"
 	"lazydev/internal/repo"
 	"lazydev/internal/state"
@@ -167,6 +168,7 @@ func waitMainClean(ctx context.Context, t Target, prdName string, r *state.Run, 
 			if err := state.Save(t.ID, prdName, r); err != nil {
 				return err
 			}
+			notifyRun(t, r, notify.MainFolder, log)
 			waiting = true
 		}
 		if err := sleep(ctx, MergePollInterval); err != nil {

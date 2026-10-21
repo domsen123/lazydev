@@ -56,8 +56,8 @@ echo "teardown $(pwd -P)" >> "$LAZYDEV_PROJECT/hooks.log"
 // fakeScript imitates claude -p. It recognizes the step by the header "# lazydev <step>:" in the
 // first line of the prompt in $2 and appends its arguments to $FAKE_ARGS. FAKE_CLAUDE_MODE: ok,
 // exit, noresult, error, abort, status (status line stays), dirty (review does not commit),
-// lazydev (implement creates .lazydev/neu.md). FAKE_MERGE_MODE: ok (rebase -X theirs), noop (no
-// rebase), abort.
+// lazydev (implement creates .lazydev/neu.md), sleep (implement sleeps until a signal ends it).
+// FAKE_MERGE_MODE: ok (rebase -X theirs), noop (no rebase), abort.
 const fakeScript = `#!/bin/sh
 # printf instead of echo, dash's echo turns "\n" into a newline.
 { printf '%s\n' "$@"; echo "GIT_EDITOR=$GIT_EDITOR"; echo "PWD=$(pwd -P)"; } >> "$FAKE_ARGS"
@@ -73,6 +73,7 @@ case "$2" in
 	error) echo '{"type":"result","is_error":true,"result":"Rate limit"}'; exit 0 ;;
 	abort) printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Feld fehlt im PRD\n"}'; exit 0 ;;
 	status) ;;
+	sleep) exec sleep 30 ;;
 	lazydev) mkdir -p .lazydev && echo x > .lazydev/neu.md
 		sed -i 's/^> Status: geplant/> Status: umgesetzt (2026-10-20)/' "$prd" ;;
 	*) sed -i 's/^> Status: geplant/> Status: umgesetzt (2026-10-20)/' "$prd" ;;
