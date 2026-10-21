@@ -156,7 +156,7 @@ Nutze die Antworten und den Codebase-Kontext. Erzeuge das Dokument exakt mit die
 - `## Technische Hinweise`: ItemService-Filteroperatoren (`_eq`, `_in`, `_ilike`, …); Pinia-Colada
   `useQuery`/`useMutation` inkl. **Cache-Invalidierung** (nach Create → Listen invalidieren; nach
   Update → Listen und Detail; nach Delete → Listen invalidieren und Detail clearen); Zod-v4-Validierung
-  mit `.trim()`; Auth (`requireAuth`/Guard und Middleware `server/middleware/auth.ts`); ggf. Event-Bus.
+  mit `.trim()`; Auth (`requireAuth`/Guard und Auth-Middleware unter `server/middleware/`); ggf. Event-Bus.
   Schließe mit **„Anti-Patterns vermeiden"** (Liste aus der Architektur-Doku, u. a.: keine
   Business-Logik in API-Routen, keine direkten DB-Queries in Routen, keine Cross-Feature-Imports am
   `index.ts` vorbei, keine hartkodierten Query-Keys, keine fehlende Cache-Invalidierung nach
