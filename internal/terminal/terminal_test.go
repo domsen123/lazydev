@@ -45,7 +45,7 @@ func TestStart(t *testing.T) {
 	}
 	// ExitMsg follows right after Done.
 	deadline := time.Now().Add(5 * time.Second)
-	for !c.has(ExitMsg{ID: 7}) {
+	for !c.has(ExitMsg{ID: 7, Code: 0}) {
 		if time.Now().After(deadline) {
 			t.Fatal("no ExitMsg")
 		}
@@ -83,6 +83,23 @@ func TestStartTabTitleFallsBackToName(t *testing.T) {
 	<-term.Done()
 	if got := term.TabTitle(); got != "sh" {
 		t.Errorf("tab title: %q", got)
+	}
+}
+
+func TestStartExitCode(t *testing.T) {
+	var c collector
+	term, err := Start(4, 20, 3, t.TempDir(), []string{"sh", "-c", "exit 3"}, c.send)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer term.Release()
+	<-term.Done()
+	deadline := time.Now().Add(5 * time.Second)
+	for !c.has(ExitMsg{ID: 4, Code: 3}) {
+		if time.Now().After(deadline) {
+			t.Fatal("no ExitMsg with code 3")
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
 }
 

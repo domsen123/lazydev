@@ -41,8 +41,9 @@ type Terminal struct {
 // OutputMsg reports new output of terminal ID, so the view gets redrawn.
 type OutputMsg struct{ ID int }
 
-// ExitMsg reports that the program of terminal ID has ended.
-type ExitMsg struct{ ID int }
+// ExitMsg reports that the program of terminal ID has ended. Code is the exit code of the program,
+// -1 after a signal.
+type ExitMsg struct{ ID, Code int }
 
 // Shell is the user's shell, /bin/sh without $SHELL.
 func Shell() []string {
@@ -80,9 +81,13 @@ func Start(id, width, height int, dir string, args []string, send func(tea.Msg))
 			}
 		}
 		_ = cmd.Wait()
+		code := -1
+		if cmd.ProcessState != nil {
+			code = cmd.ProcessState.ExitCode()
+		}
 		// done comes before send: send blocks while Update runs, and closeAll waits in Update.
 		close(t.done)
-		send(ExitMsg{id})
+		send(ExitMsg{id, code})
 	}()
 	// Emulator input → PTY. The emulator's input is a pipe, so it must be drained constantly.
 	go func() { _, _ = io.Copy(f, t.emu) }()
