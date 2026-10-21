@@ -4,18 +4,42 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 )
 
-// maxDescribeLen kürzt Text und Argumente in der Kurzfassung.
-const maxDescribeLen = 120
+// RunnerType marks the runner's own lines in a step log, next to Claude's stream-json.
+const RunnerType = "lazydev"
 
-// toolArgs nennt pro Tool das wichtigste Argument für die Kurzfassung.
+// maxDescribeLen cuts text and arguments in the log view.
+const maxDescribeLen = 160
+
+// toolArgs names per tool call the argument the log view shows.
 var toolArgs = []string{"file_path", "command", "pattern", "path", "description", "prompt"}
+
+// Entry kinds of the log view.
+const (
+	KindRunner = "runner"
+	KindText   = "text"
+	KindTool   = "tool"
+	KindError  = "error"
+	KindResult = "result"
+)
+
+// Entry is one line of the log view.
+type Entry struct {
+	At   time.Time
+	Kind string
+	Text string
+	// Sub is true for lines of a subagent.
+	Sub bool
+}
 
 type rawEvent struct {
 	Type     string `json:"type"`
 	Subtype  string `json:"subtype"`
 	Text     string `json:"text"`
+	TS       string `json:"ts"`
+	Time     string `json:"time"`
 	ToolName string `json:"tool_name"`
 	Message  struct {
 		Content []struct {
@@ -35,71 +59,72 @@ type rawEvent struct {
 	Description     string  `json:"description"`
 }
 
-// Describe liefert eine Kurzfassung einer stream-json-Zeile, eine Zeile pro Inhalt. Ereignisse
-// ohne Inhalt für Menschen liefern nil.
-func Describe(line []byte) []string {
+// Describe turns a log line into entries for the log view, one per content. Lines without content
+// for humans give none.
+func Describe(line []byte) []Entry {
 	var e rawEvent
 	if json.Unmarshal(line, &e) != nil {
 		return nil
 	}
-	prefix := ""
-	if e.ParentToolUseID != "" {
-		prefix = "  "
+	ts := e.TS
+	if ts == "" {
+		ts = e.Time
 	}
-	var out []string
+	at, _ := time.Parse(time.RFC3339, ts)
+	entry := func(kind, text string) Entry {
+		return Entry{At: at, Kind: kind, Text: truncate(text), Sub: e.ParentToolUseID != ""}
+	}
+	var out []Entry
 	switch e.Type {
+	case RunnerType:
+		out = append(out, entry(KindRunner, e.Text))
 	case "assistant":
 		for _, c := range e.Message.Content {
 			switch c.Type {
 			case "text":
 				if l := FirstLine(c.Text); l != "" {
-					out = append(out, prefix+truncate(l))
+					out = append(out, entry(KindText, l))
 				}
 			case "tool_use":
-				out = append(out, prefix+ToolLine(c.Name, c.Input))
+				out = append(out, entry(KindTool, strings.TrimSpace(c.Name+" "+toolArg(c.Input))))
 			}
 		}
 	case "user":
 		for _, c := range e.Message.Content {
 			if c.Type == "tool_result" && c.IsError {
-				out = append(out, prefix+"Fehler: "+truncate(FirstLine(resultText(c.Content))))
+				out = append(out, entry(KindError, "error: "+FirstLine(resultText(c.Content))))
 			}
 		}
 	case "system":
 		switch e.Subtype {
 		case "permission_denied":
-			out = append(out, "abgelehnt: "+e.ToolName)
+			out = append(out, entry(KindError, "denied: "+e.ToolName))
 		case "task_started":
-			out = append(out, "Subagent gestartet: "+truncate(e.Description))
+			out = append(out, entry(KindTool, "subagent: "+e.Description))
 		}
 	case "result":
 		status := "ok"
 		if e.IsError {
-			status = "Fehler"
+			status = "error"
 		}
-		out = append(out, fmt.Sprintf("Ergebnis %s · %d Runden · %.0f s · %.2f USD",
-			status, e.NumTurns, float64(e.DurationMS)/1000, e.CostUSD))
+		out = append(out, entry(KindResult, fmt.Sprintf("result %s · %d turns · %.0f s · %.2f USD",
+			status, e.NumTurns, float64(e.DurationMS)/1000, e.CostUSD)))
 	case StderrType:
-		out = append(out, "stderr: "+truncate(e.Text))
+		out = append(out, entry(KindError, "stderr: "+e.Text))
 	}
 	return out
-}
-
-// ToolLine fasst einen Tool-Aufruf als "<Tool> <wichtigstes Argument>" zusammen.
-func ToolLine(name string, input map[string]any) string {
-	return strings.TrimSpace(name + " " + toolArg(input))
 }
 
 func toolArg(input map[string]any) string {
 	for _, k := range toolArgs {
 		if v, ok := input[k].(string); ok && v != "" {
-			return truncate(FirstLine(v))
+			return FirstLine(v)
 		}
 	}
 	return ""
 }
 
-// resultText liest content eines tool_result, das ein String oder eine Liste von Textteilen ist.
+// resultText reads the content of a tool_result, a string or a list of text parts.
 func resultText(raw json.RawMessage) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {

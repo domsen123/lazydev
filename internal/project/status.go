@@ -1,8 +1,6 @@
 package project
 
 import (
-	"bufio"
-	"io"
 	"math"
 	"regexp"
 	"slices"
@@ -10,31 +8,41 @@ import (
 	"strings"
 )
 
+// StatusKind is what a status line says about a PRD.
 type StatusKind int
 
 const (
 	StatusUnknown StatusKind = iota
 	StatusPlanned
 	StatusImplemented
-	// StatusDiscarded gilt für PRDs, die nicht umgesetzt werden.
 	StatusDiscarded
 )
 
-// Statuswerte, die lazydev selbst schreibt. umgesetzt und verworfen bekommen das Datum dazu.
+// Status values in PRD files. They stay German: lazydev's prompts, contracts and existing PRDs use
+// them. umgesetzt and verworfen get a date.
 const (
-	StatusValuePlanned     = "geplant"
-	StatusValueImplemented = "umgesetzt"
-	StatusValueDiscarded   = "verworfen"
+	ValuePlanned     = "geplant"
+	ValueImplemented = "umgesetzt"
+	ValueDiscarded   = "verworfen"
 )
 
-// Status ist die geparste Zeile "> Status: <wert> · <freitext>".
+// Fields of the detail that the runner writes before the merge, German like the status values.
+const (
+	costField  = "Kosten:"
+	modelField = "Modell:"
+)
+
+// HeaderScanLines limits the search for title and status line to the head of a file.
+const HeaderScanLines = 20
+
+// Status is the parsed line "> Status: <value> · <detail>".
 type Status struct {
 	Kind StatusKind
-	// Value ist der Teil vor "·", z. B. "umgesetzt (2026-10-14)".
+	// Value is the part before "·", e.g. "umgesetzt (2026-10-14)".
 	Value string
-	// Date ist das Datum aus "umgesetzt (YYYY-MM-DD)" oder "verworfen (YYYY-MM-DD)", sonst leer.
+	// Date is the date of "umgesetzt (YYYY-MM-DD)" and "verworfen (YYYY-MM-DD)", empty otherwise.
 	Date string
-	// Detail ist der Freitext nach "·", z. B. "Scope: Backend-only".
+	// Detail is the text after "·", e.g. "Scope: backend only".
 	Detail string
 }
 
@@ -43,50 +51,42 @@ var (
 	statusDateRe = regexp.MustCompile(`^(?:umgesetzt|verworfen)\s*\((\d{4}-\d{2}-\d{2})\)`)
 )
 
-// headerScanLines begrenzt die Suche nach Titel und Statuszeile auf den Kopf der Datei.
-const headerScanLines = 20
-
-// ParseStatusLine erkennt eine Statuszeile. ok ist false, wenn die Zeile keine ist.
+// ParseStatusLine recognizes a status line. ok is false for other lines.
 func ParseStatusLine(line string) (s Status, ok bool) {
 	m := statusLineRe.FindStringSubmatch(strings.TrimSpace(line))
 	if m == nil {
 		return Status{}, false
 	}
 	value, detail, _ := strings.Cut(m[1], "·")
-	s.Value = strings.TrimSpace(value)
-	s.Detail = strings.TrimSpace(detail)
+	s.Value, s.Detail = strings.TrimSpace(value), strings.TrimSpace(detail)
 	switch {
-	case s.Value == StatusValuePlanned:
+	case s.Value == ValuePlanned:
 		s.Kind = StatusPlanned
-	case strings.HasPrefix(s.Value, StatusValueImplemented):
+	case strings.HasPrefix(s.Value, ValueImplemented):
 		s.Kind = StatusImplemented
-	case strings.HasPrefix(s.Value, StatusValueDiscarded):
+	case strings.HasPrefix(s.Value, ValueDiscarded):
 		s.Kind = StatusDiscarded
 	}
-	if s.Kind == StatusImplemented || s.Kind == StatusDiscarded {
-		if d := statusDateRe.FindStringSubmatch(s.Value); d != nil {
-			s.Date = d[1]
-		}
+	if d := statusDateRe.FindStringSubmatch(s.Value); d != nil {
+		s.Date = d[1]
 	}
 	return s, true
 }
 
-// SetStatus setzt den Wert der ersten Statuszeile auf value. Der Freitext nach "·" bleibt
-// erhalten. ok ist false ohne Statuszeile, dann bleibt der Inhalt unverändert.
+// SetStatus sets the value of the first status line. The detail after "·" stays. ok is false
+// without status line, then content stays as it is.
 func SetStatus(content, value string) (string, bool) {
 	lines := strings.SplitAfter(content, "\n")
 	for i, line := range lines {
-		if i >= headerScanLines {
+		if i >= HeaderScanLines {
 			break
 		}
 		s, ok := ParseStatusLine(line)
 		if !ok {
 			continue
 		}
-		newline := ""
-		if strings.HasSuffix(line, "\n") {
-			newline = "\n"
-		}
+		// The line ending stays as it is, \r\n included.
+		newline := line[len(strings.TrimRight(line, "\r\n")):]
 		set := "> Status: " + value
 		if s.Detail != "" {
 			_, rest, _ := strings.Cut(strings.TrimRight(line, "\r\n"), "·")
@@ -98,22 +98,9 @@ func SetStatus(content, value string) (string, bool) {
 	return content, false
 }
 
-// ResetStatus setzt den Wert der ersten Statuszeile auf "geplant". Der Freitext nach "·"
-// bleibt erhalten. Ohne Statuszeile liefert ResetStatus den Inhalt unverändert.
-func ResetStatus(content string) string {
-	reset, _ := SetStatus(content, StatusValuePlanned)
-	return reset
-}
-
-// Felder, die der Runner vor dem Merge in den Freitext der Statuszeile schreibt.
-const (
-	costField  = "Kosten:"
-	modelField = "Modell:"
-)
-
-// RunInfo liest Kosten und Modell aus dem Freitext, z. B.
-// "Kosten: 4.12 USD · Modell: claude-opus-5-5 · Scope: …". Die Felder stehen immer in der ersten
-// Zeile. Ein Betrag, der sich nicht als Zahl lesen lässt, gilt als nicht vorhanden.
+// RunInfo reads cost and model from the first line of the detail, e.g.
+// "Kosten: 4.12 USD · Modell: claude-opus-5-5 · Scope: …". An amount that is no number counts as
+// missing.
 func RunInfo(s Status) (cost float64, hasCost bool, model string) {
 	first, _, _ := strings.Cut(s.Detail, "\n")
 	for part := range strings.SplitSeq(first, "·") {
@@ -130,10 +117,14 @@ func RunInfo(s Status) (cost float64, hasCost bool, model string) {
 	return cost, hasCost, model
 }
 
-// SetRunInfo setzt Kosten und Modell in der ersten Statuszeile direkt nach dem Statuswert. Stehen
-// die Felder schon im Freitext, ersetzt SetRunInfo die Werte an ihrer Stelle. Ohne model entfällt
-// das Feld „Modell:“. Ohne Statuszeile liefert SetRunInfo den Inhalt unverändert.
-func SetRunInfo(content string, cost float64, model string) string {
+// IsRunInfo is true for the parts of a detail that RunInfo reads.
+func IsRunInfo(part string) bool {
+	return strings.HasPrefix(part, costField) || strings.HasPrefix(part, modelField)
+}
+
+// SetRunInfo sets cost and model in the first status line right after the value. Existing fields
+// keep their place. Without model the field "Modell:" goes. ok is false without status line.
+func SetRunInfo(content string, cost float64, model string) (string, bool) {
 	costPart := costField + " " + strconv.FormatFloat(cost, 'f', 2, 64) + " USD"
 	modelPart := ""
 	if model != "" {
@@ -141,7 +132,7 @@ func SetRunInfo(content string, cost float64, model string) string {
 	}
 	lines := strings.SplitAfter(content, "\n")
 	for i, line := range lines {
-		if i >= headerScanLines {
+		if i >= HeaderScanLines {
 			break
 		}
 		s, ok := ParseStatusLine(line)
@@ -174,36 +165,7 @@ func SetRunInfo(content string, cost float64, model string) string {
 			parts = slices.Insert(parts, 0, costPart)
 		}
 		lines[i] = "> Status: " + s.Value + " · " + strings.Join(parts, " · ") + line[len(body):]
-		break
+		return strings.Join(lines, ""), true
 	}
-	return strings.Join(lines, "")
-}
-
-// ParseHeader liest Titel und Statuszeile aus dem Kopf eines PRDs.
-// Das Format sieht die Statuszeile als zweite Zeile vor. In der Praxis steht oft eine
-// Leerzeile davor, deshalb sucht ParseHeader in den ersten Zeilen. Folgezeilen desselben
-// Zitatblocks hängt ParseHeader zeilenweise an Status.Detail an, damit Markdown wie Listen
-// erhalten bleibt.
-func ParseHeader(r io.Reader) (title string, status Status, err error) {
-	sc := bufio.NewScanner(r)
-	found := false
-	for i := 0; i < headerScanLines && sc.Scan(); i++ {
-		line := sc.Text()
-		if found {
-			cont, ok := strings.CutPrefix(line, ">")
-			if !ok {
-				break
-			}
-			status.Detail = strings.TrimSpace(status.Detail + "\n" + strings.TrimPrefix(cont, " "))
-			continue
-		}
-		if title == "" {
-			if t, ok := strings.CutPrefix(line, "# "); ok {
-				title = strings.TrimSpace(strings.TrimPrefix(t, "PRD:"))
-				continue
-			}
-		}
-		status, found = ParseStatusLine(line)
-	}
-	return title, status, sc.Err()
+	return content, false
 }

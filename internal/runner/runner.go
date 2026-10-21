@@ -1,11 +1,13 @@
-// Package runner führt die Schritte eines PRDs aus und schreibt Zustand und Log.
+// Package runner works through the steps of a PRD: setup (worktree, PRD, setup hook), implement,
+// review and merge (rebase, check hook, fast-forward, cleanup). Each PRD runs in a detached
+// process "lazydev run", the TUI only reads its state and log files. Every step must be
+// repeatable, a new start continues with the failed step.
 package runner
 
 import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -14,256 +16,344 @@ import (
 	"slices"
 	"syscall"
 
+	"lazydev/internal/claude"
 	"lazydev/internal/config"
-	"lazydev/internal/git"
-	"lazydev/internal/hooks"
+	"lazydev/internal/fsutil"
 	"lazydev/internal/project"
-	"lazydev/internal/runlog"
+	"lazydev/internal/repo"
 	"lazydev/internal/state"
-	"lazydev/internal/worktree"
 )
 
-// Target ist ein eingetragenes Projekt mit seiner ID.
+// MaxParallel limits the runners that work at the same time, the others wait.
+const MaxParallel = 3
+
+// startLock guards counting the running runners and starting new ones.
+const startLock = "start"
+
+// stepPhases are the phases of the steps. The merge starts in the merge queue and becomes merge
+// with the merge slot.
+var stepPhases = map[string]project.Phase{
+	state.StepSetup:     project.PhaseSetup,
+	state.StepImplement: project.PhaseImplement,
+	state.StepReview:    project.PhaseReview,
+	state.StepMerge:     project.PhaseMergeQueue,
+}
+
+// Target is a project of the list with its ID.
 type Target struct {
-	ID     string
-	Config config.Project
+	ID, Dir string
 }
 
-func (t Target) Dir() string {
-	return t.Config.AbsPath()
-}
-
-// Repo liefert die wirksamen Einstellungen des Projekts. Der Runner liest sie bei jedem Schritt
-// neu aus dem Hauptordner, uncommittete Änderungen an .lazydev/config.yaml gelten also sofort.
-func (t Target) Repo() (config.Repo, error) {
-	r, _, err := config.Effective(t.Config)
-	return r, err
-}
-
-// Hooks liefert die Hooks aus den wirksamen Einstellungen.
-func (t Target) Hooks() (hooks.Hooks, error) {
-	r, err := t.Repo()
+// Find looks up a project of the list by ID or path.
+func Find(idOrPath string) (Target, error) {
+	paths, err := config.LoadProjects()
 	if err != nil {
-		return hooks.Hooks{}, err
+		return Target{}, err
 	}
-	return hooks.For(t.Dir(), r), nil
+	abs, _ := config.ExpandPath(idOrPath)
+	for i, id := range config.IDs(paths) {
+		if id == idOrPath || paths[i] == abs {
+			return Target{ID: id, Dir: paths[i]}, nil
+		}
+	}
+	return Target{}, fmt.Errorf("no project %q in the list, add it in the TUI first", idOrPath)
 }
 
-// CheckTrust prüft, dass Hooks und Freigaben aus .lazydev/config.yaml bestätigt sind. Ohne die
-// Datei stammen sie aus der eigenen zentralen Konfiguration und brauchen keine Bestätigung.
-func CheckTrust(t Target) error {
-	r, exists, err := config.LoadRepo(t.Dir())
-	if err != nil || !exists {
-		return err
-	}
-	if !state.Trusted(t.ID, r.TrustHash()) {
-		return fmt.Errorf("Hooks oder Freigaben in %s/config.yaml nicht bestätigt. Prüfen und bestätigen: lazydev trust %s",
-			config.RepoDir, t.ID)
+// Repo reads .lazydev/config.yaml again for every step, so uncommitted changes apply right away.
+func (t Target) Repo() (repo.Config, error) {
+	info := repo.Read(t.Dir, t.ID)
+	return info.Config, info.Err
+}
+
+// CheckTrust makes sure hooks and allowed tools of config.yaml are trusted.
+func (t Target) CheckTrust() error {
+	info := repo.Read(t.Dir, t.ID)
+	switch {
+	case info.Err != nil:
+		return info.Err
+	case info.Trust == repo.TrustPending:
+		return fmt.Errorf("hooks or allowed tools in %s/config.yaml are not trusted, confirm them with s in the TUI or lazydev trust %s", repo.Dir, t.ID)
 	}
 	return nil
 }
 
-// FindProject sucht ein eingetragenes Projekt über seine ID.
-func FindProject(cfg *config.Config, id string) (Target, error) {
-	paths := make([]string, len(cfg.Projects))
-	for i, p := range cfg.Projects {
-		paths[i] = p.AbsPath()
+// checkClaude makes sure claude exists before the start, otherwise a run fails after the setup.
+func checkClaude() error {
+	if _, err := exec.LookPath(claude.Command[0]); err != nil {
+		return fmt.Errorf("%s not found, install Claude Code", claude.Command[0])
 	}
-	for i, pid := range project.AssignIDs(paths) {
-		if pid == id {
-			return Target{ID: id, Config: cfg.Projects[i]}, nil
+	return nil
+}
+
+// Start starts the runner of a PRD detached. With MaxParallel reached, the PRD waits and started
+// is false. A runner that ends starts waiting PRDs.
+func Start(t Target, prdName string) (started bool, err error) {
+	if err := checkClaude(); err != nil {
+		return false, err
+	}
+	if err := t.CheckTrust(); err != nil {
+		return false, err
+	}
+	unlock, err := state.Lock(startLock)
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	r, err := prepare(t, prdName)
+	if err != nil {
+		return false, err
+	}
+	if countRunning(state.All()) >= MaxParallel {
+		r.Phase, r.Error = project.PhaseWaiting, nil
+		return false, state.Save(t.ID, prdName, r)
+	}
+	return true, spawn(t.ID, prdName, r)
+}
+
+// startWaiting starts waiting PRDs in the order of their start until MaxParallel is reached.
+func startWaiting() error {
+	unlock, err := state.Lock(startLock)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	entries := state.All()
+	running := countRunning(entries)
+	var errs []error
+	for _, e := range entries {
+		if running >= MaxParallel {
+			break
+		}
+		if e.Run.Phase != project.PhaseWaiting || e.Run.Running() {
+			continue
+		}
+		if err := spawn(e.ID, e.PRDName, e.Run); err != nil {
+			errs = append(errs, fmt.Errorf("%s/%s: %w", e.ID, e.PRDName, err))
+			continue
+		}
+		running++
+	}
+	return errors.Join(errs...)
+}
+
+func countRunning(entries []state.Entry) int {
+	n := 0
+	for _, e := range entries {
+		if e.Run.Running() {
+			n++
 		}
 	}
-	return Target{}, fmt.Errorf("kein Projekt mit der ID %q eingetragen", id)
+	return n
 }
 
-const (
-	StepSetup     = "setup"
-	StepImplement = "implement"
-	StepReview    = "review"
-	StepMerge     = "merge"
-)
-
-// steps ist die Reihenfolge der Schritte eines PRDs.
-var steps = []string{StepSetup, StepImplement, StepReview, StepMerge}
-
-var stepPhases = map[string]project.Phase{
-	StepSetup:     project.PhaseSetup,
-	StepImplement: project.PhaseImplement,
-	StepReview:    project.PhaseReview,
-	// Der Merge beginnt in der Merge-Queue. Mit dem Merge-Slot wechselt die Phase auf "Merge".
-	StepMerge: project.PhaseMergeQueue,
+// spawn starts "lazydev run" in its own session and saves the PID while the start lock holds. The
+// new runner waits for the lock and only then overwrites the state.
+func spawn(id, prdName string, r *state.Run) error {
+	bin, err := binary()
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(state.RunsDir(id), 0o755); err != nil {
+		return err
+	}
+	out, err := os.OpenFile(state.RunnerLogPath(id, prdName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return err
+	}
+	defer out.Close()
+	cmd := exec.Command(bin, "run", id, r.ProjectDir, prdName)
+	cmd.Stdout, cmd.Stderr = out, out
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	r.PID = cmd.Process.Pid
+	cmd.Process.Release()
+	return state.Save(id, prdName, r)
 }
 
-// startLock schützt das Zählen der laufenden Runner und das Starten neuer Runner.
-const startLock = "start"
+// Executable is the binary runners start from. Tests replace it with a built lazydev.
+var Executable = os.Executable
 
-// NextStep liefert den Schritt, mit dem ein Lauf weitergeht: den ersten, nach einem Fehler
-// oder Abbruch den gescheiterten, sonst den folgenden. Nach dem Merge ist er leer.
-func NextStep(r *state.Run) string {
-	last := r.LastStep()
-	if last == nil {
-		return steps[0]
+// binary copies the own executable to a fixed place and returns it. "go run" deletes its binary
+// when it exits, and a runner must still start waiting PRDs after that. A running runner keeps
+// the code it started with.
+func binary() (string, error) {
+	exe, err := Executable()
+	if err != nil {
+		return "", err
 	}
-	if last.ExitCode == nil || !last.OK {
-		return last.Name
+	dst := filepath.Join(state.Dir(), "bin", state.BinaryName)
+	if exe == dst {
+		return dst, nil
 	}
-	i := slices.Index(steps, last.Name)
-	if i < 0 || i+1 >= len(steps) {
-		return ""
+	data, err := os.ReadFile(exe)
+	if err != nil {
+		return "", err
 	}
-	return steps[i+1]
+	return dst, fsutil.WriteAtomic(dst, data, 0o755)
 }
 
-// Run führt die offenen Schritte eines PRDs im Vordergrund aus: Setup, Umsetzung, Review und
-// Merge. Gibt es schon einen Lauf, macht Run beim gescheiterten oder nächsten Schritt weiter.
-// Ohne autoMerge endet Run vor dem Merge in der Merge-Queue, bis Merge den Merge freigibt.
-// Run beachtet maxParallel nicht, das übernimmt Start.
-// Endet Run, startet es wartende PRDs, bis maxParallel erreicht ist.
-func Run(cfg *config.Config, t Target, prdName string, echo io.Writer) error {
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
-	defer stop()
-	err := run(ctx, cfg, t, prdName, echo)
-	if nextErr := StartWaiting(cfg); nextErr != nil {
-		fmt.Fprintln(echo, "lazydev: wartende PRDs nicht gestartet:", nextErr)
+// Stop sends SIGTERM to the runner, which marks the PRD as aborted and ends its process group. A
+// waiting PRD without runner becomes aborted right away.
+func Stop(id, prdName string) error {
+	r, err := state.Load(id, prdName)
+	if err != nil {
+		return err
+	}
+	if !r.Running() {
+		if r.Phase == project.PhaseWaiting {
+			r.Phase = project.PhaseAborted
+			return state.Save(id, prdName, r)
+		}
+		return fmt.Errorf("no runner for %s, phase %s", prdName, r.Effective())
+	}
+	return syscall.Kill(r.PID, syscall.SIGTERM)
+}
+
+// RunMain is "lazydev run <id> <dir> <prd>": it works through the open steps in the foreground and
+// starts waiting PRDs when it ends.
+func RunMain(id, dir, prdName string) error {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-sigs
+		// The context ends first, so the step sees the abort and not just a killed Claude.
+		// Then the signal reaches the process group: Claude, hooks and their children. A detached
+		// runner leads its session, so its PID is the group ID. The runner catches the signal
+		// again and ignores it.
+		cancel()
+		if syscall.Getpgrp() == os.Getpid() {
+			syscall.Kill(-os.Getpid(), syscall.SIGTERM)
+		}
+	}()
+	err := Run(ctx, Target{ID: id, Dir: dir}, prdName)
+	if nextErr := startWaiting(); nextErr != nil {
+		fmt.Fprintln(os.Stderr, "waiting PRDs not started:", nextErr)
 	}
 	return err
 }
 
-func run(ctx context.Context, cfg *config.Config, t Target, prdName string, echo io.Writer) error {
-	if err := checkClaude(cfg); err != nil {
+// Run works through the open steps of a PRD until it is merged, ctx ends or a step fails. It does
+// not honor MaxParallel, Start does.
+func Run(ctx context.Context, t Target, prdName string) error {
+	if err := checkClaude(); err != nil {
 		return err
 	}
-	if err := CheckTrust(t); err != nil {
+	if err := t.CheckTrust(); err != nil {
 		return err
 	}
 	unlock, err := state.Lock(startLock)
 	if err != nil {
 		return err
 	}
-	r, err := prepare(cfg, t, prdName)
+	r, err := prepare(t, prdName)
 	if err == nil {
-		r.PID = os.Getpid()
-		r.Error = nil
+		r.PID, r.Error = os.Getpid(), nil
 		err = state.Save(t.ID, prdName, r)
 	}
 	unlock()
 	if err != nil {
 		return err
 	}
-
-	for step := NextStep(r); step != ""; step = NextStep(r) {
-		if step == StepMerge && !t.Config.AutoMergeEnabled() && !r.MergeApproved {
-			r.Phase = project.PhaseMergeQueue
-			r.Note = fmt.Sprintf("autoMerge ist aus. Zum Mergen: lazydev merge %s %s", t.ID, prdName)
-			r.PID = 0
-			return state.Save(t.ID, prdName, r)
-		}
-		if err := runStep(ctx, cfg, t, prdName, r, step, echo); err != nil {
+	for step := r.NextStep(); step != ""; step = r.NextStep() {
+		if err := runStep(ctx, t, prdName, r, step); err != nil {
 			return err
 		}
 	}
-	r.Phase = project.PhaseMerged
-	r.PID = 0
+	r.Phase, r.PID = project.PhaseMerged, 0
 	return state.Save(t.ID, prdName, r)
 }
 
-// prepare lädt den bestehenden Lauf oder legt einen neuen in Phase "wartet" an. Der Port steht
-// damit fest, bevor der Runner startet.
-func prepare(cfg *config.Config, t Target, prdName string) (*state.Run, error) {
-	repo, err := t.Repo()
+// prepare loads the existing run or creates one in phase waiting, so the port is fixed before the
+// runner starts.
+func prepare(t Target, prdName string) (*state.Run, error) {
+	cfg, err := t.Repo()
 	if err != nil {
 		return nil, err
 	}
 	if r, err := state.Load(t.ID, prdName); err == nil {
-		if isRunning(r) && r.PID != os.Getpid() {
-			return nil, fmt.Errorf("für %s läuft schon ein Runner (PID %d, Phase %s)", prdName, r.PID, r.Phase.Label())
+		if r.Running() && r.PID != os.Getpid() {
+			return nil, fmt.Errorf("%s runs already (PID %d, phase %s)", prdName, r.PID, r.Phase)
 		}
-		if NextStep(r) == "" {
-			return nil, fmt.Errorf("für %s ist nichts mehr auszuführen, Phase %s. Zum Verwerfen: lazydev teardown %s %s",
-				prdName, r.Phase.Label(), t.ID, prdName)
-		}
-		// Läufe ohne Base stammen aus der Zeit vor baseBranch.
-		if r.Base == "" {
-			r.Base = repo.Base()
+		if r.NextStep() == "" {
+			return nil, fmt.Errorf("nothing left to do for %s, phase %s", prdName, r.Phase)
 		}
 		return r, nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
-
-	p := project.Load(t.ID, t.Dir(), repo.Base())
-	if p.Err != nil {
-		return nil, p.Err
-	}
-	prd, ok := p.FindPRD(prdName)
-	if !ok {
-		return nil, fmt.Errorf("kein PRD %q unter %s/", prdName, project.PRDDir)
-	}
-	switch prd.Status.Kind {
-	case project.StatusImplemented:
-		return nil, fmt.Errorf("%s ist schon umgesetzt", prd.Path)
-	case project.StatusDiscarded:
-		return nil, fmt.Errorf("%s ist verworfen", prd.Path)
-	}
-	used, err := state.UsedPorts()
+	prds, err := project.ReadAll(t.Dir, cfg.Base(), nil)
 	if err != nil {
 		return nil, err
 	}
-	port, err := worktree.AllocatePort(cfg.PortBase, used)
+	i := slices.IndexFunc(prds, func(d project.PRD) bool { return d.Name == prdName })
+	if i < 0 {
+		return nil, fmt.Errorf("no PRD %q under %s/", prdName, project.Dir)
+	}
+	switch d := prds[i]; d.Status.Kind {
+	case project.StatusImplemented:
+		return nil, fmt.Errorf("%s is merged already", d.Path)
+	case project.StatusDiscarded:
+		return nil, fmt.Errorf("%s is discarded", d.Path)
+	}
+	port, err := allocatePort()
 	if err != nil {
 		return nil, err
 	}
 	r := &state.Run{
-		PRD:       prd.Path,
-		Branch:    worktree.Branch(prdName),
-		Base:      repo.Base(),
-		Worktree:  worktree.Path(t.ID, prdName),
-		Port:      port,
-		Slug:      worktree.Slug(prdName),
-		Phase:     project.PhaseWaiting,
-		StartedAt: state.Now(),
+		ProjectDir: t.Dir,
+		PRD:        prds[i].Path,
+		Branch:     project.FeaturePrefix + prdName,
+		Base:       cfg.Base(),
+		Worktree:   WorktreePath(t.ID, prdName),
+		Port:       port,
+		Slug:       Slug(prdName),
+		Phase:      project.PhaseWaiting,
+		StartedAt:  state.Now(),
 	}
-	// Früh speichern, damit ein parallel startender Lauf den Port nicht doppelt vergibt.
+	// Save early, so a run starting at the same time does not take the same port.
 	return r, state.Save(t.ID, prdName, r)
 }
 
-// runStep führt einen Schritt aus und schreibt sein Ende in den Zustand. Bei Fehler oder
-// Abbruch bleibt der Worktree erhalten.
-func runStep(ctx context.Context, cfg *config.Config, t Target, prdName string, r *state.Run, step string, echo io.Writer) error {
+// runStep runs a step and writes its end into the state. After an error or abort the worktree stays.
+func runStep(ctx context.Context, t Target, prdName string, r *state.Run, step string) error {
 	r.Phase = stepPhases[step]
 	r.StartStep(step)
 	if err := state.Save(t.ID, prdName, r); err != nil {
 		return err
 	}
-	log, err := runlog.Open(state.LogPath(t.ID, prdName, step), echo)
+	log, err := openLog(state.LogPath(t.ID, prdName, step))
 	if err != nil {
 		return err
 	}
-	defer log.Close()
-	log.Printf("Schritt %s", r.Phase.Label())
+	defer log.close()
+	log.printf("Step %s", step)
 
 	exitCode := 0
 	switch step {
-	case StepSetup:
+	case state.StepSetup:
 		if err = setup(t, r, log); err != nil {
 			exitCode = 1
 		}
-	case StepMerge:
-		exitCode, err = mergeStep(ctx, cfg, t, prdName, r, log)
+	case state.StepMerge:
+		if err = merge(ctx, t, prdName, r, log); err != nil {
+			exitCode = 1
+		}
 	default:
-		exitCode, err = claudeStep(ctx, cfg, t, prdName, r, step, log)
+		exitCode, err = claudeStep(ctx, t, prdName, r, step, log)
 	}
 
 	switch {
 	case ctx.Err() != nil:
-		log.Printf("Abgebrochen")
+		log.printf("Aborted")
 		r.EndStep(exitCode, false)
-		r.Phase = project.PhaseAborted
-		r.PID = 0
-		return errors.Join(fmt.Errorf("%s abgebrochen", stepPhases[step].Label()), state.Save(t.ID, prdName, r))
+		r.Phase, r.PID = project.PhaseAborted, 0
+		return errors.Join(fmt.Errorf("%s aborted", step), state.Save(t.ID, prdName, r))
 	case err != nil:
-		log.Printf("Fehler: %v", err)
+		log.printf("Error: %v", err)
 		r.EndStep(exitCode, false)
 		r.Fail(err)
 		r.PID = 0
@@ -271,104 +361,15 @@ func runStep(ctx context.Context, cfg *config.Config, t Target, prdName string, 
 	}
 	r.EndStep(0, true)
 	switch step {
-	case StepSetup:
-		log.Printf("Setup fertig: %s auf Port %d", r.Worktree, r.Port)
-	case StepMerge:
-		log.Printf("Gemergt")
+	case state.StepSetup:
+		log.printf("Setup done: %s on port %d", r.Worktree, r.Port)
+	case state.StepMerge:
+		log.printf("Merged")
 		if r.Note != "" {
-			log.Printf("Hinweis: %s", r.Note)
+			log.printf("Note: %s", r.Note)
 		}
 	default:
-		log.Printf("%s fertig", stepPhases[step].Label())
+		log.printf("%s done", step)
 	}
 	return state.Save(t.ID, prdName, r)
-}
-
-// setup ist wiederholbar: Ein bestehender Worktree und ein schon verschobenes PRD bleiben
-// stehen, und die Hooks überspringen vorhandene Datenbanken.
-func setup(t Target, r *state.Run, log *runlog.Logger) error {
-	if fileExists(r.Worktree) {
-		log.Printf("Worktree %s existiert schon", r.Worktree)
-	} else {
-		log.Printf("Worktree %s auf Branch %s von %s", r.Worktree, r.Branch, r.Base)
-		if err := worktree.Create(t.Dir(), r.Worktree, r.Branch, r.Base); err != nil {
-			return err
-		}
-	}
-	if fileExists(filepath.Join(t.Dir(), r.PRD)) && !git.IsTracked(t.Dir(), r.PRD) {
-		if err := movePRD(t.Dir(), r.Worktree, r.PRD, log); err != nil {
-			return err
-		}
-	}
-	h, err := t.Hooks()
-	if err != nil {
-		return err
-	}
-	return h.Setup(env(t, r, log))
-}
-
-// movePRD verschiebt ein ungetracktes PRD aus dem Hauptordner in den Worktree und committet
-// es dort. So bleibt der Hauptordner sauber, und das PRD kommt mit dem Merge in den Ziel-Branch.
-func movePRD(mainDir, wt, rel string, log *runlog.Logger) error {
-	if err := moveFile(filepath.Join(mainDir, rel), filepath.Join(wt, rel)); err != nil {
-		return err
-	}
-	log.Printf("PRD %s in den Worktree verschoben", rel)
-	if _, err := git.Run(wt, "add", "--", rel); err != nil {
-		return err
-	}
-	name := filepath.Base(rel)
-	msg := "docs(prd): add " + name[:len(name)-len(filepath.Ext(name))]
-	if _, err := git.Run(wt, "commit", "-m", msg, "--", rel); err != nil {
-		return err
-	}
-	log.Printf("Commit: %s", msg)
-	return nil
-}
-
-func env(t Target, r *state.Run, log *runlog.Logger) hooks.Env {
-	return hooks.Env{
-		ProjectDir: t.Dir(),
-		Worktree:   r.Worktree,
-		Branch:     r.Branch,
-		Port:       r.Port,
-		Slug:       r.Slug,
-		Log:        log,
-	}
-}
-
-func fileExists(path string) bool {
-	_, err := os.Stat(path)
-	return err == nil
-}
-
-// moveFile fällt auf Kopieren zurück, wenn Quelle und Ziel auf verschiedenen Dateisystemen liegen.
-func moveFile(src, dst string) error {
-	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-		return err
-	}
-	if err := os.Rename(src, dst); err == nil {
-		return nil
-	}
-	if err := copyFile(src, dst); err != nil {
-		return err
-	}
-	return os.Remove(src)
-}
-
-func copyFile(src, dst string) error {
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	return os.WriteFile(dst, data, 0o644)
-}
-
-// checkClaude prüft vor dem Start, dass das claude-Programm existiert. Sonst scheitert der Lauf
-// erst nach dem Setup.
-func checkClaude(cfg *config.Config) error {
-	if _, err := exec.LookPath(cfg.Claude.Binary); err != nil {
-		return fmt.Errorf("%s nicht gefunden. Installiere Claude Code oder setze claude.binary in der Konfiguration", cfg.Claude.Binary)
-	}
-	return nil
 }

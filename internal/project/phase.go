@@ -1,6 +1,7 @@
 package project
 
-// Phase ist der Schlüssel, der im Lauf-Zustand steht. Label liefert den Anzeigetext.
+// Phase is the stage of a PRD. Without a run, it comes from the status line: planned, merged,
+// discarded or unknown. A run sets the others.
 type Phase string
 
 const (
@@ -14,34 +15,9 @@ const (
 	PhaseMerged     Phase = "merged"
 	PhaseAborted    Phase = "aborted"
 	PhaseError      Phase = "error"
-	// PhaseDiscarded gilt für PRDs mit Statuswert "verworfen".
-	PhaseDiscarded Phase = "discarded"
-	// PhaseUnknown gilt für PRDs ohne lesbare Statuszeile.
-	PhaseUnknown Phase = "unknown"
+	PhaseDiscarded  Phase = "discarded"
+	PhaseUnknown    Phase = "unknown"
 )
-
-var phaseLabels = map[Phase]string{
-	PhasePlanned:    "geplant",
-	PhaseWaiting:    "wartet",
-	PhaseSetup:      "Setup",
-	PhaseImplement:  "Umsetzung",
-	PhaseReview:     "Review",
-	PhaseMergeQueue: "Merge-Queue",
-	PhaseMerge:      "Merge",
-	PhaseMerged:     "gemergt",
-	PhaseAborted:    "abgebrochen",
-	PhaseError:      "Fehler",
-	PhaseDiscarded:  "verworfen",
-	PhaseUnknown:    "unbekannt",
-}
-
-// Label liefert für unbekannte Schlüssel den Schlüssel selbst.
-func (p Phase) Label() string {
-	if l, ok := phaseLabels[p]; ok {
-		return l
-	}
-	return string(p)
-}
 
 func (p Phase) Symbol() string {
 	switch p {
@@ -59,21 +35,20 @@ func (p Phase) Symbol() string {
 		return "■"
 	case PhaseError, PhaseDiscarded:
 		return "✗"
-	default:
-		return "?"
 	}
+	return "?"
 }
 
-// PhaseFromStatus gilt, solange es keinen Lauf-Zustand gibt.
-func PhaseFromStatus(s Status) Phase {
-	switch s.Kind {
-	case StatusPlanned:
-		return PhasePlanned
-	case StatusImplemented:
-		return PhaseMerged
-	case StatusDiscarded:
-		return PhaseDiscarded
-	default:
-		return PhaseUnknown
+// Done is true for PRDs that need no more work.
+func (p Phase) Done() bool {
+	return p == PhaseMerged || p == PhaseDiscarded
+}
+
+// Active is true for the phases in which a runner works.
+func (p Phase) Active() bool {
+	switch p {
+	case PhaseSetup, PhaseImplement, PhaseReview, PhaseMerge:
+		return true
 	}
+	return false
 }

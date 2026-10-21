@@ -1,308 +1,313 @@
 package runner
 
 import (
-	"io"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
-	"lazydev/internal/config"
+	"lazydev/internal/fsutil"
 	"lazydev/internal/project"
 	"lazydev/internal/state"
-	"lazydev/internal/worktree"
 )
 
-// enableAutoMerge liefert das Ziel neu, weil Target die Projekt-Konfiguration als Kopie hält.
-func enableAutoMerge(t *testing.T, cfg *config.Config) Target {
+// failAtReview runs until the review fails on a dirty worktree, so the test can change main
+// before the merge.
+func failAtReview(t *testing.T, target Target) {
 	t.Helper()
-	on := true
-	cfg.Projects[0].AutoMerge = &on
-	target, err := FindProject(cfg, "app")
-	if err != nil {
-		t.Fatal(err)
+	t.Setenv("FAKE_CLAUDE_MODE", "dirty")
+	if err := Run(context.Background(), target, prdName); err == nil || !strings.Contains(err.Error(), "worktree after the review not clean") {
+		t.Fatalf("Run with a dirty review: %v", err)
 	}
-	return target
+	t.Setenv("FAKE_CLAUDE_MODE", "ok")
 }
 
-func TestMergeFastForward(t *testing.T) {
-	cfg, target := setupProject(t)
-	target = enableAutoMerge(t, cfg)
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	r, _ := state.Load("app", "new-token")
-	if r.Phase != project.PhaseMerged || len(r.Steps) != 4 || !r.Steps[3].OK || r.Note != "" {
-		t.Errorf("Zustand nach Merge: %+v", r)
-	}
-	main := target.Dir()
-	if got := runGit(t, main, "log", "--format=%s", "-4"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token\ninit" {
-		t.Errorf("main: %q", got)
-	}
-	if body := runGit(t, main, "log", "-1", "--format=%B"); body != "docs(prd): record cost of new-token" {
-		t.Errorf("Commit mit Trailer: %q", body)
-	}
-	prd, _ := os.ReadFile(filepath.Join(main, "prd/auth/new-token.md"))
-	if !strings.Contains(string(prd), "> Status: umgesetzt (2026-10-20) · Kosten: 0.80 USD · Modell: claude-opus-5-5 · Scope: B\n") {
-		t.Errorf("PRD auf main:\n%s", prd)
-	}
-	log, _ := os.ReadFile(state.LogPath("app", "new-token", StepMerge))
-	if !strings.Contains(string(log), "Kosten im PRD vermerkt: 0.80 USD · claude-opus-5-5") ||
-		!strings.Contains(string(log), "Commit: docs(prd): record cost of new-token") {
-		t.Errorf("Log:\n%s", log)
-	}
-	if runGit(t, main, "rev-list", "--merges", "--count", "HEAD") != "0" {
-		t.Error("Merge-Commit entstanden")
-	}
-	if _, err := os.Stat(worktree.Path("app", "new-token")); err == nil {
-		t.Error("Worktree existiert noch")
-	}
-	if runGit(t, main, "branch", "--list", "feat/new-token") != "" {
-		t.Error("Branch existiert noch")
-	}
-	if ports, _ := state.UsedPorts(); ports[r.Port] {
-		t.Error("Port eines gemergten Laufs bleibt belegt")
-	}
-	if err := Run(cfg, target, "new-token", io.Discard); err == nil || !strings.Contains(err.Error(), "nichts mehr") {
-		t.Errorf("Run nach Merge: %v", err)
-	}
-}
-
-func TestMergeNeedsApprovalWithoutAutoMerge(t *testing.T) {
-	cfg, target := setupProject(t)
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	var spawned bool
-	spawnRunner = func(string, string) (int, error) { spawned = true; return 0, nil }
-	if _, err := Merge(cfg, target, "tracked"); err == nil {
-		t.Error("Merge ohne Lauf akzeptiert")
-	}
-	if _, err := Merge(cfg, target, "new-token"); err != nil || !spawned {
-		t.Fatalf("Merge: %v, gestartet %v", err, spawned)
-	}
-	// Der gestartete Runner läuft hier im Vordergrund.
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	if r, _ := state.Load("app", "new-token"); r.Phase != project.PhaseMerged {
-		t.Errorf("Phase nach Freigabe: %s", r.Phase)
-	}
-}
-
-// diverge erzeugt nach dem Review einen Commit in main, der review.txt anders anlegt als der Branch.
-func diverge(t *testing.T, cfg *config.Config, target Target) Target {
+// commitOnMain commits review.txt on main with other content than the review of the branch.
+func commitOnMain(t *testing.T, target Target, file string) {
 	t.Helper()
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	write(t, target.Dir(), "review.txt", "main\n")
-	runGit(t, target.Dir(), "add", "review.txt")
-	runGit(t, target.Dir(), "commit", "-q", "-m", "main: review.txt")
-	return enableAutoMerge(t, cfg)
+	write(t, target.Dir, file, "main\n")
+	runGit(t, target.Dir, "add", file)
+	runGit(t, target.Dir, "commit", "-q", "-m", "main: "+file)
 }
 
-func TestMergeConflictUsesMergePRD(t *testing.T) {
-	cfg, target := setupProject(t)
-	target = diverge(t, cfg, target)
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
+func TestMergeRebasesWithoutConflict(t *testing.T) {
+	target := newProject(t, "", false)
+	failAtReview(t, target)
+	commitOnMain(t, target, "other.txt")
+	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
 	}
-	main := target.Dir()
-	if got := runGit(t, main, "log", "--format=%s", "-5"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token\nmain: review.txt\ninit" {
+	if got := runGit(t, target.Dir, "log", "--format=%s"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token\nmain: other.txt\ninit" {
 		t.Errorf("main: %q", got)
 	}
-	r, _ := state.Load("app", "new-token")
-	if s := r.Steps[3]; s.SessionID != "sess-1" || s.CostUSD == nil {
-		t.Errorf("Sitzung des Claude-Schritts merge fehlt: %+v", s)
-	}
-	// Die Kosten von /merge-prd zählen mit.
-	prd, _ := os.ReadFile(filepath.Join(main, "prd/auth/new-token.md"))
-	if !strings.Contains(string(prd), "· Kosten: 0.90 USD · Modell: claude-opus-5-5 ·") {
-		t.Errorf("PRD auf main:\n%s", prd)
+	if strings.Contains(fakeArgs(t), "# lazydev merge:") {
+		t.Error("Claude step merge ran without conflict")
 	}
 }
 
-// TestMergeRetryKeepsRunInfoCommit lässt den Fast-Forward an einer Sperre im Hauptordner scheitern.
-// Der zweite Versuch schreibt dieselben Werte und erzeugt keinen zweiten Commit.
-func TestMergeRetryKeepsRunInfoCommit(t *testing.T) {
-	cfg, target := setupProject(t)
-	target = enableAutoMerge(t, cfg)
-	main := target.Dir()
-	lock := filepath.Join(main, ".git", "index.lock")
-	write(t, main, ".git/index.lock", "")
-	if err := Run(cfg, target, "new-token", io.Discard); err == nil {
-		t.Fatal("Fast-Forward trotz Sperre")
-	}
-	if got := runGit(t, worktree.Path("app", "new-token"), "log", "--format=%s", "-1"); got != "docs(prd): record cost of new-token" {
-		t.Errorf("Worktree nach dem ersten Versuch: %q", got)
-	}
-	os.Remove(lock)
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
+func TestMergeConflictRunsClaude(t *testing.T) {
+	target := newProject(t, hooksConfig, true)
+	failAtReview(t, target)
+	commitOnMain(t, target, "review.txt")
+	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
 	}
-	if got := runGit(t, main, "log", "--format=%s", "-5"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token\ninit" {
+	r := loadRun(t)
+	if r.Phase != project.PhaseMerged || r.Note != "" {
+		t.Errorf("state: %+v", r)
+	}
+	last := r.LastStep()
+	if last.Name != state.StepMerge || !last.OK || last.SessionID != "sess-1" || last.CostUSD == nil || *last.CostUSD != 0.1 {
+		t.Errorf("merge step: %+v", last)
+	}
+	main := target.Dir
+	if got := runGit(t, main, "log", "--format=%s"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token\nmain: review.txt\ninit" {
 		t.Errorf("main: %q", got)
+	}
+	// The branch wins in the fake's rebase.
+	if got := read(t, filepath.Join(main, "review.txt")); got != "change\n" {
+		t.Errorf("review.txt: %q", got)
+	}
+	// Implement, the failed and the second review and the Claude step merge add up.
+	if got := read(t, filepath.Join(main, prdPath)); !strings.Contains(got, "Kosten: 1.20 USD · Modell: claude-opus-5-5") {
+		t.Errorf("PRD on main:\n%s", got)
+	}
+	log := read(t, state.LogPath("app", prdName, state.StepMerge))
+	for _, s := range []string{"Conflict in the rebase", "# lazydev merge: feat/new-token", "Merged"} {
+		if !strings.Contains(log, s) {
+			t.Errorf("merge log lacks %q:\n%s", s, log)
+		}
+	}
+	if args := fakeArgs(t); !strings.Contains(args, "-p\n# lazydev merge: feat/new-token\n") {
+		t.Errorf("claude args:\n%s", args)
+	}
+	if got := runGit(t, main, "status", "--porcelain"); got != "" {
+		t.Errorf("main not clean: %q", got)
 	}
 }
 
-func TestMergeConflictUnresolved(t *testing.T) {
-	cfg, target := setupProject(t)
-	target = diverge(t, cfg, target)
+func TestMergeClaudeAborts(t *testing.T) {
+	target := newProject(t, "", false)
+	failAtReview(t, target)
+	commitOnMain(t, target, "review.txt")
 	t.Setenv("FAKE_MERGE_MODE", "abort")
-	before := runGit(t, target.Dir(), "rev-parse", "main")
-	err := Run(cfg, target, "new-token", io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "beide Seiten unklar") {
-		t.Fatalf("Fehler: %v", err)
+	err := Run(context.Background(), target, prdName)
+	if err == nil || err.Error() != "merge aborted: Konflikt in review.txt" {
+		t.Fatalf("Run: %v", err)
 	}
-	r, _ := state.Load("app", "new-token")
-	if r.Phase != project.PhaseError || NextStep(r) != StepMerge {
-		t.Errorf("Zustand: %+v", r)
+	r := loadRun(t)
+	if r.Phase != project.PhaseError || r.NextStep() != state.StepMerge {
+		t.Errorf("state: %+v", r)
 	}
-	if runGit(t, target.Dir(), "rev-parse", "main") != before {
-		t.Error("main verändert")
+	// The rebase was aborted, the worktree is clean on the branch.
+	wt := WorktreePath("app", prdName)
+	if got := runGit(t, wt, "status", "--porcelain"); got != "" {
+		t.Errorf("worktree: %q", got)
 	}
-	if _, err := os.Stat(worktree.Path("app", "new-token")); err != nil {
-		t.Error("Worktree nach Fehler entfernt")
+	if got := runGit(t, wt, "branch", "--show-current"); got != "feat/new-token" {
+		t.Errorf("worktree on %q", got)
 	}
-}
+	if got := runGit(t, target.Dir, "log", "-1", "--format=%s"); got != "main: review.txt" {
+		t.Errorf("main moved: %q", got)
+	}
 
-func TestMergeCheckFailureUsesMergePRD(t *testing.T) {
-	cfg, target := setupProject(t)
-	write(t, target.Dir(), "check.sh", "#!/bin/sh\ntest -f .merge-fixed || { echo rot; exit 1; }\n")
-	os.Chmod(filepath.Join(target.Dir(), "check.sh"), 0o755)
-	runGit(t, target.Dir(), "add", "check.sh")
-	runGit(t, target.Dir(), "commit", "-q", "-m", "check")
-	cfg.Projects[0].Hooks.Check = "./check.sh"
-	target = enableAutoMerge(t, cfg)
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
+	t.Setenv("FAKE_MERGE_MODE", "ok")
+	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
 	}
-	log, _ := os.ReadFile(state.LogPath("app", "new-token", StepMerge))
-	if !strings.Contains(string(log), "Prüfung rot") || !strings.Contains(string(log), "# lazydev merge: feat/new-token Prüfung nach dem Rebase") {
-		t.Errorf("Log:\n%s", log)
+	if r := loadRun(t); r.Phase != project.PhaseMerged {
+		t.Errorf("phase: %s", r.Phase)
 	}
 }
 
-func TestMergeWaitsForCleanMain(t *testing.T) {
-	cfg, target := setupProject(t)
-	target = enableAutoMerge(t, cfg)
-	write(t, target.Dir(), "setup.sh", "#!/bin/sh\necho geändert >> setup.sh\n")
-
-	done := make(chan error, 1)
-	go func() { done <- Run(cfg, target, "new-token", io.Discard) }()
-	deadline := time.Now().Add(10 * time.Second)
-	for {
-		if r, err := state.Load("app", "new-token"); err == nil && strings.HasPrefix(r.Note, NoteMainDirty) {
-			if r.Phase != project.PhaseMergeQueue {
-				t.Errorf("Phase beim Warten: %s", r.Phase)
-			}
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("Merge wartet nicht auf den Hauptordner")
-		}
-		time.Sleep(10 * time.Millisecond)
+func TestMergeClaudeLeavesBranchOffBase(t *testing.T) {
+	target := newProject(t, "", false)
+	failAtReview(t, target)
+	commitOnMain(t, target, "review.txt")
+	t.Setenv("FAKE_MERGE_MODE", "noop")
+	err := Run(context.Background(), target, prdName)
+	if err == nil || err.Error() != "after the Claude step merge, feat/new-token is not on main" {
+		t.Fatalf("Run: %v", err)
 	}
-	runGit(t, target.Dir(), "checkout", "--", "setup.sh")
+}
+
+func TestMergeCheckRedOnceRunsClaude(t *testing.T) {
+	target := newProject(t, hooksConfig, true)
+	t.Setenv("FAKE_CHECK", "once")
+	if err := Run(context.Background(), target, prdName); err != nil {
+		t.Fatal(err)
+	}
+	if r := loadRun(t); r.Phase != project.PhaseMerged {
+		t.Errorf("phase: %s", r.Phase)
+	}
+	args := fakeArgs(t)
+	if !strings.Contains(args, "-p\n# lazydev merge: feat/new-token Prüfung nach dem Rebase fehlgeschlagen: check hook ended with exit code 1\n") {
+		t.Errorf("claude args:\n%s", args)
+	}
+	if got := strings.Count(read(t, filepath.Join(target.Dir, "hooks.log")), "check "); got != 2 {
+		t.Errorf("check ran %d times", got)
+	}
+	if log := read(t, state.LogPath("app", prdName, state.StepMerge)); !strings.Contains(log, "Check red: check hook ended with exit code 1") {
+		t.Errorf("merge log:\n%s", log)
+	}
+}
+
+func TestMergeCheckStaysRed(t *testing.T) {
+	target := newProject(t, hooksConfig, true)
+	t.Setenv("FAKE_CHECK", "fail")
+	err := Run(context.Background(), target, prdName)
+	if err == nil || err.Error() != "check still red after the Claude step merge: check hook ended with exit code 1" {
+		t.Fatalf("Run: %v", err)
+	}
+	r := loadRun(t)
+	if r.Phase != project.PhaseError || r.NextStep() != state.StepMerge {
+		t.Errorf("state: %+v", r)
+	}
+	if !fsutil.Exists(WorktreePath("app", prdName)) {
+		t.Error("worktree removed")
+	}
+	if got := runGit(t, target.Dir, "log", "-1", "--format=%s"); got != "init" {
+		t.Errorf("main moved: %q", got)
+	}
+}
+
+func TestMergeWaitsForCleanMainFolder(t *testing.T) {
+	target := newProject(t, "", false)
+	write(t, target.Dir, "CLAUDE.md", "# app\nlocal change\n")
+	done := make(chan error, 1)
+	go func() { done <- Run(context.Background(), target, prdName) }()
+	waitFor(t, "the merge queue", func() bool {
+		r, err := state.Load("app", prdName)
+		return err == nil && r.Phase == project.PhaseMergeQueue && r.Note == "main folder: changed: CLAUDE.md"
+	})
+	runGit(t, target.Dir, "checkout", "--", "CLAUDE.md")
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	if r, _ := state.Load("app", "new-token"); r.Phase != project.PhaseMerged || r.Note != "" {
-		t.Errorf("Zustand: %+v", r)
+	r := loadRun(t)
+	if r.Phase != project.PhaseMerged || r.Note != "" {
+		t.Errorf("state: %+v", r)
+	}
+	if log := read(t, state.LogPath("app", prdName, state.StepMerge)); !strings.Contains(log, "Main folder blocks the merge: changed: CLAUDE.md") {
+		t.Errorf("merge log:\n%s", log)
+	}
+}
+
+func TestMergeAbortedInQueueContinues(t *testing.T) {
+	target := newProject(t, "", false)
+	runGit(t, target.Dir, "switch", "-q", "-c", "other")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() { done <- Run(ctx, target, prdName) }()
+	waitFor(t, "the merge queue", func() bool {
+		r, err := state.Load("app", prdName)
+		return err == nil && r.Note == "main folder: on other instead of main"
+	})
+	cancel()
+	if err := <-done; err == nil || err.Error() != "merge aborted" {
+		t.Fatalf("Run: %v", err)
+	}
+	r := loadRun(t)
+	if r.Phase != project.PhaseAborted || r.PID != 0 || r.NextStep() != state.StepMerge {
+		t.Errorf("state: %+v", r)
+	}
+
+	runGit(t, target.Dir, "switch", "-q", "main")
+	if err := Run(context.Background(), target, prdName); err != nil {
+		t.Fatal(err)
+	}
+	if r := loadRun(t); r.Phase != project.PhaseMerged || r.Note != "" {
+		t.Errorf("state: %+v", r)
+	}
+	// The cost commit of the first attempt stays, the second attempt adds none.
+	if got := runGit(t, target.Dir, "log", "--format=%s"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token\ninit" {
+		t.Errorf("main: %q", got)
+	}
+}
+
+func TestMergeWaitsForMergeLock(t *testing.T) {
+	target := newProject(t, "", false)
+	unlock, err := state.Lock("app.merge")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() { done <- Run(context.Background(), target, prdName) }()
+	waitFor(t, "the merge slot", func() bool {
+		data, _ := os.ReadFile(state.LogPath("app", prdName, state.StepMerge))
+		return strings.Contains(string(data), "Another PRD merges, waiting for the merge slot")
+	})
+	if r := loadRun(t); r.Phase != project.PhaseMergeQueue {
+		t.Errorf("phase while waiting: %s", r.Phase)
+	}
+	unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if r := loadRun(t); r.Phase != project.PhaseMerged {
+		t.Errorf("phase: %s", r.Phase)
 	}
 }
 
 func TestMainDirProblem(t *testing.T) {
-	_, target := setupProject(t)
-	dir := target.Dir()
-	if p, err := mainDirProblem(dir, "main", nil); err != nil || p != "" {
-		t.Errorf("ungetracktes PRD blockiert: %q, %v", p, err)
+	target := newProject(t, "", false)
+	dir := target.Dir
+	runGit(t, dir, "add", prdPath)
+	runGit(t, dir, "commit", "-q", "-m", "prd")
+	check := func(want string) {
+		t.Helper()
+		got, err := mainDirProblem(dir, "main")
+		if err != nil || got != want {
+			t.Errorf("mainDirProblem = %q, %v, want %q", got, err, want)
+		}
 	}
-	write(t, dir, "setup.sh", "x")
-	if p, _ := mainDirProblem(dir, "main", []string{"setup.sh"}); p != "" {
-		t.Errorf("ignorierte Datei blockiert: %q", p)
-	}
-	write(t, dir, ".lazydev/implement.md", "x")
-	if p, _ := mainDirProblem(dir, "main", []string{"setup.sh"}); p != "" {
-		t.Errorf("ungetrackte Datei unter .lazydev/ blockiert: %q", p)
-	}
-	write(t, dir, "neu.txt", "x")
-	if p, _ := mainDirProblem(dir, "main", []string{"setup.sh"}); !strings.Contains(p, "neu.txt") || strings.Contains(p, ".lazydev") {
-		t.Errorf("ungetrackte Datei: %q", p)
-	}
+	check("")
+	// Untracked PRDs and anything under .lazydev/ do not block.
+	write(t, dir, "prd/other/new.md", "# PRD: New\n")
+	write(t, dir, ".lazydev/local.md", "x\n")
+	write(t, dir, ".lazydev/implement.md", "changed\n")
+	check("")
+	write(t, dir, "notes.txt", "x\n")
+	check("changed: notes.txt")
+	runGit(t, dir, "clean", "-q", "-f", "notes.txt")
+	// A tracked PRD counts.
+	write(t, dir, prdPath, "changed\n")
+	check("changed: " + prdPath)
+	runGit(t, dir, "checkout", "--", prdPath)
+	check("")
 	runGit(t, dir, "switch", "-q", "-c", "other")
-	if p, _ := mainDirProblem(dir, "main", []string{"setup.sh"}); !strings.Contains(p, "Branch other") {
-		t.Errorf("anderer Branch: %q", p)
+	check("on other instead of main")
+	runGit(t, dir, "switch", "-q", "--detach", "main")
+	check("on HEAD instead of main")
+	if _, err := mainDirProblem(t.TempDir(), "main"); err == nil {
+		t.Error("no error outside a repository")
 	}
 }
 
-// TestMergeIntoBaseBranch prüft einen Ziel-Branch außer main: Der Worktree zweigt von next ab,
-// der Fast-Forward geht nach next, main bleibt unverändert.
-func TestMergeIntoBaseBranch(t *testing.T) {
-	cfg, _ := setupProject(t)
-	main := cfg.Projects[0].AbsPath()
-	runGit(t, main, "switch", "-q", "-c", "next")
-	write(t, main, "next.txt", "nur auf next\n")
-	runGit(t, main, "add", "next.txt")
-	runGit(t, main, "commit", "-q", "-m", "next only")
-	mainHead := runGit(t, main, "rev-parse", "main")
-	cfg.Projects[0].BaseBranch = "next"
-	target := enableAutoMerge(t, cfg)
-
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
+// After the main folder got clean, the merge goes on in phase merge: merge-queue is no active
+// phase, so a runner that dies in the fast-forward or cleanup would not show as aborted.
+func TestMergePhaseAfterMainFolderWait(t *testing.T) {
+	target := newProject(t, hooksConfig, true)
+	// The teardown runs after the fast-forward and records the phase of the state.
+	write(t, target.Dir, "teardown.sh", `#!/bin/sh
+grep -o '"phase": "[a-z-]*"' "$XDG_STATE_HOME/lazydev/runs/app/new-token.json" >> "$LAZYDEV_PROJECT/hooks.log"
+`)
+	runGit(t, target.Dir, "commit", "-q", "-am", "teardown records the phase")
+	trustProject(t, target)
+	write(t, target.Dir, "CLAUDE.md", "# app\nlocal change\n")
+	done := make(chan error, 1)
+	go func() { done <- Run(context.Background(), target, prdName) }()
+	waitFor(t, "the merge queue", func() bool {
+		r, err := state.Load("app", prdName)
+		return err == nil && r.Note != ""
+	})
+	runGit(t, target.Dir, "checkout", "--", "CLAUDE.md")
+	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	r, _ := state.Load("app", "new-token")
-	if r.Phase != project.PhaseMerged || r.Base != "next" {
-		t.Errorf("Zustand nach Merge: %+v", r)
-	}
-	if got := runGit(t, main, "log", "--format=%s", "-5", "next"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token\nnext only\ninit" {
-		t.Errorf("next: %q", got)
-	}
-	if got := runGit(t, main, "rev-parse", "main"); got != mainHead {
-		t.Error("main hat sich verändert")
-	}
-}
-
-// TestMergeUsesRepoBaseBranch prüft baseBranch aus .lazydev/config.yaml: Der Worktree zweigt von next
-// ab, der Merge geht nach next. baseBranch der zentralen config.yaml wirkt nicht, und eine
-// uncommittete Änderung unter .lazydev/ im Hauptordner blockiert den Merge nicht.
-func TestMergeUsesRepoBaseBranch(t *testing.T) {
-	cfg, target := setupProject(t)
-	commitRepo(t, target, map[string]string{".lazydev/config.yaml": "# Ziel des Teams\nbaseBranch: next\n"})
-	main := target.Dir()
-	runGit(t, main, "switch", "-q", "-c", "next")
-	commitRepo(t, target, map[string]string{"next.txt": "nur auf next\n"})
-	mainHead := runGit(t, main, "rev-parse", "main")
-	cfg.Projects[0].BaseBranch = "main"
-	target = enableAutoMerge(t, cfg)
-	write(t, main, ".lazydev/config.yaml", "# Ziel des Teams, geändert\nbaseBranch: next\n")
-	write(t, main, ".lazydev/notiz.md", "ungetrackt\n")
-
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	r, _ := state.Load("app", "new-token")
-	if r.Phase != project.PhaseMerged || r.Base != "next" {
-		t.Errorf("Zustand nach Merge: %+v", r)
-	}
-	if got := runGit(t, main, "log", "--format=%s", "-4", "next"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token\nlazydev" {
-		t.Errorf("next: %q", got)
-	}
-	if runGit(t, main, "rev-parse", "main") != mainHead {
-		t.Error("main hat sich verändert")
-	}
-	if got := runGit(t, main, "status", "--porcelain", "--", ".lazydev"); got != "M .lazydev/config.yaml\n?? .lazydev/notiz.md" {
-		t.Errorf("Änderungen unter .lazydev/: %q", got)
-	}
-}
-
-func TestMainDirProblemUsesBase(t *testing.T) {
-	cfg, _ := setupProject(t)
-	dir := cfg.Projects[0].AbsPath()
-	if p, _ := mainDirProblem(dir, "next", nil); !strings.Contains(p, "Branch main statt next") {
-		t.Errorf("Problem: %q", p)
+	if got := read(t, filepath.Join(target.Dir, "hooks.log")); !strings.Contains(got, `"phase": "merge"`+"\n") {
+		t.Errorf("phase during the teardown:\n%s", got)
 	}
 }

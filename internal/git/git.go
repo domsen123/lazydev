@@ -1,4 +1,4 @@
-// Package git ruft das git-Binärprogramm auf. lazydev nutzt bewusst keine Go-Git-Bibliothek.
+// Package git runs the git binary. lazydev uses no Go git library on purpose.
 package git
 
 import (
@@ -8,10 +8,10 @@ import (
 	"strings"
 )
 
-// Run führt git in dir aus und liefert stdout ohne abschließenden Zeilenumbruch.
-// Im Fehlerfall enthält der Fehler die erste Zeile von stderr.
+// Run runs git in dir and returns stdout without the final newline. On failure the error holds
+// stderr.
 func Run(dir string, args ...string) (string, error) {
-	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "core.quotePath=false"}, args...)...)
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -25,25 +25,40 @@ func Run(dir string, args ...string) (string, error) {
 	return strings.TrimRight(string(out), "\n"), nil
 }
 
-// IsTracked meldet, ob path (relativ zu dir) im Index liegt.
-func IsTracked(dir, path string) bool {
-	_, err := Run(dir, "ls-files", "--error-unmatch", "--", path)
-	return err == nil
-}
-
-// BranchExists meldet, ob der lokale Branch existiert.
-func BranchExists(dir, branch string) bool {
-	_, err := Run(dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
-	return err == nil
-}
-
-// Lines teilt eine git-Ausgabe in nicht leere Zeilen.
+// Lines splits git output into non-empty lines. It keeps leading spaces, porcelain needs them.
 func Lines(out string) []string {
 	var lines []string
-	for _, l := range strings.Split(out, "\n") {
+	for l := range strings.SplitSeq(out, "\n") {
 		if l != "" {
 			lines = append(lines, l)
 		}
 	}
 	return lines
+}
+
+// Output runs git in dir and returns its lines, nil on errors.
+func Output(dir string, args ...string) []string {
+	out, err := Run(dir, args...)
+	if err != nil {
+		return nil
+	}
+	return Lines(out)
+}
+
+// IsTracked reports whether path (relative to dir) is in the index.
+func IsTracked(dir, path string) bool {
+	_, err := Run(dir, "ls-files", "--error-unmatch", "--", path)
+	return err == nil
+}
+
+// BranchExists reports whether the local branch exists.
+func BranchExists(dir, branch string) bool {
+	_, err := Run(dir, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	return err == nil
+}
+
+// CurrentBranch is the checked out branch, empty for a detached HEAD or outside a repository.
+func CurrentBranch(dir string) string {
+	b, _ := Run(dir, "symbolic-ref", "--quiet", "--short", "HEAD")
+	return b
 }

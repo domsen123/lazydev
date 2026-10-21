@@ -3,21 +3,23 @@ package claude
 import (
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"os"
 	"path"
 	"path/filepath"
 	"strings"
 
+	"lazydev/internal/fsutil"
 	"lazydev/internal/state"
 )
 
-// agentFiles enthält die Agenten, die die eingebetteten Prompts aufrufen, z. B. committer.
+// agents/ holds the agents the prompts call, e.g. committer. They are built in, nothing comes
+// from ~/.claude.
 //
 //go:embed agents/*.md
 var agentFiles embed.FS
 
-// Agent ist ein Eintrag im JSON für claude --agents.
+// Agent is an entry of the JSON for claude --agents.
 type Agent struct {
 	Description string   `json:"description"`
 	Prompt      string   `json:"prompt"`
@@ -25,7 +27,7 @@ type Agent struct {
 	Model       string   `json:"model,omitempty"`
 }
 
-// Agents liefert die eingebetteten Agenten nach Name. Der Name steht in der Frontmatter.
+// Agents returns the built-in agents by name.
 func Agents() (map[string]Agent, error) {
 	entries, err := agentFiles.ReadDir("agents")
 	if err != nil {
@@ -39,24 +41,38 @@ func Agents() (map[string]Agent, error) {
 		}
 		name, a, err := parseAgent(string(data))
 		if err != nil {
-			return nil, fmt.Errorf("Agent %s: %w", e.Name(), err)
+			return nil, fmt.Errorf("agent %s: %w", e.Name(), err)
 		}
 		agents[name] = a
 	}
 	return agents, nil
 }
 
-// parseAgent liest Frontmatter und Inhalt einer Agent-Datei. Die Frontmatter ist kein gültiges
-// YAML, weil description unquotiert ": " enthalten darf. Deshalb gilt je Zeile: Schlüssel bis zum
-// ersten ":", Rest als Wert.
+// WriteAgents writes the built-in agents to agents.json in the state folder and returns its path.
+// Several runners write the same file, so it goes through a temporary file.
+func WriteAgents() (string, error) {
+	agents, err := Agents()
+	if err != nil {
+		return "", err
+	}
+	data, err := json.MarshalIndent(agents, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	p := filepath.Join(state.Dir(), "agents.json")
+	return p, fsutil.WriteAtomic(p, data, 0o644)
+}
+
+// parseAgent reads frontmatter and body of an agent file. The frontmatter is no valid YAML,
+// because a description may contain ": ", so each line splits at the first ":".
 func parseAgent(text string) (string, Agent, error) {
 	rest, ok := strings.CutPrefix(text, "---\n")
 	if !ok {
-		return "", Agent{}, fmt.Errorf("Frontmatter fehlt")
+		return "", Agent{}, errors.New("frontmatter missing")
 	}
 	front, body, ok := strings.Cut(rest, "\n---\n")
 	if !ok {
-		return "", Agent{}, fmt.Errorf("Frontmatter ohne Ende")
+		return "", Agent{}, errors.New("frontmatter without end")
 	}
 	var name string
 	a := Agent{Prompt: strings.TrimSpace(body)}
@@ -82,42 +98,7 @@ func parseAgent(text string) (string, Agent, error) {
 		}
 	}
 	if name == "" || a.Description == "" || a.Prompt == "" {
-		return "", Agent{}, fmt.Errorf("name, description oder Inhalt fehlt")
+		return "", Agent{}, errors.New("name, description or body missing")
 	}
 	return name, a, nil
-}
-
-// AgentsPath ist die Datei für claude --agents im Zustandsverzeichnis.
-func AgentsPath() string {
-	return filepath.Join(state.Dir(), "agents.json")
-}
-
-// WriteAgents schreibt die eingebetteten Agenten nach AgentsPath. Mehrere Prozesse schreiben
-// dieselbe Datei, deshalb über eine temporäre Datei und rename.
-func WriteAgents() error {
-	agents, err := Agents()
-	if err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(agents, "", "  ")
-	if err != nil {
-		return err
-	}
-	p := AgentsPath()
-	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(p), "agents-*.json")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), p)
 }

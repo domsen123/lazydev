@@ -1,490 +1,428 @@
 package runner
 
 import (
+	"context"
 	"errors"
-	"io"
-	"os"
-	"os/exec"
+	"io/fs"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"lazydev/internal/claude"
-	"lazydev/internal/config"
+	"lazydev/internal/fsutil"
 	"lazydev/internal/project"
 	"lazydev/internal/state"
-	"lazydev/internal/worktree"
 )
 
-// setupProject legt ein Git-Repo mit einem getrackten und einem ungetrackten PRD an und
-// trägt es mit einem Setup-Skript statt eines Presets ein.
-func setupProject(t *testing.T) (*config.Config, Target) {
-	t.Helper()
-	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	t.Setenv("XDG_DATA_HOME", t.TempDir())
-	t.Setenv("GIT_AUTHOR_NAME", "t")
-	t.Setenv("GIT_AUTHOR_EMAIL", "t@t")
-	t.Setenv("GIT_COMMITTER_NAME", "t")
-	t.Setenv("GIT_COMMITTER_EMAIL", "t@t")
-
-	dir := filepath.Join(t.TempDir(), "app")
-	write(t, dir, "prd/auth/tracked.md", "# PRD: Tracked\n\n> Status: geplant · Scope: A\n")
-	write(t, dir, ".gitignore", "port.txt\n.fake-args\n.merge-fixed\n")
-	write(t, dir, "setup.sh", "#!/bin/sh\necho \"$LAZYDEV_PORT\" > port.txt\n")
-	os.Chmod(filepath.Join(dir, "setup.sh"), 0o755)
-	runGit(t, dir, "init", "-q", "-b", "main")
-	runGit(t, dir, "add", "-A")
-	runGit(t, dir, "commit", "-q", "-m", "init")
-	write(t, dir, "prd/auth/new-token.md", "# PRD: Neu\n\n> Status: geplant · Scope: B\n")
-
-	cfg, _ := config.Load(filepath.Join(t.TempDir(), "none.yaml"))
-	cfg.PortBase = 41000
-	cfg.Claude.Binary = fakeClaude(t)
-	t.Setenv("FAKE_CLAUDE_MODE", "ok")
-	t.Setenv("FAKE_MERGE_MODE", "theirs")
-	mergePollInterval = 10 * time.Millisecond
-	// Kein Test startet einen echten Runner im Hintergrund.
-	spawnRunner = func(string, string) (int, error) { return 0, errors.New("spawnRunner im Test") }
-	// Ohne autoMerge endet ein Lauf vor dem Merge. Die Merge-Tests schalten ihn ein.
-	autoMerge := false
-	cfg.Projects = []config.Project{{Path: dir, AutoMerge: &autoMerge, Hooks: config.Hooks{Setup: "./setup.sh"}}}
-	target, err := FindProject(cfg, "app")
-	if err != nil {
+func TestRunMerges(t *testing.T) {
+	target := newProject(t, hooksConfig, true)
+	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
 	}
-	return cfg, target
-}
-
-func TestRunMovesUntrackedPRD(t *testing.T) {
-	cfg, target := setupProject(t)
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
-		t.Fatal(err)
+	r := loadRun(t)
+	wt := WorktreePath("app", prdName)
+	if r.Phase != project.PhaseMerged || r.PID != 0 || r.Error != nil || r.Note != "" {
+		t.Errorf("state: %+v", r)
 	}
-	r, err := state.Load("app", "new-token")
-	if err != nil {
-		t.Fatal(err)
+	if r.Worktree != wt || r.Branch != "feat/new-token" || r.Base != "main" || r.Slug != "new_token" || r.PRD != prdPath || r.Port < PortBase {
+		t.Errorf("run fields: %+v", r)
 	}
-	wt := worktree.Path("app", "new-token")
-	if r.Worktree != wt || r.Branch != "feat/new-token" || r.Slug != "new_token" || r.Port < 41000 {
-		t.Errorf("Zustand: %+v", r)
+	if len(r.Steps) != 4 {
+		t.Fatalf("steps: %+v", r.Steps)
 	}
-	if r.Phase != project.PhaseMergeQueue || r.Error != nil || r.PID != 0 || len(r.Steps) != 3 || !strings.Contains(r.Note, "lazydev merge") {
-		t.Errorf("Phase oder Schritte: %+v", r)
-	}
-	for i, name := range []string{StepSetup, StepImplement, StepReview} {
-		if s := r.Steps[i]; s.Name != name || *s.ExitCode != 0 || !s.OK {
-			t.Errorf("Schritt %d: %+v", i, s)
+	for i, name := range state.Steps {
+		if s := r.Steps[i]; s.Name != name || s.ExitCode == nil || *s.ExitCode != 0 || !s.OK || s.EndedAt == "" {
+			t.Errorf("step %d: %+v", i, s)
 		}
 	}
 	if s := r.Steps[1]; s.SessionID != "sess-1" || s.Model != "claude-opus-5-5" || s.CostUSD == nil || *s.CostUSD != 0.5 {
-		t.Errorf("Sitzung, Modell oder Kosten fehlen: %+v", s)
+		t.Errorf("implement: %+v", s)
 	}
-	if got := r.ImplementModel(); got != "claude-opus-5-5" {
-		t.Errorf("ImplementModel = %q", got)
-	}
-
-	if _, err := os.Stat(filepath.Join(target.Dir(), "prd/auth/new-token.md")); err == nil {
-		t.Error("PRD liegt noch im Hauptordner")
-	}
-	if got := runGit(t, wt, "log", "--format=%s", "main.."); got != "feat: review\ndocs(prd): add new-token" {
-		t.Errorf("Commits im Worktree: %q", got)
-	}
-	if out := runGit(t, target.Dir(), "status", "--porcelain"); out != "" {
-		t.Errorf("Hauptordner nicht sauber: %q", out)
-	}
-	port, _ := os.ReadFile(filepath.Join(wt, "port.txt"))
-	if strings.TrimSpace(string(port)) == "" {
-		t.Error("Setup-Skript lief nicht im Worktree")
-	}
-	logData, _ := os.ReadFile(state.LogPath("app", "new-token", "setup"))
-	if !strings.Contains(string(logData), "Setup fertig") {
-		t.Errorf("Log:\n%s", logData)
+	if s := r.Steps[3]; s.CostUSD != nil {
+		t.Errorf("merge without Claude has cost: %+v", s)
 	}
 
-	implLog, _ := os.ReadFile(state.LogPath("app", "new-token", StepImplement))
-	if !strings.Contains(string(implLog), `"type":"result"`) || !strings.Contains(string(implLog), `"type":"stderr"`) {
-		t.Errorf("Log von implement:\n%s", implLog)
+	main := target.Dir
+	if got := runGit(t, main, "log", "--format=%s"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token\ninit" {
+		t.Errorf("main: %q", got)
 	}
-	if !strings.Contains(string(implLog), "Prompt: Standard") || strings.Contains(string(implLog), "Knowledge:") {
-		t.Errorf("Prompt-Quelle fehlt im Log:\n%s", implLog)
+	if runGit(t, main, "rev-list", "--merges", "--count", "HEAD") != "0" {
+		t.Error("merge commit on main")
 	}
-	args, _ := os.ReadFile(filepath.Join(wt, ".fake-args"))
-	if !strings.Contains(string(args), "# lazydev implement: prd/auth/new-token.md\n") ||
-		!strings.Contains(string(args), "## Regeln von lazydev") ||
-		!strings.Contains(string(args), "Bash(git status:*),") || !strings.Contains(string(args), "GIT_EDITOR=true") ||
-		!strings.Contains(string(args), "--agents\n"+claude.AgentsPath()) {
-		t.Errorf("Aufruf von claude:\n%s", args)
+	if got := read(t, filepath.Join(main, prdPath)); !strings.Contains(got, "> Status: umgesetzt (2026-10-20) · Kosten: 0.80 USD · Modell: claude-opus-5-5 · Scope: tokens\n") {
+		t.Errorf("PRD on main:\n%s", got)
+	}
+	if got := runGit(t, main, "status", "--porcelain"); got != "" {
+		t.Errorf("main not clean: %q", got)
+	}
+	if fsutil.Exists(wt) {
+		t.Error("worktree still exists")
+	}
+	if got := runGit(t, main, "branch", "--list", "feat/new-token"); got != "" {
+		t.Errorf("branch still exists: %q", got)
+	}
+	if got := runGit(t, main, "worktree", "list", "--porcelain"); strings.Contains(got, wt) {
+		t.Errorf("worktree still registered:\n%s", got)
 	}
 
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
-		t.Errorf("zweiter Run ohne Freigabe: %v", err)
+	realWT := wt
+	hooks := read(t, filepath.Join(main, "hooks.log"))
+	want := "setup " + realWT + " " + strconv.Itoa(r.Port) + " new_token feat/new-token\ncheck " + realWT + "\nteardown " + realWT + "\n"
+	if hooks != want {
+		t.Errorf("hooks.log:\n%s\nwant:\n%s", hooks, want)
 	}
-	if r, _ := state.Load("app", "new-token"); len(r.Steps) != 3 || r.Phase != project.PhaseMergeQueue {
-		t.Errorf("zweiter Run ohne Freigabe hat etwas ausgeführt: %+v", r)
+
+	setupLog := read(t, state.LogPath("app", prdName, state.StepSetup))
+	for _, s := range []string{`"type":"lazydev"`, "Step setup", "PRD prd/auth/new-token.md moved into the worktree", "Commit: docs(prd): add new-token", "setup output", "Setup done: " + wt + " on port " + strconv.Itoa(r.Port)} {
+		if !strings.Contains(setupLog, s) {
+			t.Errorf("setup log lacks %q:\n%s", s, setupLog)
+		}
+	}
+	implLog := read(t, state.LogPath("app", prdName, state.StepImplement))
+	for _, s := range []string{`{"ts":"`, `"type":"result"`, `"type":"stderr"`, "eine Warnung", "# lazydev implement: prd/auth/new-token.md", "implement done"} {
+		if !strings.Contains(implLog, s) {
+			t.Errorf("implement log lacks %q:\n%s", s, implLog)
+		}
+	}
+	mergeLog := read(t, state.LogPath("app", prdName, state.StepMerge))
+	for _, s := range []string{"$ git rebase main", "check output", "Cost recorded in the PRD: 0.80 USD claude-opus-5-5", "Commit: docs(prd): record cost of new-token", "$ git merge --ff-only feat/new-token", "Removing worktree", "Merged"} {
+		if !strings.Contains(mergeLog, s) {
+			t.Errorf("merge log lacks %q:\n%s", s, mergeLog)
+		}
+	}
+	if strings.Contains(mergeLog, "lazydev merge") {
+		t.Errorf("Claude step merge ran without conflict:\n%s", mergeLog)
+	}
+
+	args := fakeArgs(t)
+	for _, s := range []string{
+		"-p\n# lazydev implement: prd/auth/new-token.md\n", "# lazydev review: feat/new-token → main\n",
+		"## Regeln von lazydev", "## Pflichtlektüre", "- `CLAUDE.md`", "--output-format\nstream-json\n--verbose\n",
+		"Bash(git status:*),", "Bash(make test:*)", "--agents\n" + filepath.Join(state.Dir(), "agents.json") + "\n",
+		"GIT_EDITOR=true", "PWD=" + realWT + "\n",
+	} {
+		if !strings.Contains(args, s) {
+			t.Errorf("claude args lack %q:\n%s", s, args)
+		}
+	}
+	if strings.Contains(args, "# lazydev merge:") {
+		t.Error("Claude step merge ran")
+	}
+
+	if err := Run(context.Background(), target, prdName); err == nil || !strings.Contains(err.Error(), "nothing left to do") {
+		t.Errorf("Run after the merge: %v", err)
 	}
 }
 
-func TestRunTrackedPRDAndPortAllocation(t *testing.T) {
-	cfg, target := setupProject(t)
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
+func TestRunWithoutConfig(t *testing.T) {
+	target := newProject(t, "", false)
+	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
 	}
-	if err := Run(cfg, target, "tracked", io.Discard); err != nil {
+	if r := loadRun(t); r.Phase != project.PhaseMerged {
+		t.Errorf("phase %s", r.Phase)
+	}
+	if args := fakeArgs(t); strings.Contains(args, "## Pflichtlektüre") {
+		t.Errorf("knowledge block without knowledge:\n%s", args)
+	}
+	if fsutil.Exists(filepath.Join(target.Dir, "hooks.log")) {
+		t.Error("hooks ran without config")
+	}
+}
+
+func TestRunNotTrusted(t *testing.T) {
+	target := newProject(t, hooksConfig, false)
+	err := Run(context.Background(), target, prdName)
+	if err == nil || !strings.Contains(err.Error(), "not trusted") {
+		t.Fatalf("Run: %v", err)
+	}
+	if _, err := state.Load("app", prdName); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("state without trust: %v", err)
+	}
+	if fsutil.Exists(WorktreePath("app", prdName)) {
+		t.Error("worktree without trust")
+	}
+	if fakeArgs(t) != "" {
+		t.Error("claude ran without trust")
+	}
+
+	trustProject(t, target)
+	if err := target.CheckTrust(); err != nil {
+		t.Errorf("CheckTrust after trust: %v", err)
+	}
+	// A changed hook needs trust again, other fields do not.
+	write(t, target.Dir, ".lazydev/config.yaml", hooksConfig+"baseBranch: main\n")
+	if err := target.CheckTrust(); err != nil {
+		t.Errorf("CheckTrust after a change outside hooks: %v", err)
+	}
+	write(t, target.Dir, ".lazydev/config.yaml", strings.Replace(hooksConfig, "check.sh", "other.sh", 1))
+	if err := target.CheckTrust(); err == nil {
+		t.Error("CheckTrust accepts a changed hook")
+	}
+}
+
+func TestRunBrokenConfig(t *testing.T) {
+	target := newProject(t, "hooks: [\n", false)
+	if err := Run(context.Background(), target, prdName); err == nil || !strings.Contains(err.Error(), "config.yaml") {
+		t.Errorf("Run: %v", err)
+	}
+}
+
+func TestRunWithoutClaude(t *testing.T) {
+	target := newProject(t, "", false)
+	claude.Command = []string{"claude-missing-in-test"}
+	if err := Run(context.Background(), target, prdName); err == nil || err.Error() != "claude-missing-in-test not found, install Claude Code" {
+		t.Errorf("Run: %v", err)
+	}
+	if _, err := state.Load("app", prdName); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("state without claude: %v", err)
+	}
+}
+
+func TestRunUnknownOrDonePRD(t *testing.T) {
+	target := newProject(t, "", false)
+	if err := Run(context.Background(), target, "missing"); err == nil || !strings.Contains(err.Error(), `no PRD "missing"`) {
+		t.Errorf("unknown PRD: %v", err)
+	}
+	write(t, target.Dir, "prd/auth/done.md", "# PRD: Done\n\n> Status: umgesetzt (2026-10-01)\n")
+	if err := Run(context.Background(), target, "done"); err == nil || !strings.Contains(err.Error(), "merged already") {
+		t.Errorf("merged PRD: %v", err)
+	}
+	write(t, target.Dir, "prd/auth/gone.md", "# PRD: Gone\n\n> Status: verworfen (2026-10-01)\n")
+	if err := Run(context.Background(), target, "gone"); err == nil || !strings.Contains(err.Error(), "discarded") {
+		t.Errorf("discarded PRD: %v", err)
+	}
+	for _, name := range []string{"missing", "done", "gone"} {
+		if _, err := state.Load("app", name); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("state for %s: %v", name, err)
+		}
+	}
+}
+
+func TestRunTrackedPRD(t *testing.T) {
+	target := newProject(t, "", false)
+	runGit(t, target.Dir, "add", prdPath)
+	runGit(t, target.Dir, "commit", "-q", "-m", "docs(prd): add new-token by hand")
+	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
 	}
-	a, _ := state.Load("app", "new-token")
-	b, _ := state.Load("app", "tracked")
-	if a.Port == b.Port {
-		t.Errorf("beide Läufe auf Port %d", a.Port)
-	}
-	wt := worktree.Path("app", "tracked")
-	if got := runGit(t, wt, "log", "--format=%s", "main.."); got != "feat: review" {
-		t.Errorf("getracktes PRD bekam einen Commit: %q", got)
+	if got := runGit(t, target.Dir, "log", "--format=%s"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token by hand\ninit" {
+		t.Errorf("main: %q", got)
 	}
 }
 
-func TestRunFailureKeepsWorktree(t *testing.T) {
-	cfg, target := setupProject(t)
-	write(t, target.Dir(), "setup.sh", "#!/bin/sh\necho kaputt >&2\nexit 1\n")
-	err := Run(cfg, target, "new-token", io.Discard)
-	if err == nil {
-		t.Fatal("Fehler erwartet")
-	}
-	r, _ := state.Load("app", "new-token")
-	if r.Phase != project.PhaseError || r.Error == nil || *r.Steps[0].ExitCode != 1 || len(r.Steps) != 1 {
-		t.Errorf("Zustand nach Fehler: %+v", r)
-	}
-	if _, err := os.Stat(worktree.Path("app", "new-token")); err != nil {
-		t.Error("Worktree nach Fehler entfernt")
-	}
-	logData, _ := os.ReadFile(state.LogPath("app", "new-token", "setup"))
-	if !strings.Contains(string(logData), "kaputt") {
-		t.Errorf("stderr fehlt im Log:\n%s", logData)
-	}
-}
-
-func TestTeardownRestoresPRD(t *testing.T) {
-	cfg, target := setupProject(t)
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	wt := worktree.Path("app", "new-token")
-
-	if err := Teardown(target, "new-token", io.Discard); err != nil {
-		t.Fatal(err)
-	}
-	restored, err := os.ReadFile(filepath.Join(target.Dir(), "prd/auth/new-token.md"))
-	if err != nil {
-		t.Fatal("PRD nicht zurück im Hauptordner")
-	}
-	if !strings.Contains(string(restored), "> Status: geplant · Scope: B") {
-		t.Errorf("Status nicht zurückgesetzt:\n%s", restored)
-	}
-	if _, err := os.Stat(wt); err == nil {
-		t.Error("Worktree existiert noch")
-	}
-	if out := runGit(t, target.Dir(), "branch", "--list", "feat/new-token"); out != "" {
-		t.Error("Branch existiert noch")
-	}
-	if _, err := state.Load("app", "new-token"); err == nil {
-		t.Error("Zustand existiert noch")
-	}
-	// Danach lässt sich das PRD wieder starten.
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
-		t.Errorf("Neustart nach Teardown: %v", err)
-	}
-}
-
-func TestTeardownWithoutState(t *testing.T) {
-	_, target := setupProject(t)
-	if err := Teardown(target, "new-token", io.Discard); err != nil {
-		t.Errorf("Teardown ohne Lauf: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(target.Dir(), "prd/auth/new-token.md")); err != nil {
-		t.Error("Teardown ohne Lauf hat das PRD im Hauptordner angefasst")
-	}
-}
-
-func TestRunRejectsUnknownImplementedAndDiscarded(t *testing.T) {
-	cfg, target := setupProject(t)
-	if err := Run(cfg, target, "fehlt", io.Discard); err == nil {
-		t.Error("unbekanntes PRD akzeptiert")
-	}
-	write(t, target.Dir(), "prd/auth/done.md", "# PRD: Fertig\n> Status: umgesetzt (2026-10-01)\n")
-	if err := Run(cfg, target, "done", io.Discard); err == nil {
-		t.Error("umgesetztes PRD akzeptiert")
-	}
-	write(t, target.Dir(), "prd/auth/dropped.md", "# PRD: Verworfen\n> Status: verworfen (2026-10-01)\n")
-	if err := Run(cfg, target, "dropped", io.Discard); err == nil || !strings.Contains(err.Error(), "ist verworfen") {
-		t.Errorf("verworfenes PRD akzeptiert: %v", err)
-	}
-	if _, err := FindProject(cfg, "nope"); err == nil {
-		t.Error("unbekanntes Projekt akzeptiert")
-	}
-}
-
-func TestRunResumesFailedStep(t *testing.T) {
-	cfg, target := setupProject(t)
+func TestRunImplementAbortedContinues(t *testing.T) {
+	target := newProject(t, hooksConfig, true)
 	t.Setenv("FAKE_CLAUDE_MODE", "abort")
-	err := Run(cfg, target, "new-token", io.Discard)
-	if err == nil || !strings.Contains(err.Error(), "Feld fehlt im PRD") {
-		t.Fatalf("Abbruch der Umsetzung: %v", err)
+	err := Run(context.Background(), target, prdName)
+	if err == nil || err.Error() != "implement aborted: Feld fehlt im PRD" {
+		t.Fatalf("Run: %v", err)
 	}
-	r, _ := state.Load("app", "new-token")
-	if r.Phase != project.PhaseError || NextStep(r) != StepImplement || r.Steps[1].OK {
-		t.Errorf("Zustand nach Abbruch: %+v", r)
+	r := loadRun(t)
+	if r.Phase != project.PhaseError || r.Error == nil || *r.Error != err.Error() || r.PID != 0 {
+		t.Errorf("state: %+v", r)
+	}
+	if r.NextStep() != state.StepImplement || len(r.Steps) != 2 || r.Steps[1].OK || *r.Steps[1].ExitCode != 0 {
+		t.Errorf("steps: %+v", r.Steps)
+	}
+	if !fsutil.Exists(WorktreePath("app", prdName)) {
+		t.Error("worktree removed after the error")
+	}
+	if log := read(t, state.LogPath("app", prdName, state.StepImplement)); !strings.Contains(log, "Error: implement aborted: Feld fehlt im PRD") {
+		t.Errorf("implement log:\n%s", log)
 	}
 
 	t.Setenv("FAKE_CLAUDE_MODE", "ok")
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
+	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
 	}
-	r, _ = state.Load("app", "new-token")
-	names := []string{}
-	for _, s := range r.Steps {
-		names = append(names, s.Name)
+	r = loadRun(t)
+	if r.Phase != project.PhaseMerged || r.Error != nil || len(r.Steps) != 5 {
+		t.Errorf("state after the second run: %+v", r)
 	}
-	if r.Phase != project.PhaseMergeQueue || r.Error != nil || strings.Join(names, ",") != "setup,implement,implement,review" {
-		t.Errorf("Zustand nach Wiederaufnahme: %+v", r)
+	// The setup ran once, the aborted implement costs too.
+	if got := strings.Count(read(t, filepath.Join(target.Dir, "hooks.log")), "setup "); got != 1 {
+		t.Errorf("setup hook ran %d times", got)
+	}
+	if got := read(t, filepath.Join(target.Dir, prdPath)); !strings.Contains(got, "Kosten: 1.00 USD · Modell: claude-opus-5-5") {
+		t.Errorf("PRD on main:\n%s", got)
 	}
 }
 
-func TestRunChecks(t *testing.T) {
-	cases := []struct{ mode, want string }{
-		{"exit", "Exit-Code 3"},
-		{"noresult", "ohne result"},
-		{"status", "Statuszeile"},
-		{"dirty", "nicht sauber"},
+func TestRunStepFailures(t *testing.T) {
+	cases := []struct {
+		mode, step, err string
+	}{
+		{"exit", state.StepImplement, "claude ended with exit code 3: kaputt"},
+		{"noresult", state.StepImplement, "claude ended without result event"},
+		{"error", state.StepImplement, "claude reports an error: Rate limit"},
+		{"status", state.StepImplement, `status line of prd/auth/new-token.md is "geplant" instead of „umgesetzt (date)“`},
+		{"dirty", state.StepReview, "worktree after the review not clean:  M prd/auth/new-token.md, ?? review.txt"},
+		{"lazydev", state.StepImplement, ".lazydev/ changed in the worktree: .lazydev/neu.md"},
 	}
 	for _, c := range cases {
 		t.Run(c.mode, func(t *testing.T) {
-			cfg, target := setupProject(t)
+			target := newProject(t, "", false)
 			t.Setenv("FAKE_CLAUDE_MODE", c.mode)
-			err := Run(cfg, target, "new-token", io.Discard)
-			if err == nil || !strings.Contains(err.Error(), c.want) {
-				t.Errorf("Fehler = %v, erwartet %q", err, c.want)
+			err := Run(context.Background(), target, prdName)
+			if err == nil || !strings.Contains(err.Error(), c.err) {
+				t.Fatalf("Run: %v, want %q", err, c.err)
+			}
+			r := loadRun(t)
+			last := r.LastStep()
+			if r.Phase != project.PhaseError || r.PID != 0 || last.Name != c.step || last.OK || r.NextStep() != c.step {
+				t.Errorf("state: %+v", r)
+			}
+			wantExit := 0
+			if c.mode == "exit" {
+				wantExit = 3
+			}
+			if *last.ExitCode != wantExit {
+				t.Errorf("exit code %d, want %d", *last.ExitCode, wantExit)
 			}
 		})
 	}
 }
 
-func TestStartRespectsMaxParallel(t *testing.T) {
-	cfg, target := setupProject(t)
-	cfg.MaxParallel = 1
-	var spawned []string
-	pids := map[int]bool{}
-	spawnRunner = func(id, prd string) (int, error) {
-		spawned = append(spawned, prd)
-		pid := 1000 + len(spawned)
-		pids[pid] = true
-		return pid, nil
+func TestRunSetupHookFails(t *testing.T) {
+	target := newProject(t, hooksConfig, true)
+	write(t, target.Dir, "setup.sh", "#!/bin/sh\necho broken >&2\nexit 2\n")
+	err := Run(context.Background(), target, prdName)
+	if err == nil || err.Error() != "setup hook ended with exit code 2" {
+		t.Fatalf("Run: %v", err)
 	}
-	isRunning = func(r *state.Run) bool { return pids[r.PID] }
-	t.Cleanup(func() { isRunning = func(r *state.Run) bool { return r.Running() } })
-
-	if started, err := Start(cfg, target, "new-token"); err != nil || !started {
-		t.Fatalf("erster Start: %v, %v", started, err)
+	r := loadRun(t)
+	if r.Phase != project.PhaseError || r.NextStep() != state.StepSetup || *r.LastStep().ExitCode != 1 {
+		t.Errorf("state: %+v", r)
 	}
-	if started, err := Start(cfg, target, "tracked"); err != nil || started {
-		t.Fatalf("zweiter Start: %v, %v", started, err)
+	if log := read(t, state.LogPath("app", prdName, state.StepSetup)); !strings.Contains(log, "broken") {
+		t.Errorf("hook output missing in the log:\n%s", log)
 	}
-	if r, _ := state.Load("app", "tracked"); r.Phase != project.PhaseWaiting {
-		t.Errorf("Phase des zweiten PRDs: %s", r.Phase)
-	}
-	if _, err := Start(cfg, target, "new-token"); err == nil {
-		t.Error("doppelter Start akzeptiert")
-	}
-
-	// Der erste Runner endet in der Merge-Queue.
-	first, _ := state.Load("app", "new-token")
-	first.Phase, first.PID = project.PhaseMergeQueue, 0
-	state.Save("app", "new-token", first)
-	clear(pids)
-	if err := StartWaiting(cfg); err != nil {
+	// The setup is repeatable: worktree and moved PRD stay, the second run continues.
+	write(t, target.Dir, "setup.sh", setupScript)
+	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
 	}
-	if strings.Join(spawned, ",") != "new-token,tracked" {
-		t.Errorf("gestartet: %v", spawned)
+	if log := read(t, state.LogPath("app", prdName, state.StepSetup)); !strings.Contains(log, "exists already") {
+		t.Errorf("second setup:\n%s", log)
 	}
-	if r, _ := state.Load("app", "tracked"); !pids[r.PID] {
-		t.Errorf("PID nicht gespeichert: %+v", r)
+	if got := runGit(t, target.Dir, "log", "--format=%s", "-3"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token" {
+		t.Errorf("main: %q", got)
 	}
 }
 
-// fakeClaude schreibt ein Skript, das claude -p nachahmt. Es erkennt den Schritt an der Kopfzeile
-// "# lazydev <schritt>:" des Prompts. FAKE_CLAUDE_MODE steuert das Verhalten: ok, abort, exit,
-// noresult, status (Statuszeile bleibt), dirty (Review committet nicht), lazydev (die Umsetzung
-// legt eine Datei unter .lazydev/ an).
-func fakeClaude(t *testing.T) string {
-	t.Helper()
-	path := filepath.Join(t.TempDir(), "claude")
-	script := `#!/bin/sh
-# printf statt echo, weil echo in dash "\n" als Zeilenumbruch ausgibt.
-{ printf '%s\n' "$@"; echo "GIT_EDITOR=$GIT_EDITOR"; } >> .fake-args
-echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"claude-opus-5-5"}'
-echo 'eine Warnung' >&2
-mode="$FAKE_CLAUDE_MODE"
-case "$2" in
-"# lazydev implement: "*)
-	prd=$(printf '%s\n' "$2" | sed -n '1s/^# lazydev implement: //p')
-	case "$mode" in
-	exit) echo '{"type":"result","is_error":true,"result":"kaputt"}'; exit 3 ;;
-	noresult) exit 0 ;;
-	abort) printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Feld fehlt im PRD\n"}'; exit 0 ;;
-	status) ;;
-	lazydev) mkdir -p .lazydev && echo x > .lazydev/neu.md
-		sed -i 's/^> Status: geplant/> Status: umgesetzt (2026-10-20)/' "$prd" ;;
-	*) sed -i 's/^> Status: geplant/> Status: umgesetzt (2026-10-20)/' "$prd" ;;
-	esac
-	echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"x.ts"}}]}}'
-	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.5,"result":"## Ergebnis\numgesetzt\n\n## Offene Fragen\n- keine\n"}'
-	;;
-"# lazydev merge: "*)
-	if [ "$FAKE_MERGE_MODE" = abort ]; then
-		printf '%s\n' '{"type":"result","is_error":false,"result":"## Ergebnis\nabgebrochen\n\n## Offene Punkte\n- review.txt: beide Seiten unklar\n"}'
-		exit 0
-	fi
-	git rebase -q -X theirs main >/dev/null 2>&1 || true
-	touch .merge-fixed
-	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\nbereit für Fast-Forward\n"}'
-	;;
-"# lazydev review: "*)
-	echo change > review.txt
-	if [ "$mode" != dirty ]; then
-		git add -A && git commit -q -m "feat: review"
-	fi
-	echo '{"type":"result","is_error":false,"total_cost_usd":0.3,"result":"fertig"}'
-	;;
-esac
-`
-	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+func TestRunBranchExists(t *testing.T) {
+	target := newProject(t, "", false)
+	runGit(t, target.Dir, "branch", "feat/new-token")
+	if err := Run(context.Background(), target, prdName); err == nil || err.Error() != "branch feat/new-token exists already" {
+		t.Errorf("Run: %v", err)
+	}
+}
+
+func TestRunCanceled(t *testing.T) {
+	target := newProject(t, "", false)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	// The setup does not look at ctx, but runStep marks it aborted afterwards.
+	err := Run(ctx, target, prdName)
+	if err == nil || err.Error() != "setup aborted" {
+		t.Fatalf("Run: %v", err)
+	}
+	r := loadRun(t)
+	if r.Phase != project.PhaseAborted || r.PID != 0 || r.NextStep() != state.StepSetup || r.Error != nil {
+		t.Errorf("state: %+v", r)
+	}
+	if log := read(t, state.LogPath("app", prdName, state.StepSetup)); !strings.Contains(log, "Aborted") {
+		t.Errorf("setup log:\n%s", log)
+	}
+	// The setup repeats on the existing worktree.
+	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
 	}
-	return path
+	if r := loadRun(t); r.Phase != project.PhaseMerged || len(r.Steps) != 5 {
+		t.Errorf("state after the second run: %+v", r)
+	}
 }
 
-func write(t *testing.T, root, rel, content string) {
-	t.Helper()
-	path := filepath.Join(root, rel)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+func TestRunRefusesWhileAnotherRunnerRuns(t *testing.T) {
+	target := newProject(t, "", false)
+	pid := startFakeRunner(t)
+	if err := state.Save("app", prdName, &state.Run{PID: pid, Phase: project.PhaseImplement, Steps: []state.Step{{Name: state.StepSetup}}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	err := Run(context.Background(), target, prdName)
+	if err == nil || !strings.Contains(err.Error(), "runs already (PID "+strconv.Itoa(pid)) {
+		t.Errorf("Run: %v", err)
+	}
+	if err := Discard(target, prdName); err == nil || !strings.Contains(err.Error(), "still runs") {
+		t.Errorf("Discard of a running PRD: %v", err)
+	}
+}
+
+func TestStartWaitsAtMaxParallel(t *testing.T) {
+	target := newProject(t, "", false)
+	for i := range MaxParallel {
+		name := "other-" + strconv.Itoa(i)
+		if err := state.Save("app", name, &state.Run{PID: startFakeRunner(t), Phase: project.PhaseImplement, Port: PortBase + i}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	started, err := Start(target, prdName)
+	if err != nil || started {
+		t.Fatalf("Start: %v, started %v", err, started)
+	}
+	r := loadRun(t)
+	if r.Phase != project.PhaseWaiting || r.PID != 0 || len(r.Steps) != 0 || r.Port < PortBase+MaxParallel {
+		t.Errorf("state: %+v", r)
+	}
+	// A waiting PRD stays in the main folder until its runner starts.
+	if !fsutil.Exists(filepath.Join(target.Dir, prdPath)) {
+		t.Error("PRD moved before the start")
+	}
+	if err := Stop("app", prdName); err != nil {
 		t.Fatal(err)
 	}
-}
-
-func runGit(t *testing.T, dir string, args ...string) string {
-	t.Helper()
-	out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput()
-	if err != nil {
-		t.Fatalf("git %v: %v\n%s", args, err, out)
+	if r := loadRun(t); r.Phase != project.PhaseAborted {
+		t.Errorf("phase after Stop: %s", r.Phase)
 	}
-	return strings.TrimSpace(string(out))
 }
 
-// commitRepo legt Dateien unter .lazydev/ und weitere im Hauptordner an und committet nur sie. Das
-// ungetrackte PRD bleibt ungetrackt.
-func commitRepo(t *testing.T, target Target, files map[string]string) {
-	t.Helper()
-	for rel, content := range files {
-		write(t, target.Dir(), rel, content)
-		runGit(t, target.Dir(), "add", "--", rel)
+func TestStop(t *testing.T) {
+	isolate(t)
+	if err := Stop("app", prdName); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("Stop without state: %v", err)
 	}
-	runGit(t, target.Dir(), "commit", "-q", "-m", "lazydev")
-}
-
-func TestRunUsesProjectPrompt(t *testing.T) {
-	cfg, target := setupProject(t)
-	commitRepo(t, target, map[string]string{
-		".lazydev/config.yaml":  "knowledge:\n  all: [CLAUDE.md]\n  review: [docs/review.md]\n",
-		".lazydev/implement.md": "---\ndescription: Team\n---\n# Ablauf des Teams\nSetze $ARGUMENTS auf $BRANCH um.\n",
-		"CLAUDE.md":             "# Regeln\n",
-		"docs/review.md":        "# Review\n",
-	})
-	// Hooks aus der zentralen config.yaml brauchen keine Bestätigung, sie wirken hier aber nicht.
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
+	if err := state.Save("app", prdName, &state.Run{Phase: project.PhaseWaiting}); err != nil {
 		t.Fatal(err)
 	}
-	wt := worktree.Path("app", "new-token")
-	args, _ := os.ReadFile(filepath.Join(wt, ".fake-args"))
-	want := "# lazydev implement: prd/auth/new-token.md\n\n## Pflichtlektüre\n\nLies diese Dateien vollständig, bevor du etwas anderes tust:\n\n- `CLAUDE.md`\n\n" +
-		"# Ablauf des Teams\nSetze prd/auth/new-token.md auf feat/new-token um.\n\n## Regeln von lazydev"
-	if !strings.Contains(string(args), want) {
-		t.Errorf("Aufruf von claude ohne Projekt-Prompt:\n%s", args)
-	}
-	implLog, _ := os.ReadFile(state.LogPath("app", "new-token", StepImplement))
-	if !strings.Contains(string(implLog), "Prompt: .lazydev/implement.md") || !strings.Contains(string(implLog), "Knowledge: CLAUDE.md") {
-		t.Errorf("Log von implement:\n%s", implLog)
-	}
-	reviewLog, _ := os.ReadFile(state.LogPath("app", "new-token", StepReview))
-	if !strings.Contains(string(reviewLog), "Prompt: Standard") || !strings.Contains(string(reviewLog), "Knowledge: CLAUDE.md, docs/review.md") {
-		t.Errorf("Log von review:\n%s", reviewLog)
-	}
-	// Mit .lazydev/config.yaml wirken die Hooks der zentralen config.yaml nicht.
-	if _, err := os.Stat(filepath.Join(wt, "port.txt")); err == nil {
-		t.Error("Setup-Skript der zentralen config.yaml lief")
-	}
-}
-
-func TestRunMissingKnowledgeSkipsClaude(t *testing.T) {
-	cfg, target := setupProject(t)
-	commitRepo(t, target, map[string]string{".lazydev/config.yaml": "knowledge:\n  implement: [LOKAL.md]\n"})
-	// Nur im Hauptordner, nicht im Worktree.
-	write(t, target.Dir(), "LOKAL.md", "x")
-	err := Run(cfg, target, "new-token", io.Discard)
-	if err == nil || err.Error() != "Knowledge-Datei fehlt: LOKAL.md" {
-		t.Fatalf("Fehler: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(worktree.Path("app", "new-token"), ".fake-args")); err == nil {
-		t.Error("claude lief trotz fehlender Knowledge-Datei")
-	}
-	if r, _ := state.Load("app", "new-token"); r.Phase != project.PhaseError || NextStep(r) != StepImplement {
-		t.Errorf("Zustand: %+v", r)
-	}
-}
-
-func TestRunFailsWhenClaudeChangesLazydev(t *testing.T) {
-	cfg, target := setupProject(t)
-	t.Setenv("FAKE_CLAUDE_MODE", "lazydev")
-	err := Run(cfg, target, "new-token", io.Discard)
-	if err == nil || err.Error() != ".lazydev/ im Worktree geändert: .lazydev/neu.md" {
-		t.Fatalf("Fehler: %v", err)
-	}
-	if r, _ := state.Load("app", "new-token"); NextStep(r) != StepImplement {
-		t.Errorf("Zustand: %+v", r)
-	}
-}
-
-func TestRunNeedsTrust(t *testing.T) {
-	cfg, target := setupProject(t)
-	commitRepo(t, target, map[string]string{".lazydev/config.yaml": "hooks:\n  setup: ./setup.sh\n"})
-	const hint = "Hooks oder Freigaben in .lazydev/config.yaml nicht bestätigt. Prüfen und bestätigen: lazydev trust app"
-	if err := Run(cfg, target, "new-token", io.Discard); err == nil || err.Error() != hint {
-		t.Fatalf("Run ohne Vertrauen: %v", err)
-	}
-	if _, err := Start(cfg, target, "new-token"); err == nil || err.Error() != hint {
-		t.Errorf("Start ohne Vertrauen: %v", err)
-	}
-	if _, err := state.Load("app", "new-token"); err == nil {
-		t.Error("Lauf ohne Vertrauen angelegt")
-	}
-
-	repo, _, _ := config.LoadRepo(target.Dir())
-	if err := state.Trust("app", repo.TrustHash()); err != nil {
+	if err := Stop("app", prdName); err != nil {
 		t.Fatal(err)
 	}
-	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
+	if r := loadRun(t); r.Phase != project.PhaseAborted {
+		t.Errorf("phase: %s", r.Phase)
+	}
+	if err := Stop("app", prdName); err == nil || !strings.Contains(err.Error(), "no runner for new-token, phase aborted") {
+		t.Errorf("Stop of an aborted run: %v", err)
+	}
+	// An active phase without a living runner shows as aborted.
+	if err := state.Save("app", prdName, &state.Run{Phase: project.PhaseReview, PID: 999999999}); err != nil {
 		t.Fatal(err)
 	}
-	if port, _ := os.ReadFile(filepath.Join(worktree.Path("app", "new-token"), "port.txt")); len(port) == 0 {
-		t.Error("Setup-Hook aus .lazydev/config.yaml lief nicht")
+	if err := Stop("app", prdName); err == nil || !strings.Contains(err.Error(), "phase aborted") {
+		t.Errorf("Stop of a dead runner: %v", err)
 	}
+}
 
-	// Eine Änderung an den Freigaben verlangt erneut eine Bestätigung, auch uncommittet.
-	write(t, target.Dir(), ".lazydev/config.yaml", "hooks:\n  setup: ./setup.sh\nallowedTools: [\"Bash(make:*)\"]\n")
-	if err := Run(cfg, target, "tracked", io.Discard); err == nil || err.Error() != hint {
-		t.Errorf("Run nach Änderung: %v", err)
+func TestStopRunningRunner(t *testing.T) {
+	isolate(t)
+	pid := startFakeRunner(t)
+	if err := state.Save("app", prdName, &state.Run{PID: pid, Phase: project.PhaseImplement}); err != nil {
+		t.Fatal(err)
 	}
+	if err := Stop("app", prdName); err != nil {
+		t.Fatal(err)
+	}
+	// An ended child the test has not waited for is a zombie with an empty command line.
+	waitFor(t, "the runner to end", func() bool { return !state.IsRunner(pid) })
 }

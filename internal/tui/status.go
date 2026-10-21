@@ -4,146 +4,145 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"lazydev/internal/project"
-	"lazydev/internal/state"
 )
 
-// statusChoices sind die Werte im Fenster „Status“, in dieser Reihenfolge.
-var statusChoices = []struct {
-	kind  project.StatusKind
-	value string
-}{
-	{project.StatusPlanned, project.StatusValuePlanned},
-	{project.StatusImplemented, project.StatusValueImplemented},
-	{project.StatusDiscarded, project.StatusValueDiscarded},
-}
+// The status picker sets the status of a PRD without run. It changes the value before the first
+// "·" only. A tracked PRD gets committed in the main folder, an untracked one only changes.
 
-// statusPicker wählt den Status eines PRDs ohne Lauf-Zustand. path ist der absolute Projektpfad,
-// base der Ziel-Branch. current ist der Index des aktuellen Werts, -1 bei einem anderen Wert.
+// statusPickerWidth is the outer width of the picker box.
+const statusPickerWidth = 46
+
+// statusPicker is the open picker. current is the index of the current value, -1 for another one.
 type statusPicker struct {
-	path, base string
+	dir, base  string
 	rel, label string
 	tracked    bool
 	current    int
 	cursor     int
+	// confirm is true while the question to commit is open.
+	confirm bool
 }
 
-// statusBlocked nennt den Grund, warum c den Status nicht ändert. Die Fußzeile zeigt c nur ohne Grund.
-func statusBlocked(d *project.PRD, r *state.Run) string {
-	if r != nil {
-		return d.Label() + " hat einen Lauf von lazydev. Verwirf ihn zuerst mit X."
-	}
-	return ""
+// actionMsg reports the end of an action in the background, like a status change or a start.
+type actionMsg struct {
+	text string
+	err  error
 }
 
-// openStatusPicker zeigt das Fenster „Status“ für das gewählte PRD. Vorgewählt ist der aktuelle Wert.
-func (m Model) openStatusPicker() (Model, tea.Cmd) {
-	p, d := m.selectedProject(), m.selectedPRD()
-	if p == nil || d == nil {
-		return m, nil
+// openStatusPicker opens the picker for the selected PRD, with its current value selected.
+func (m *model) openStatusPicker() {
+	p := m.current()
+	d := p.selectedPRD()
+	if d == nil {
+		return
 	}
-	if reason := statusBlocked(d, m.runs.get(p, d)); reason != "" {
-		m.setMessage(reason, true)
-		return m, nil
-	}
-	data, err := os.ReadFile(filepath.Join(p.Path, d.Path))
+	data, err := os.ReadFile(filepath.Join(p.path, d.Path))
 	if err != nil {
-		m.setMessage(firstLine(err.Error()), true)
-		return m, nil
+		m.err = err.Error()
+		return
 	}
-	if _, ok := project.SetStatus(string(data), project.StatusValuePlanned); !ok {
-		m.setMessage(d.Label()+" hat keine Statuszeile", true)
-		return m, nil
+	if _, ok := project.SetStatus(string(data), project.ValuePlanned); !ok {
+		m.err = d.Label() + " has no status line."
+		return
 	}
-	s := &statusPicker{path: p.Path, base: p.Base, rel: d.Path, label: d.Label(), tracked: d.Tracked, current: -1}
-	for i, c := range statusChoices {
-		if c.kind == d.Status.Kind {
+	s := &statusPicker{dir: p.path, base: p.lazydev.Config.Base(), rel: d.Path, label: d.Label(), tracked: d.Tracked, current: -1}
+	for i, c := range project.Choices {
+		if c.Kind == d.Status.Kind {
 			s.current, s.cursor = i, i
 		}
 	}
-	m.prdStatus = s
-	m.mode = modeStatus
-	return m, nil
+	m.status = s
 }
 
-// lines zeigt die drei Werte, den aktuellen mit „(aktuell)“.
-func (s *statusPicker) lines() []string {
-	var lines []string
-	for i, c := range statusChoices {
-		label := c.value
-		if i == s.current {
-			label += " (aktuell)"
+// updateStatus handles all keys while the picker is open.
+func (m model) updateStatus(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	s := m.status
+	key := msg.String()
+	if s.confirm {
+		m.status = nil
+		if key == "y" || key == "j" {
+			return m, changeStatus(s)
 		}
-		if i == s.cursor {
-			lines = append(lines, styleSelected.Render("> "+label))
-		} else {
-			lines = append(lines, styleMuted.Render("  "+label))
-		}
+		return m, nil
 	}
-	return lines
-}
-
-// value liefert den gewählten Statuswert. umgesetzt und verworfen bekommen das heutige Datum.
-func (s *statusPicker) value(now time.Time) string {
-	c := statusChoices[s.cursor]
-	if c.kind == project.StatusPlanned {
-		return c.value
-	}
-	return fmt.Sprintf("%s (%s)", c.value, now.Format("2006-01-02"))
-}
-
-func (m Model) updateStatus(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	s := m.prdStatus
-	switch msg.String() {
+	switch key {
 	case "esc", "ctrl+c", "q":
-		m.mode = modeNormal
-		m.prdStatus = nil
+		m.status = nil
 	case "j", "down":
-		s.cursor = clamp(s.cursor+1, len(statusChoices))
+		s.cursor = clamp(s.cursor+1, len(project.Choices))
 	case "k", "up":
-		s.cursor = clamp(s.cursor-1, len(statusChoices))
+		s.cursor = clamp(s.cursor-1, len(project.Choices))
 	case "enter":
-		m.mode = modeNormal
-		m.prdStatus = nil
-		// Der aktuelle Wert ändert nichts, auch nicht das Datum von umgesetzt oder verworfen.
+		// The current value changes nothing, not even the date of merged or discarded.
 		if s.cursor == s.current {
+			m.status = nil
 			return m, nil
 		}
-		return m.changeStatus(s, s.value(time.Now()))
+		if s.tracked {
+			s.confirm = true
+			return m, nil
+		}
+		m.status = nil
+		return m, changeStatus(s)
 	}
 	return m, nil
 }
 
-// changeStatus schreibt den Statuswert. Ein getracktes PRD committet lazydev nach Rückfrage im
-// Hauptordner, ein ungetracktes ändert es ohne Rückfrage und ohne Commit.
-func (m Model) changeStatus(s *statusPicker, value string) (Model, tea.Cmd) {
-	apply := func(m Model) (Model, tea.Cmd) {
-		return m, action(func() (string, error) {
-			committed, err := project.ChangeStatus(s.path, s.base, s.rel, value)
-			if err != nil {
-				return "", err
-			}
-			text := fmt.Sprintf("Status von %s: %s", s.label, value)
-			if committed {
-				text += ", committet"
-			}
-			return text, nil
-		})
+// changeStatus writes the status in the background.
+func changeStatus(s *statusPicker) tea.Cmd {
+	return func() tea.Msg {
+		c := project.Choices[s.cursor]
+		committed, err := project.ChangeStatus(s.dir, s.base, s.rel, c, time.Now())
+		if err != nil {
+			return actionMsg{err: err}
+		}
+		text := fmt.Sprintf("Status of %s: %s", s.label, c.Label)
+		if committed {
+			text += ", committed"
+		}
+		return actionMsg{text: text}
 	}
-	if !s.tracked {
-		return apply(m)
-	}
-	return m.ask(fmt.Sprintf("Status von %s auf %s setzen und committen? (j/n)", s.label, value), apply)
 }
 
-// viewStatusPicker zeigt das Fenster „Status“.
-func (m Model) viewStatusPicker() string {
-	s := m.prdStatus
-	lines := s.lines()
-	w, _ := m.dialogSize()
-	return dialog("Status · "+s.label, lines, w, len(lines)+4)
+// viewStatusPicker renders the picker as a box for the overlay.
+func (m model) viewStatusPicker() string {
+	s := m.status
+	t := themes[m.theme]
+	text := lipgloss.NewStyle().Foreground(t.text)
+	inner := min(statusPickerWidth, m.width-4) - 4
+	lines := []string{""}
+	for i, c := range project.Choices {
+		label := c.Label
+		if i == s.current {
+			label += " (current)"
+		}
+		if i == s.cursor {
+			lines = append(lines, text.Bold(true).Foreground(t.selectedFg).Background(t.selectedBg).Render("> "+pad(label, inner-2)))
+		} else {
+			lines = append(lines, text.Render("  "+pad(label, inner-2)))
+		}
+	}
+	if s.confirm {
+		lines = append(lines, "", text.Bold(true).Render(pad("Commit "+s.rel+"? (y/n)", inner)))
+	}
+	lines = append(lines, "")
+	for i := range lines {
+		lines[i] = " " + lines[i]
+	}
+	return box("Status · "+s.label, strings.Join(lines, "\n"), inner+4, len(lines)+2, t.focus, true, t)
+}
+
+// keys is the key help of the picker.
+func (s *statusPicker) keys() string {
+	if s.confirm {
+		return " y set and commit · n cancel"
+	}
+	return " j/k status · enter set · esc cancel"
 }

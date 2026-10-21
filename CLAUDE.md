@@ -2,114 +2,90 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Überblick
+## Overview
 
-lazydev ist eine Go-TUI (Bubble Tea) für den PRD-Workflow mit Claude Code. Jedes PRD läuft in einem eigenen
-Git-Worktree mit eigener Datenbank und eigenem Port und wird per Fast-Forward in den
-Ziel-Branch des Projekts gemergt (`baseBranch` aus `.lazydev/config.yaml`, Standard `main`).
-`SPEC.md` ist die verbindliche Beschreibung des Verhaltens. Um Verhalten zu ändern, passe `SPEC.md`,
-`README.md` und `README.de.md` mit an.
+lazydev is a Go TUI (Bubble Tea) for the PRD workflow with Claude Code: projects left, terminal tabs
+(PTY + x/vt) center with the details pane below, files and PRDs right. Each PRD runs in its own Git worktree
+and port and gets fast-forwarded into the project's base branch (`baseBranch` in `.lazydev/config.yaml`,
+default `main`). `SPEC.md` is the binding description of the behavior. To change behavior, update `SPEC.md`,
+`README.md` and `README.de.md` along with the code.
 
-## Befehle
+## Commands
 
 ```sh
-make test                                   # go vet ./... und go test ./...
-make build                                  # Binärdatei unter bin/lazydev
-make install                                # nach ~/.local/bin/lazydev, PREFIX überschreibbar
-go run ./cmd/lazydev                        # TUI ohne Installation
-go test ./internal/runner -run TestRunChecks  # einzelner Test
+make test                                   # go vet ./... and go test ./...
+make build                                  # bin/lazydev
+make install                                # ~/.local/bin/lazydev, PREFIX overridable
+go run ./cmd/lazydev                        # TUI without installing
+go test ./internal/runner -run TestRunMerges  # single test
 ```
 
-Nur Linux: lazydev nutzt `/proc`, `setsid` und `flock`. Go 1.27 oder neuer.
+Linux only: lazydev uses `/proc`, `setsid` and `flock`. Go 1.27 or later. `x/cellbuf` is pinned to v0.0.15,
+older versions do not build against the newer `x/ansi`.
 
-## Architektur
+## Architecture
 
-### Prozessmodell
+### Packages (`internal/`)
 
-- Die TUI (`internal/tui`) steuert nichts direkt. Sie liest nur Dateien: Lauf-Zustand, Logs und
-  `usage.json`. fsnotify meldet Änderungen unter `prd/` und im Zustandsverzeichnis. Zusätzlich liest die
-  TUI alle 2 Sekunden neu ein, weil ein beendeter Runner kein Dateiereignis auslöst.
-- Jedes PRD läuft in einem losgelösten Runner-Prozess. `runner.Start` (`internal/runner/start.go`) ruft das
-  eigene Binary über `os.Executable()` als `lazydev run <projekt-id> <prd-name>` mit `setsid` auf.
-  Eine laufende TUI startet Runner also mit der installierten Version, nicht mit dem Code im Repo.
-- `maxParallel` gilt unter der Sperre `locks/start.lock`. Ein endender Runner startet das nächste
-  wartende PRD, nicht die TUI.
-- Ein Runner gilt als laufend, wenn seine PID lebt und zu `lazydev run` gehört (`internal/state/process.go`).
-  Sonst gilt das PRD als „abgebrochen“.
-- Chats zum PRD (Schritt `create`) laufen ebenfalls losgelöst (`internal/chatrun`). Jede Runde startet als
-  `lazydev chat <projekt-id> <chat-id>`. Zustand und Log liegen unter `chats/<projekt-id>/` im
-  Zustandsverzeichnis, die Sperre heißt `chat-<projekt>-<id>`. Eine Rückfrage oder ein Fehler erscheint
-  in der TUI als Benachrichtigung. Tests ersetzen den Prozessstart über `chatrun.SetSpawn`.
-- GitHub-Issues lädt die TUI über das `gh`-Binary (`internal/github`), wenn `origin` auf `github.com`
-  zeigt. Der Abruf läuft beim Laden, alle 30 Minuten und mit `r`. Den letzten Stand speichert die TUI
-  unter `issues/<projekt-id>.json` im Zustandsverzeichnis. Tests ersetzen `gh` über `github.Binary`.
+| Package | Role |
+|---|---|
+| `tui` | Model, layout, keys, panes, wizard, status picker, run view, docker view. Reads files only |
+| `terminal` | Programs in a PTY, x/vt emulator, key encoding, window title filter |
+| `runner` | Start/queue/stop/discard, steps setup → implement → review → merge, hooks, worktrees, dev server start |
+| `state` | Run state, step logs, locks, trust, paths under `$XDG_STATE_HOME/lazydev/` |
+| `project` | PRDs, status line, phases, status change with commit |
+| `repo` | `.lazydev/`: config, init with the simple workflow (`workflows/simple/`), trust hash, wizard YAML edits |
+| `prompts` | Prompt = header + knowledge + `.lazydev/<step>.md` + built-in contract (`contract/`) |
+| `claude` | `claude -p` stream-json, summary, log descriptions, built-in agents (`agents/`) |
+| `config` | `projects.json`, `settings.json`, project IDs, path helpers |
+| `docker`, `devserver`, `usage`, `git`, `fsutil` | Containers, detached dev servers, Claude limits, git binary, atomic writes |
 
-### Ablauf eines Runners (`internal/runner`)
+### Process model
 
-Setup (Worktree, PRD verschieben, Hooks) → implement → review → Merge-Queue → Merge → Aufräumen. Jeder
-Schritt landet als Eintrag in `steps` des Lauf-Zustands. `start` und `run` setzen beim gescheiterten
-Schritt fort, deshalb muss jeder Schritt wiederholbar sein.
+- The TUI controls nothing directly. It reads run state and logs every second and PRDs and git info every
+  5 s, because an ending runner causes no event.
+- Each PRD runs in a detached runner `lazydev run <id> <dir> <prd>` (`runner.spawn`, `setsid`). The binary
+  gets copied to `$XDG_STATE_HOME/lazydev/bin/lazydev` first, so a running runner keeps its code and `go run`
+  works. `state.IsRunner` checks `/proc/<pid>/cmdline`.
+- `runner.MaxParallel` (3) holds under the lock `locks/start.lock`. An ending runner starts the next waiting
+  PRD, not the TUI.
+- `x` signals the runner only. It cancels its context first, then signals its process group, so the step
+  records an abort instead of a killed Claude.
+- `create` is no runner step: `n` opens an interactive Claude Code tab with the create prompt.
 
-- `start` und `run` prüfen vorher, ob Hooks und Freigaben aus `.lazydev/config.yaml` bestätigt sind
-  (`runner.CheckTrust`, Hash unter `trust/<projekt-id>.json`, `internal/state/trust.go`).
-- Claude läuft als `claude -p … --output-format stream-json --verbose` mit `stdin` auf `/dev/null` und
-  `GIT_EDITOR=true` (`internal/claude`). Alle Freigaben kommen über `--allowedTools`, weil neue Worktrees
-  keinen bestätigten Trust-Dialog haben.
-- Ein Schritt gilt nur dann als erfolgreich, wenn Exit-Code 0 ist, das **letzte** `result`-Ereignis keinen
-  Fehler meldet und die Nachprüfung passt. Nach implement prüft der Runner `## Ergebnis` und die
-  Statuszeile des PRDs, nach review, ob der Worktree sauber ist. Nach implement, review und dem
-  Claude-Schritt merge prüft `checkLazydevUntouched`, dass Claude nichts unter `.lazydev/` geändert hat.
-- Der Runner ergänzt jede stream-json-Zeile um `ts`. Eigene Log-Zeilen schreibt `internal/runlog`.
-- Merge (`merge.go`): eine `flock`-Sperre pro Projekt. Ablauf: `git rebase <ziel-branch>`, bei Konflikt
-  `rebase --abort` und der Claude-Schritt merge, danach Prüfbefehle, Hauptordner prüfen und
-  `git merge --ff-only`. Änderungen unter `.lazydev/` im Hauptordner blockieren den Merge nicht.
+### Runner (`internal/runner`)
 
-### Projekt-Ordner, Prompts, Presets, Hooks
+Every step lands in `steps` of the run state and must be repeatable, `s` continues at the failed step.
 
-- `internal/config`: zentrale `config.yaml` unter `~/.config/lazydev/` oder `LAZYDEV_CONFIG` mit
-  `maxParallel`, `portBase`, `claude.binary` und pro Projekt `path` und `autoMerge`. Die TUI schreibt die
-  Datei selbst. `repo.go` liest und schreibt `.lazydev/config.yaml` im Hauptordner (`Repo`, `LoadRepo`,
-  `SetRepoSettings`, `SetRepoBaseBranch` über `yaml.Node`). `Effective` liefert die wirksamen Einstellungen: mit
-  `.lazydev/config.yaml` nur deren Werte, sonst die Übergangsfelder `baseBranch`, `preset`, `allowedTools`
-  und `hooks` aus der zentralen Datei. Wer Ziel-Branch, Preset, Freigaben oder Hooks braucht, nutzt
-  `Effective` bzw. `runner.Target.Repo`. `presets.go` erkennt `nuxt-drizzle`.
-- `internal/prompts`: baut jeden Prompt aus Kopfzeile `# lazydev <schritt>: <argument>`, Knowledge-Block,
-  `.lazydev/<schritt>.md` oder Standard-Prompt (`default/`) und Vertrag (`contract/`, nicht
-  überschreibbar). Schritte: `create`, `implement`, `review`, `merge`. `Init` legt `.lazydev/` an, das
-  nutzt der Wizard in `internal/tui/initwizard.go`.
-- `internal/hooks`: Setup, Teardown, Check und Dev pro Preset. `hooks.For` bekommt die wirksame `Repo`,
-  Skripte in `hooks.*` ersetzen einzelne Preset-Hooks. Hooks bekommen `LAZYDEV_PROJECT`,
-  `LAZYDEV_WORKTREE`, `LAZYDEV_BRANCH`, `LAZYDEV_PORT` und `LAZYDEV_SLUG`.
-- Standard-Prompts, Verträge und Agenten sind per `go:embed` eingebaut, nichts kommt aus `~/.claude`.
-  Agenten liegen unter `internal/claude/agents/`. `claude.Run` schreibt sie nach `agents.json` im
-  Zustandsverzeichnis, jeder Aufruf bekommt `--agents`. Die Kopfzeile eines Prompts erscheint im Log, z. B.
-  `# lazydev review: feat/x → main`.
-- `internal/project`: PRDs unter `prd/<bereich>/<name>.md`, Statuszeile `> Status: …` und Phasen. Ein PRD,
-  das ein Lauf in seinen Worktree verschoben hat, liest lazydev aus dem Worktree.
-- `internal/worktree`: Port ab `portBase` und Slug pro Worktree.
-- Git läuft immer über das `git`-Binary (`internal/git`), nicht über eine Go-Bibliothek.
+- `Run` checks trust of `hooks`/`allowedTools` first (`repo.Config.TrustHash`, `state.Trusted`).
+- Claude runs as `claude -p … --output-format stream-json --verbose` with stdin `/dev/null` and
+  `GIT_EDITOR=true`. All permissions come through `--allowedTools`, new worktrees have no trust dialog.
+- A Claude step succeeds only with exit code 0, a last `result` without error and its check: after
+  implement `## Ergebnis` and the PRD status line, after review a clean worktree. After implement, review
+  and the Claude step merge, `checkLazydevUntouched` makes sure nothing under `.lazydev/` changed.
+- Merge (`merge.go`): `flock` per project, `git rebase <base>`, on conflict `rebase --abort` and the Claude
+  step merge, check hook, cost into the PRD, wait for a clean main folder, `git merge --ff-only`, cleanup.
+  Merges always run right after the review.
+- Hooks are scripts from `config.yaml` only, there are no presets.
 
-### Pfade
+### Paths
 
-lazydev beachtet `XDG_CONFIG_HOME`, `XDG_STATE_HOME` und `XDG_DATA_HOME`. Zustand und Logs liegen unter
-`$XDG_STATE_HOME/lazydev/runs/<projekt-id>/`, Worktrees unter
-`$XDG_DATA_HOME/lazydev/worktrees/<projekt-id>/<prd-name>/`.
+`XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_DATA_HOME` apply. Projects in `~/.config/lazydev/`, state and
+logs in `~/.local/state/lazydev/runs/<id>/`, worktrees in `~/.local/share/lazydev/worktrees/<id>/<prd>/`.
 
 ## Tests
 
-- Tests isolieren sich über `t.Setenv("XDG_STATE_HOME", t.TempDir())` und `XDG_DATA_HOME`. Git-Tests
-  setzen `GIT_AUTHOR_*` und `GIT_COMMITTER_*`.
-- Runner- und Merge-Tests arbeiten gegen temporäre Git-Repos mit einem Fake-`claude`
-  (`fakeClaude` in `internal/runner/runner_test.go`). Das Shell-Skript erkennt den Schritt an der Kopfzeile
-  `# lazydev <schritt>:` in der ersten Zeile von `$2` und gibt vorbereitete stream-json-Zeilen aus.
-  `FAKE_CLAUDE_MODE` (`ok`, `exit`, `noresult`, `abort`, `status`, `dirty`, `lazydev`) und
-  `FAKE_MERGE_MODE` steuern sein Verhalten. Um neue Runner-Szenarien zu testen, erweitere dieses Skript.
-- Tests mit `.lazydev/config.yaml`, die Hooks oder Freigaben setzen, bestätigen den Hash mit
-  `state.Trust`, sonst startet kein Runner.
+- Tests isolate via `t.Setenv("XDG_STATE_HOME", t.TempDir())`, `XDG_DATA_HOME` and `XDG_CONFIG_HOME`. Git
+  tests set `GIT_AUTHOR_*` and `GIT_COMMITTER_*`.
+- Runner tests run `runner.Run` in the foreground against temporary repos with a fake `claude` script
+  (`claude.Command`). It recognizes the step by the header `# lazydev <step>:` in `$2`. To test new runner
+  scenarios, extend that script. No test spawns a detached runner.
+- Tests with hooks or allowed tools in `.lazydev/config.yaml` trust the hash with `state.Trust`.
 
-## Konventionen
+## Conventions
 
-- Alle Texte sind deutsch: UI-Strings, Fehlermeldungen, Kommentare und Doku. Ausnahme: `README.md` ist
-  englisch, `README.de.md` ist die deutsche Fassung mit gleichem Inhalt. Ändere immer beide.
-- Commits folgen Conventional Commits und sind englisch, z. B. `feat(tui): show keys for focus and state`.
-- Commits, die lazydev selbst erstellt, schreibt es mit `git commit` ohne Claude und ohne Trailer.
+- All texts are English: UI strings, errors, comments, docs. Exceptions: `README.de.md` is the German version
+  of `README.md` with the same content, always change both. Prompts, contracts, agents and PRD status values
+  (`geplant`, `umgesetzt`, `verworfen`, `Kosten:`, `Modell:`) stay German, existing PRDs and prompts use them.
+- Commits follow Conventional Commits in English, e.g. `feat(tui): show keys for focus and state`.
+- Commits lazydev makes itself use `git commit` without Claude and without trailer.

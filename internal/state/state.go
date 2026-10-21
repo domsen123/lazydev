@@ -1,52 +1,37 @@
-// Package state liest und schreibt den Lauf-Zustand unter ~/.local/state/lazydev.
+// Package state reads and writes the state of runs under $XDG_STATE_HOME/lazydev/: one JSON file
+// per PRD, the logs of its steps, locks and trust.
 package state
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
 	"time"
 
+	"lazydev/internal/fsutil"
 	"lazydev/internal/project"
 )
 
-type Step struct {
-	Name      string `json:"name"`
-	SessionID string `json:"sessionId,omitempty"`
-	// Model stammt aus dem ersten init-Ereignis von claude im Schritt.
-	Model    string `json:"model,omitempty"`
-	ExitCode *int   `json:"exitCode"`
-	// OK ist false, wenn der Schritt trotz Exit-Code 0 scheiterte, etwa an einer offenen Frage.
-	OK        bool     `json:"ok"`
-	CostUSD   *float64 `json:"costUsd,omitempty"`
-	StartedAt string   `json:"startedAt,omitempty"`
-	EndedAt   string   `json:"endedAt,omitempty"`
-}
+// The steps of a run in order.
+const (
+	StepSetup     = "setup"
+	StepImplement = "implement"
+	StepReview    = "review"
+	StepMerge     = "merge"
+)
 
-// Run ist der Zustand eines PRDs zwischen Start und Aufräumen.
-type Run struct {
-	PRD    string `json:"prd"`
-	Branch string `json:"branch"`
-	// Base ist der Ziel-Branch, von dem der Worktree abzweigt und in den der Merge geht.
-	Base      string        `json:"base,omitempty"`
-	Worktree  string        `json:"worktree"`
-	Port      int           `json:"port"`
-	Slug      string        `json:"slug"`
-	Phase     project.Phase `json:"phase"`
-	PID       int           `json:"pid"`
-	StartedAt string        `json:"startedAt"`
-	Steps     []Step        `json:"steps"`
-	Error     *string       `json:"error"`
-	// Note ist ein Hinweis an den Menschen, z. B. „Hauptordner nicht sauber“.
-	Note string `json:"note,omitempty"`
-	// MergeApproved gibt den Merge frei, wenn autoMerge aus ist.
-	MergeApproved bool `json:"mergeApproved,omitempty"`
-}
+var Steps = []string{StepSetup, StepImplement, StepReview, StepMerge}
 
-// Dir beachtet XDG_STATE_HOME.
+// BinaryName is the name runners run under. IsRunner recognizes them by it.
+const BinaryName = "lazydev"
+
+// Dir honors XDG_STATE_HOME.
 func Dir() string {
 	base := os.Getenv("XDG_STATE_HOME")
 	if base == "" {
@@ -56,144 +41,133 @@ func Dir() string {
 	return filepath.Join(base, "lazydev")
 }
 
-func RunsDir(projectID string) string {
-	return filepath.Join(Dir(), "runs", projectID)
+func RunsDir(id string) string             { return filepath.Join(Dir(), "runs", id) }
+func Path(id, prdName string) string       { return filepath.Join(RunsDir(id), prdName+".json") }
+func RunnerLogPath(id, name string) string { return filepath.Join(RunsDir(id), name+".runner.log") }
+
+// LogPath is the log of one step, e.g. "setup" or "implement".
+func LogPath(id, prdName, step string) string {
+	return filepath.Join(RunsDir(id), prdName+"."+step+".jsonl")
 }
 
-func Path(projectID, prdName string) string {
-	return filepath.Join(RunsDir(projectID), prdName+".json")
+// Step is one started step of a run.
+type Step struct {
+	Name      string `json:"name"`
+	SessionID string `json:"sessionId,omitempty"`
+	// Model comes from the first init event of claude in the step.
+	Model    string `json:"model,omitempty"`
+	ExitCode *int   `json:"exitCode"`
+	// OK is false if the step failed despite exit code 0, e.g. on an open question.
+	OK        bool     `json:"ok"`
+	CostUSD   *float64 `json:"costUsd,omitempty"`
+	StartedAt string   `json:"startedAt,omitempty"`
+	EndedAt   string   `json:"endedAt,omitempty"`
 }
 
-// LogPath ist das Log eines Schritts, z. B. "setup" oder "implement".
-func LogPath(projectID, prdName, step string) string {
-	return filepath.Join(RunsDir(projectID), prdName+"."+step+".jsonl")
+// Run is the state of a PRD between start and cleanup.
+type Run struct {
+	// ProjectDir is the main folder, so a runner can start waiting PRDs of any project.
+	ProjectDir string        `json:"projectDir"`
+	PRD        string        `json:"prd"`
+	Branch     string        `json:"branch"`
+	Base       string        `json:"base"`
+	Worktree   string        `json:"worktree"`
+	Port       int           `json:"port"`
+	Slug       string        `json:"slug"`
+	Phase      project.Phase `json:"phase"`
+	PID        int           `json:"pid"`
+	StartedAt  string        `json:"startedAt"`
+	Steps      []Step        `json:"steps"`
+	Error      *string       `json:"error"`
+	// Note is a hint for humans, e.g. that the main folder blocks the merge.
+	Note string `json:"note,omitempty"`
 }
 
-// RunnerLogPath nimmt stdout und stderr eines losgelösten Runners auf, auch Abstürze.
-func RunnerLogPath(projectID, prdName string) string {
-	return filepath.Join(RunsDir(projectID), prdName+".runner.log")
-}
-
-// ChatsDir enthält Zustand und Log der Chats eines Projekts.
-func ChatsDir(projectID string) string {
-	return filepath.Join(Dir(), "chats", projectID)
-}
-
-// ChatPath ist der Zustand eines Chats zum PRD.
-func ChatPath(projectID, chatID string) string {
-	return filepath.Join(ChatsDir(projectID), chatID+".json")
-}
-
-// ChatLogPath ist das Log eines Chats zum PRD.
-func ChatLogPath(projectID, chatID string) string {
-	return filepath.Join(ChatsDir(projectID), chatID+".jsonl")
-}
-
-// IssuesPath ist der Zwischenspeicher der GitHub-Issues eines Projekts.
-func IssuesPath(projectID string) string {
-	return filepath.Join(Dir(), "issues", projectID+".json")
-}
-
-// Load liefert fs.ErrNotExist, wenn es keinen Lauf gibt.
-func Load(projectID, prdName string) (*Run, error) {
-	data, err := os.ReadFile(Path(projectID, prdName))
+// Load returns fs.ErrNotExist without a run.
+func Load(id, prdName string) (*Run, error) {
+	data, err := os.ReadFile(Path(id, prdName))
 	if err != nil {
 		return nil, err
 	}
 	r := &Run{}
-	if err := json.Unmarshal(data, r); err != nil {
-		return nil, err
-	}
-	return r, nil
+	return r, json.Unmarshal(data, r)
 }
 
-// Save schreibt atomar, damit die TUI nie eine halbe Datei liest.
-func Save(projectID, prdName string, r *Run) error {
-	path := Path(projectID, prdName)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
+// Save writes atomically, so the TUI never reads half a file.
+func Save(id, prdName string, r *Run) error {
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
 		return err
 	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".run-*.json")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(append(data, '\n')); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	return fsutil.WriteAtomic(Path(id, prdName), append(data, '\n'), 0o644)
 }
 
-// Remove löscht Zustand und Logs eines PRDs.
-func Remove(projectID, prdName string) error {
-	logs, err := filepath.Glob(filepath.Join(RunsDir(projectID), prdName+".*.jsonl"))
-	if err != nil {
-		return err
+// Remove deletes state and logs of a PRD.
+func Remove(id, prdName string) error {
+	files := []string{Path(id, prdName), RunnerLogPath(id, prdName), DevPIDPath(id, prdName), DevLogPath(id, prdName)}
+	for _, step := range Steps {
+		files = append(files, LogPath(id, prdName, step))
 	}
-	for _, f := range append(logs, Path(projectID, prdName), RunnerLogPath(projectID, prdName)) {
-		// Ein Schrittname enthält keinen Punkt. So bleibt "<prd>.x.<schritt>.jsonl" eines PRDs
-		// mit Punkt im Namen unberührt.
-		step := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(f), prdName+"."), ".jsonl")
-		if strings.Contains(step, ".") {
-			continue
-		}
+	var errs []error
+	for _, f := range files {
 		if err := os.Remove(f); err != nil && !errors.Is(err, fs.ErrNotExist) {
-			return err
+			errs = append(errs, err)
 		}
 	}
-	return nil
+	return errors.Join(errs...)
 }
 
-// UsedPorts sammelt die Ports aller gespeicherten Läufe über alle Projekte.
-func UsedPorts() (map[int]bool, error) {
-	ports := map[int]bool{}
-	files, err := filepath.Glob(filepath.Join(Dir(), "runs", "*", "*.json"))
-	if err != nil {
-		return nil, err
-	}
+// Entry is a stored run with project ID and PRD name from its path.
+type Entry struct {
+	ID, PRDName string
+	Run         *Run
+}
+
+// All reads the runs of all projects, sorted by start. Unreadable files are skipped.
+func All() []Entry {
+	files, _ := filepath.Glob(filepath.Join(Dir(), "runs", "*", "*.json"))
+	var entries []Entry
 	for _, f := range files {
 		data, err := os.ReadFile(f)
 		if err != nil {
 			continue
 		}
-		var r Run
-		// Ein gemergter Lauf hat keinen Worktree mehr und gibt seinen Port frei.
-		if json.Unmarshal(data, &r) == nil && r.Port > 0 && r.Phase != project.PhaseMerged {
-			ports[r.Port] = true
+		r := &Run{}
+		if json.Unmarshal(data, r) != nil {
+			continue
 		}
+		entries = append(entries, Entry{ID: filepath.Base(filepath.Dir(f)), PRDName: strings.TrimSuffix(filepath.Base(f), ".json"), Run: r})
 	}
-	return ports, nil
+	slices.SortStableFunc(entries, func(a, b Entry) int { return strings.Compare(a.Run.StartedAt, b.Run.StartedAt) })
+	return entries
 }
 
-// Now liefert den Zeitstempel im Format des Lauf-Zustands.
-func Now() string {
-	return time.Now().Format(time.RFC3339)
+// ProjectRuns maps the PRD names of project id to their runs.
+func ProjectRuns(id string) map[string]*Run {
+	runs := map[string]*Run{}
+	for _, e := range All() {
+		if e.ID == id {
+			runs[e.PRDName] = e.Run
+		}
+	}
+	return runs
 }
+
+// Now is a timestamp in the format of the state.
+func Now() string { return time.Now().Format(time.RFC3339) }
 
 func (r *Run) StartStep(name string) {
 	r.Steps = append(r.Steps, Step{Name: name, StartedAt: Now()})
 }
 
-// EndStep schließt den zuletzt gestarteten Schritt ab.
+// EndStep finishes the last started step.
 func (r *Run) EndStep(exitCode int, ok bool) {
-	s := r.LastStep()
-	if s == nil {
-		return
+	if s := r.LastStep(); s != nil {
+		s.ExitCode, s.OK, s.EndedAt = &exitCode, ok, Now()
 	}
-	s.ExitCode = &exitCode
-	s.OK = ok
-	s.EndedAt = Now()
 }
 
-// LastStep liefert nil, solange kein Schritt gestartet ist.
+// LastStep is nil while no step started.
 func (r *Run) LastStep() *Step {
 	if len(r.Steps) == 0 {
 		return nil
@@ -203,11 +177,10 @@ func (r *Run) LastStep() *Step {
 
 func (r *Run) Fail(err error) {
 	msg := err.Error()
-	r.Error = &msg
-	r.Phase = project.PhaseError
+	r.Error, r.Phase = &msg, project.PhaseError
 }
 
-// Cost summiert die Kosten aller Schritte in USD.
+// Cost adds up the cost of all steps in USD.
 func (r *Run) Cost() float64 {
 	total := 0.0
 	for _, s := range r.Steps {
@@ -218,12 +191,53 @@ func (r *Run) Cost() float64 {
 	return total
 }
 
-// ImplementModel liefert das Modell des letzten erfolgreichen Schritts implement, sonst "".
+// ImplementModel is the model of the last successful implement step, empty otherwise.
 func (r *Run) ImplementModel() string {
 	for i := len(r.Steps) - 1; i >= 0; i-- {
-		if s := r.Steps[i]; s.Name == "implement" && s.OK {
+		if s := r.Steps[i]; s.Name == StepImplement && s.OK {
 			return s.Model
 		}
 	}
 	return ""
+}
+
+// Running reports whether the runner of the run lives.
+func (r *Run) Running() bool {
+	return r.PID > 0 && IsRunner(r.PID)
+}
+
+// Effective is the phase to show: an active phase without a living runner counts as aborted.
+func (r *Run) Effective() project.Phase {
+	if r.Phase.Active() && !r.Running() {
+		return project.PhaseAborted
+	}
+	return r.Phase
+}
+
+// NextStep is the step a run continues with: the first, the failed one after an error or abort,
+// otherwise the next. After the merge it is empty.
+func (r *Run) NextStep() string {
+	last := r.LastStep()
+	if last == nil {
+		return Steps[0]
+	}
+	if last.ExitCode == nil || !last.OK {
+		return last.Name
+	}
+	i := slices.Index(Steps, last.Name)
+	if i < 0 || i+1 >= len(Steps) {
+		return ""
+	}
+	return Steps[i+1]
+}
+
+// IsRunner reports whether pid lives and runs "lazydev run". A reused PID of another process does
+// not count.
+func IsRunner(pid int) bool {
+	data, err := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/cmdline")
+	if err != nil {
+		return false
+	}
+	args := strings.Split(string(bytes.TrimRight(data, "\x00")), "\x00")
+	return len(args) >= 2 && filepath.Base(args[0]) == BinaryName && args[1] == "run"
 }

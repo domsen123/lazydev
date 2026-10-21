@@ -1,202 +1,172 @@
-// Package config liest und schreibt ~/.config/lazydev/config.yaml und .lazydev/config.yaml der
-// Projekte.
+// Package config reads and writes lazydev's own files under $XDG_CONFIG_HOME/lazydev/: the project
+// list and the settings. Settings of a project live in its .lazydev/, see package repo.
 package config
 
 import (
+	"crypto/sha1"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
-	"gopkg.in/yaml.v3"
+	"lazydev/internal/fsutil"
 )
 
-const (
-	DefaultMaxParallel  = 3
-	DefaultPortBase     = 3100
-	DefaultClaudeBinary = "claude"
-	// DefaultBaseBranch gilt, wenn .lazydev/config.yaml kein baseBranch setzt.
-	DefaultBaseBranch = "main"
-)
-
-type Config struct {
-	MaxParallel int       `yaml:"maxParallel"`
-	PortBase    int       `yaml:"portBase"`
-	Claude      Claude    `yaml:"claude"`
-	Projects    []Project `yaml:"projects"`
-}
-
-type Claude struct {
-	Binary string `yaml:"binary"`
-}
-
-type Project struct {
-	// Path steht so in der Datei, wie der Mensch ihn schreibt, also gern mit "~".
-	Path string `yaml:"path"`
-	// AutoMerge bleibt lokal: Ob du Merges selbst freigibst, entscheidest du für dich.
-	AutoMerge *bool `yaml:"autoMerge,omitempty"`
-
-	// Übergangsfelder für Projekte ohne .lazydev/config.yaml. Mit der Datei ignoriert lazydev sie,
-	// siehe Effective.
-	Preset       string   `yaml:"preset,omitempty"`
-	BaseBranch   string   `yaml:"baseBranch,omitempty"`
-	AllowedTools []string `yaml:"allowedTools,omitempty"`
-	Hooks        Hooks    `yaml:"hooks,omitempty"`
-}
-
-// Hooks überschreibt einzelne Hooks des Presets.
-type Hooks struct {
-	Setup    string `yaml:"setup,omitempty"`
-	Teardown string `yaml:"teardown,omitempty"`
-	// Check führt die Prüfbefehle vor dem Merge aus. Exit-Code ungleich 0 heißt: rot.
-	Check string `yaml:"check,omitempty"`
-	// Dev startet den Dev-Server im Worktree, mit PORT aus der .env des Worktrees.
-	Dev string `yaml:"dev,omitempty"`
-}
-
-// AbsPath liefert den Projektpfad absolut und mit aufgelöstem "~".
-func (p Project) AbsPath() string {
-	return ExpandPath(p.Path)
-}
-
-// AutoMergeEnabled liefert den Standard true, wenn autoMerge fehlt.
-func (p Project) AutoMergeEnabled() bool {
-	return p.AutoMerge == nil || *p.AutoMerge
-}
-
-// DefaultPath beachtet LAZYDEV_CONFIG und XDG_CONFIG_HOME.
-func DefaultPath() string {
-	if p := os.Getenv("LAZYDEV_CONFIG"); p != "" {
-		return ExpandPath(p)
+// Dir is lazydev's config folder.
+func Dir() string {
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		home, _ := os.UserHomeDir()
+		dir = filepath.Join(home, ".config")
 	}
-	base := os.Getenv("XDG_CONFIG_HOME")
-	if base == "" {
-		base = filepath.Join(homeDir(), ".config")
-	}
-	return filepath.Join(base, "lazydev", "config.yaml")
+	return filepath.Join(dir, "lazydev")
 }
 
-// Load liest die Konfiguration. Fehlt die Datei, liefert Load die Standardwerte.
-func Load(path string) (*Config, error) {
-	cfg := &Config{}
-	data, err := os.ReadFile(path)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-	case err != nil:
+func projectsPath() string { return filepath.Join(Dir(), "projects.json") }
+func settingsPath() string { return filepath.Join(Dir(), "settings.json") }
+
+// storedProjects is the file format of projects.json.
+type storedProjects struct {
+	Projects []string `json:"projects"`
+}
+
+// LoadProjects reads the paths of the project list. A missing file means no projects.
+func LoadProjects() ([]string, error) {
+	data, err := os.ReadFile(projectsPath())
+	if errors.Is(err, fs.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
 		return nil, err
-	default:
-		if err := yaml.Unmarshal(data, cfg); err != nil {
-			return nil, fmt.Errorf("%s: %w", path, err)
-		}
 	}
-	cfg.applyDefaults()
-	if err := cfg.validate(); err != nil {
-		return nil, fmt.Errorf("%s: %w", path, err)
+	var stored storedProjects
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return nil, fmt.Errorf("%s: %w", projectsPath(), err)
 	}
-	return cfg, nil
+	return stored.Projects, nil
 }
 
-// Save schreibt atomar über eine temporäre Datei im selben Ordner.
-func (c *Config) Save(path string) error {
-	data, err := yaml.Marshal(c)
+// SaveProjects writes the project list.
+func SaveProjects(paths []string) error {
+	data, err := json.MarshalIndent(storedProjects{Projects: paths}, "", "  ")
 	if err != nil {
 		return err
 	}
-	// 0600 wie bisher über os.CreateTemp.
-	return writeFileAtomic(path, data, 0o600)
+	return fsutil.WriteAtomic(projectsPath(), append(data, '\n'), 0o644)
 }
 
-// AddProject trägt einen bestehenden Ordner ein. Die Einstellungen des Projekts stehen in
-// .lazydev/config.yaml, der Eintrag enthält nur den Pfad.
-func (c *Config) AddProject(path string) (Project, error) {
-	abs := ExpandPath(path)
-	info, err := os.Stat(abs)
+// Settings are the settings of the TUI.
+type Settings struct {
+	// Theme is the name of the color theme.
+	Theme string `json:"theme,omitempty"`
+}
+
+// LoadSettings reads settings.json. A missing or broken file gives the defaults.
+func LoadSettings() Settings {
+	var s Settings
+	if data, err := os.ReadFile(settingsPath()); err == nil {
+		json.Unmarshal(data, &s)
+	}
+	return s
+}
+
+// SaveSettings writes settings.json.
+func SaveSettings(s Settings) error {
+	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
-		return Project{}, err
+		return err
 	}
-	if !info.IsDir() {
-		return Project{}, fmt.Errorf("%s ist kein Ordner", abs)
+	return fsutil.WriteAtomic(settingsPath(), append(data, '\n'), 0o644)
+}
+
+// IDs assigns the project IDs that name state and worktree folders: the folder name, plus a short
+// hash of the path for folders that share a name. So the ID of a project does not depend on the
+// order of the list.
+func IDs(paths []string) []string {
+	count := map[string]int{}
+	for _, p := range paths {
+		count[filepath.Base(p)]++
 	}
-	for _, p := range c.Projects {
-		if p.AbsPath() == abs {
-			return Project{}, fmt.Errorf("%s ist schon eingetragen", ContractPath(abs))
+	ids := make([]string, len(paths))
+	for i, p := range paths {
+		ids[i] = filepath.Base(p)
+		if count[ids[i]] > 1 {
+			sum := sha1.Sum([]byte(p))
+			ids[i] += "-" + hex.EncodeToString(sum[:])[:6]
 		}
 	}
-	p := Project{Path: ContractPath(abs)}
-	c.Projects = append(c.Projects, p)
-	return p, nil
+	return ids
 }
 
-// RemoveProject entfernt den Eintrag, löscht aber keine Dateien.
-func (c *Config) RemoveProject(i int) error {
-	if i < 0 || i >= len(c.Projects) {
-		return fmt.Errorf("kein Projekt an Position %d", i)
-	}
-	c.Projects = append(c.Projects[:i], c.Projects[i+1:]...)
-	return nil
-}
-
-func (c *Config) applyDefaults() {
-	if c.MaxParallel <= 0 {
-		c.MaxParallel = DefaultMaxParallel
-	}
-	if c.PortBase <= 0 {
-		c.PortBase = DefaultPortBase
-	}
-	if c.Claude.Binary == "" {
-		c.Claude.Binary = DefaultClaudeBinary
-	}
-}
-
-func (c *Config) validate() error {
-	seen := map[string]bool{}
-	for _, p := range c.Projects {
-		if p.Path == "" {
-			return errors.New("Projekt ohne path")
+// ExpandPath resolves "~" and makes the path absolute and clean.
+func ExpandPath(path string) (string, error) {
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
 		}
-		if p.Preset != "" && !IsKnownPreset(p.Preset) {
-			return fmt.Errorf("%s: unbekanntes Preset %q", p.Path, p.Preset)
-		}
-		abs := p.AbsPath()
-		if seen[abs] {
-			return fmt.Errorf("%s ist doppelt eingetragen", p.Path)
-		}
-		seen[abs] = true
+		path = filepath.Join(home, strings.TrimPrefix(path, "~"))
 	}
-	return nil
+	return filepath.Abs(path)
 }
 
-// ExpandPath löst "~" auf und macht den Pfad absolut.
-func ExpandPath(p string) string {
-	if p == "~" {
-		p = homeDir()
-	} else if strings.HasPrefix(p, "~/") {
-		p = filepath.Join(homeDir(), p[2:])
+// DisplayPath shortens the home directory to "~".
+func DisplayPath(path string) string {
+	home, err := os.UserHomeDir()
+	if err != nil || home == "" {
+		return path
 	}
-	if abs, err := filepath.Abs(p); err == nil {
-		p = abs
-	}
-	return filepath.Clean(p)
-}
-
-// ContractPath ersetzt das Home-Verzeichnis durch "~".
-func ContractPath(abs string) string {
-	home := homeDir()
-	if abs == home {
+	if path == home {
 		return "~"
 	}
-	if rel, ok := strings.CutPrefix(abs, home+string(filepath.Separator)); ok {
-		return "~/" + rel
+	if rest, ok := strings.CutPrefix(path, home+"/"); ok {
+		return "~/" + rest
 	}
-	return abs
+	return path
 }
 
-func homeDir() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "/"
+// CompletePath completes the last part of input to the matching folders. One match gets a
+// trailing slash, several matches complete to their common prefix. Hidden folders only match when
+// the typed part starts with a dot.
+func CompletePath(input string) string {
+	dir, base := filepath.Split(input)
+	absDir, err := ExpandPath(dir)
+	if dir == "" || err != nil {
+		return input
 	}
-	return home
+	entries, err := os.ReadDir(absDir)
+	if err != nil {
+		return input
+	}
+	var matches []string
+	for _, e := range entries {
+		name := e.Name()
+		if !fsutil.IsDir(filepath.Join(absDir, name)) || !strings.HasPrefix(name, base) {
+			continue
+		}
+		if strings.HasPrefix(name, ".") && !strings.HasPrefix(base, ".") {
+			continue
+		}
+		matches = append(matches, name)
+	}
+	switch len(matches) {
+	case 0:
+		return input
+	case 1:
+		return dir + matches[0] + "/"
+	}
+	prefix := matches[0]
+	for _, m := range matches[1:] {
+		// Cut whole characters, so the prefix stays valid UTF-8.
+		for !strings.HasPrefix(m, prefix) {
+			_, size := utf8.DecodeLastRuneInString(prefix)
+			prefix = prefix[:len(prefix)-size]
+		}
+	}
+	return dir + prefix
 }

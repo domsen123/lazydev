@@ -4,53 +4,33 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"lazydev/internal/fsutil"
 )
 
-// trustFile hält den bestätigten Hash über allowedTools und hooks aus .lazydev/config.yaml.
-type trustFile struct {
-	Hash string `json:"hash"`
+// TrustPath holds the trusted hash over allowedTools and hooks of a project's config.yaml.
+func TrustPath(id string) string {
+	return filepath.Join(Dir(), "trust", id+".json")
 }
 
-// TrustPath ist die Bestätigung der Hooks und Freigaben eines Projekts.
-func TrustPath(projectID string) string {
-	return filepath.Join(Dir(), "trust", projectID+".json")
-}
-
-// Trusted meldet, ob hash für das Projekt bestätigt ist. Ein leerer Hash gilt immer als vertraut:
-// Ohne Hooks und Freigaben ist nichts zu bestätigen.
-func Trusted(projectID, hash string) bool {
+// Trusted reports whether hash is trusted for project id. An empty hash is always trusted:
+// without hooks and allowed tools there is nothing to confirm.
+func Trusted(id, hash string) bool {
 	if hash == "" {
 		return true
 	}
-	data, err := os.ReadFile(TrustPath(projectID))
+	data, err := os.ReadFile(TrustPath(id))
 	if err != nil {
 		return false
 	}
-	var f trustFile
+	var f struct {
+		Hash string `json:"hash"`
+	}
 	return json.Unmarshal(data, &f) == nil && f.Hash == hash
 }
 
-// Trust speichert hash als bestätigt für das Projekt.
-func Trust(projectID, hash string) error {
-	path := TrustPath(projectID)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	data, err := json.MarshalIndent(trustFile{Hash: hash}, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".trust-*.json")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(append(data, '\n')); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+// Trust saves hash as trusted for project id.
+func Trust(id, hash string) error {
+	data, _ := json.MarshalIndent(map[string]string{"hash": hash}, "", "  ")
+	return fsutil.WriteAtomic(TrustPath(id), append(data, '\n'), 0o644)
 }

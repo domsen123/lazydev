@@ -14,15 +14,21 @@ func TestParseStatusLine(t *testing.T) {
 		date   string
 		detail string
 	}{
-		{"> Status: geplant · Scope: Backend-only", true, StatusPlanned, "geplant", "", "Scope: Backend-only"},
-		{"> Status: umgesetzt (2026-10-14) · Scope: Theme", true, StatusImplemented, "umgesetzt (2026-10-14)", "2026-10-14", "Scope: Theme"},
+		{"> Status: geplant", true, StatusPlanned, "geplant", "", ""},
+		{"> Status: geplant · Scope: backend only", true, StatusPlanned, "geplant", "", "Scope: backend only"},
 		{">Status: geplant", true, StatusPlanned, "geplant", "", ""},
+		{"  > Status: geplant  ", true, StatusPlanned, "geplant", "", ""},
+		{"> Status: umgesetzt (2026-10-14) · Scope: theme", true, StatusImplemented, "umgesetzt (2026-10-14)", "2026-10-14", "Scope: theme"},
 		{"> Status: umgesetzt", true, StatusImplemented, "umgesetzt", "", ""},
-		{"> Status: verworfen (2026-10-21) · Scope: Theme", true, StatusDiscarded, "verworfen (2026-10-21)", "2026-10-21", "Scope: Theme"},
+		{"> Status: verworfen (2026-10-21)", true, StatusDiscarded, "verworfen (2026-10-21)", "2026-10-21", ""},
 		{"> Status: verworfen", true, StatusDiscarded, "verworfen", "", ""},
-		{"> Status: in Arbeit · a · b", true, StatusUnknown, "in Arbeit", "", "a · b"},
+		{"> Status: in progress · a · b", true, StatusUnknown, "in progress", "", "a · b"},
+		{"> Status: geplant (2026-10-14)", true, StatusUnknown, "geplant (2026-10-14)", "", ""},
+		{"> Status: umgesetzt (14.10.2026)", true, StatusImplemented, "umgesetzt (14.10.2026)", "", ""},
 		{"Status: geplant", false, StatusUnknown, "", "", ""},
-		{"# PRD: Titel", false, StatusUnknown, "", "", ""},
+		{"# PRD: Title", false, StatusUnknown, "", "", ""},
+		{"> Scope: geplant", false, StatusUnknown, "", "", ""},
+		{"", false, StatusUnknown, "", "", ""},
 	}
 	for _, tt := range tests {
 		s, ok := ParseStatusLine(tt.line)
@@ -32,97 +38,81 @@ func TestParseStatusLine(t *testing.T) {
 	}
 }
 
-func TestParseHeader(t *testing.T) {
-	tests := []struct {
-		name, input, title, value, detail string
-	}{
-		{
-			name:   "Statuszeile in Zeile 2",
-			input:  "# PRD: Titel\n> Status: geplant · Scope: X\n\n## Ziel\n",
-			title:  "Titel",
-			value:  "geplant",
-			detail: "Scope: X",
-		},
-		{
-			name:   "Leerzeile und Folgezeilen",
-			input:  "# PRD: Titel\n\n> Status: geplant · Scope: erste\n> zweite Zeile\n\n> anderer Block\n",
-			title:  "Titel",
-			value:  "geplant",
-			detail: "Scope: erste\nzweite Zeile",
-		},
-		{
-			name:  "ohne Statuszeile",
-			input: "# Notizen\n\nText\n",
-			title: "Notizen",
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			title, s, err := ParseHeader(strings.NewReader(tt.input))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if title != tt.title || s.Value != tt.value || s.Detail != tt.detail {
-				t.Errorf("got title=%q value=%q detail=%q", title, s.Value, s.Detail)
-			}
-		})
-	}
-}
-
-func TestResetStatus(t *testing.T) {
-	tests := map[string]string{
-		"# PRD: X\n\n> Status: umgesetzt (2026-10-20) · Scope: a\n> b\n": "# PRD: X\n\n> Status: geplant · Scope: a\n> b\n",
-		"# PRD: X\n> Status: umgesetzt (2026-10-20)\n":                   "# PRD: X\n> Status: geplant\n",
-		"# PRD: X\n> Status: geplant · Scope: a":                         "# PRD: X\n> Status: geplant · Scope: a",
-		"# PRD: X\n\nText\n": "# PRD: X\n\nText\n",
-	}
-	for in, want := range tests {
-		if got := ResetStatus(in); got != want {
-			t.Errorf("ResetStatus(%q) = %q, erwartet %q", in, got, want)
-		}
-	}
-}
-
 func TestSetStatus(t *testing.T) {
 	tests := []struct {
-		name, in, value, out string
-		ok                   bool
+		name, in, value, want string
+		ok                    bool
 	}{
 		{
-			name:  "mit Freitext",
-			in:    "# PRD: X\n> Status: geplant · Template: einfach · Scope: a\n> b\n",
-			value: "umgesetzt (2026-10-21)",
-			out:   "# PRD: X\n> Status: umgesetzt (2026-10-21) · Template: einfach · Scope: a\n> b\n",
+			name:  "keeps detail",
+			in:    "# PRD: X\n\n> Status: geplant · Scope: a · b\n> more\n",
+			value: "umgesetzt (2026-10-20)",
+			want:  "# PRD: X\n\n> Status: umgesetzt (2026-10-20) · Scope: a · b\n> more\n",
 			ok:    true,
 		},
 		{
-			name:  "ohne Freitext",
-			in:    "# PRD: X\n> Status: geplant\n\nText\n",
+			name:  "without detail",
+			in:    "# PRD: X\n> Status: umgesetzt (2026-10-20)\n",
+			value: "geplant",
+			want:  "# PRD: X\n> Status: geplant\n",
+			ok:    true,
+		},
+		{
+			name:  "no final newline",
+			in:    "# PRD: X\n> Status: geplant · Scope: a",
 			value: "verworfen (2026-10-21)",
-			out:   "# PRD: X\n> Status: verworfen (2026-10-21)\n\nText\n",
+			want:  "# PRD: X\n> Status: verworfen (2026-10-21) · Scope: a",
 			ok:    true,
 		},
 		{
-			name:  "Statuszeile nicht in Zeile 2",
-			in:    "# PRD: X\n\n> Status: umgesetzt (2026-10-20) · Scope: a\n\n> Status: umgesetzt\n",
-			value: "geplant",
-			out:   "# PRD: X\n\n> Status: geplant · Scope: a\n\n> Status: umgesetzt\n",
+			name:  "only first status line",
+			in:    "> Status: geplant\n> Status: geplant\n",
+			value: "umgesetzt (2026-10-20)",
+			want:  "> Status: umgesetzt (2026-10-20)\n> Status: geplant\n",
 			ok:    true,
 		},
 		{
-			name:  "ohne Statuszeile",
-			in:    "# PRD: X\n\nText\n",
+			name:  "no status line",
+			in:    "# Notes\n\nText\n",
 			value: "geplant",
-			out:   "# PRD: X\n\nText\n",
+			want:  "# Notes\n\nText\n",
+		},
+		{
+			name:  "status line after the head",
+			in:    strings.Repeat("text\n", HeaderScanLines) + "> Status: geplant\n",
+			value: "umgesetzt (2026-10-20)",
+			want:  strings.Repeat("text\n", HeaderScanLines) + "> Status: geplant\n",
+		},
+		{
+			name:  "status line on the last head line",
+			in:    strings.Repeat("text\n", HeaderScanLines-1) + "> Status: geplant\n",
+			value: "geplant",
+			want:  strings.Repeat("text\n", HeaderScanLines-1) + "> Status: geplant\n",
+			ok:    true,
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got, ok := SetStatus(tt.in, tt.value)
-			if got != tt.out || ok != tt.ok {
-				t.Errorf("SetStatus = %q, %v, erwartet %q, %v", got, ok, tt.out, tt.ok)
+			if got != tt.want || ok != tt.ok {
+				t.Errorf("SetStatus = %q, %v; want %q, %v", got, ok, tt.want, tt.ok)
 			}
 		})
+	}
+}
+
+func TestSetStatusKeepsCRLF(t *testing.T) {
+	for _, in := range []string{
+		"# PRD: X\r\n> Status: geplant · Scope: a\r\n\r\nText\r\n",
+		"# PRD: X\r\n> Status: geplant\r\n\r\nText\r\n",
+	} {
+		got, ok := SetStatus(in, "umgesetzt (2026-10-20)")
+		if !ok {
+			t.Fatalf("SetStatus(%q): no status line", in)
+		}
+		if strings.Count(got, "\r\n") != strings.Count(in, "\r\n") {
+			t.Errorf("SetStatus(%q) = %q, line ending changed", in, got)
+		}
 	}
 }
 
@@ -133,11 +123,14 @@ func TestRunInfo(t *testing.T) {
 		hasCost bool
 		model   string
 	}{
-		{"Kosten: 4.12 USD · Modell: claude-opus-5-5 · Template: einfach · Scope: x", 4.12, true, "claude-opus-5-5"},
-		{"Kosten: 0.80 USD · Scope: x", 0.8, true, ""},
-		{"Kosten: viel USD · Modell: claude-haiku-5-5", 0, false, "claude-haiku-5-5"},
-		{"Scope: x\n> Kosten: 1.00 USD", 0, false, ""},
-		{"Scope: Kosten: 1.00 USD", 0, false, ""},
+		{"Kosten: 4.12 USD · Modell: claude-opus-5-5 · Scope: x", 4.12, true, "claude-opus-5-5"},
+		{"Scope: x · Kosten: 0.50 USD", 0.5, true, ""},
+		{"Kosten: 3", 3, true, ""},
+		{"Modell: sonnet", 0, false, "sonnet"},
+		{"Kosten: much USD · Modell: m", 0, false, "m"},
+		{"Kosten: NaN USD", 0, false, ""},
+		{"Kosten: Inf USD", 0, false, ""},
+		{"Scope: x\nKosten: 1.00 USD · Modell: m", 0, false, ""},
 		{"", 0, false, ""},
 	}
 	for _, tt := range tests {
@@ -146,84 +139,108 @@ func TestRunInfo(t *testing.T) {
 			t.Errorf("RunInfo(%q) = %v, %v, %q", tt.detail, cost, hasCost, model)
 		}
 	}
-	_, s, _ := ParseHeader(strings.NewReader("# PRD: X\n> Status: umgesetzt (2026-10-21) · Kosten: 2.50 USD · Modell: m · Scope: a\n> b\n"))
-	if cost, ok, model := RunInfo(s); cost != 2.5 || !ok || model != "m" {
-		t.Errorf("mit Folgezeile: %v, %v, %q", cost, ok, model)
+}
+
+func TestIsRunInfo(t *testing.T) {
+	for part, want := range map[string]bool{
+		"Kosten: 1.00 USD": true,
+		"Modell: m":        true,
+		"Scope: x":         false,
+		" Kosten: 1":       false,
+		"":                 false,
+	} {
+		if got := IsRunInfo(part); got != want {
+			t.Errorf("IsRunInfo(%q) = %v", part, got)
+		}
 	}
 }
 
 func TestSetRunInfo(t *testing.T) {
 	tests := []struct {
-		name, in   string
-		cost       float64
-		model, out string
+		name, in string
+		cost     float64
+		model    string
+		want     string
+		ok       bool
 	}{
 		{
-			name:  "Freitext ohne Felder",
-			in:    "# PRD: X\n\n> Status: umgesetzt (2026-10-21) · Scope: a\n> b\n",
+			name:  "insert after the value",
+			in:    "# PRD: X\n\n> Status: geplant · Scope: a\n> more\n",
 			cost:  4.123,
 			model: "claude-opus-5-5",
-			out:   "# PRD: X\n\n> Status: umgesetzt (2026-10-21) · Kosten: 4.12 USD · Modell: claude-opus-5-5 · Scope: a\n> b\n",
+			want:  "# PRD: X\n\n> Status: geplant · Kosten: 4.12 USD · Modell: claude-opus-5-5 · Scope: a\n> more\n",
+			ok:    true,
 		},
 		{
-			name:  "mit Feldern",
-			in:    "# PRD: X\n> Status: umgesetzt (2026-10-21) · Kosten: 1.00 USD · Modell: claude-haiku-5-5 · Scope: a\n",
-			cost:  2,
-			model: "claude-opus-5-5",
-			out:   "# PRD: X\n> Status: umgesetzt (2026-10-21) · Kosten: 2.00 USD · Modell: claude-opus-5-5 · Scope: a\n",
-		},
-		{
-			name:  "mit Template und Scope",
-			in:    "# PRD: X\n> Status: umgesetzt (2026-10-21) · Template: einfach · Scope: a\n",
-			cost:  0.8,
-			model: "claude-opus-5-5",
-			out:   "# PRD: X\n> Status: umgesetzt (2026-10-21) · Kosten: 0.80 USD · Modell: claude-opus-5-5 · Template: einfach · Scope: a\n",
-		},
-		{
-			name:  "ohne Freitext",
-			in:    "# PRD: X\n> Status: umgesetzt (2026-10-21)\r\n\nText\n",
+			name:  "insert without detail",
+			in:    "> Status: geplant\n",
 			cost:  1,
-			model: "claude-opus-5-5",
-			out:   "# PRD: X\n> Status: umgesetzt (2026-10-21) · Kosten: 1.00 USD · Modell: claude-opus-5-5\r\n\nText\n",
+			model: "m",
+			want:  "> Status: geplant · Kosten: 1.00 USD · Modell: m\n",
+			ok:    true,
 		},
 		{
-			name: "ohne Modell",
-			in:   "# PRD: X\n> Status: umgesetzt (2026-10-21) · Scope: a",
-			cost: 1.5,
-			out:  "# PRD: X\n> Status: umgesetzt (2026-10-21) · Kosten: 1.50 USD · Scope: a",
+			name:  "replace in place",
+			in:    "> Status: geplant · Scope: a · Kosten: 1.00 USD · Modell: old · Risk: b\n",
+			cost:  2.5,
+			model: "new",
+			want:  "> Status: geplant · Scope: a · Kosten: 2.50 USD · Modell: new · Risk: b\n",
+			ok:    true,
 		},
 		{
-			name: "ohne Statuszeile",
-			in:   "# PRD: X\n\nText\n",
+			name:  "model goes right after existing cost",
+			in:    "> Status: geplant · Scope: a · Kosten: 1.00 USD · Risk: b\n",
+			cost:  2,
+			model: "m",
+			want:  "> Status: geplant · Scope: a · Kosten: 2.00 USD · Modell: m · Risk: b\n",
+			ok:    true,
+		},
+		{
+			name: "empty model drops the field",
+			in:   "> Status: geplant · Kosten: 1.00 USD · Modell: old · Scope: a\n",
+			cost: 3,
+			want: "> Status: geplant · Kosten: 3.00 USD · Scope: a\n",
+			ok:   true,
+		},
+		{
+			name:  "keeps CRLF",
+			in:    "> Status: geplant · Scope: a\r\nText\r\n",
+			cost:  1,
+			model: "m",
+			want:  "> Status: geplant · Kosten: 1.00 USD · Modell: m · Scope: a\r\nText\r\n",
+			ok:    true,
+		},
+		{
+			name: "no status line",
+			in:   "# Notes\n\nText\n",
 			cost: 1,
-			out:  "# PRD: X\n\nText\n",
+			want: "# Notes\n\nText\n",
+		},
+		{
+			name: "status line after the head",
+			in:   strings.Repeat("x\n", HeaderScanLines) + "> Status: geplant\n",
+			cost: 1,
+			want: strings.Repeat("x\n", HeaderScanLines) + "> Status: geplant\n",
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := SetRunInfo(tt.in, tt.cost, tt.model)
-			if got != tt.out {
-				t.Errorf("SetRunInfo = %q, erwartet %q", got, tt.out)
-			}
-			// Ein zweiter Aufruf mit gleichen Werten ändert nichts.
-			if again := SetRunInfo(got, tt.cost, tt.model); again != got {
-				t.Errorf("zweiter Aufruf = %q", again)
+			got, ok := SetRunInfo(tt.in, tt.cost, tt.model)
+			if got != tt.want || ok != tt.ok {
+				t.Errorf("SetRunInfo = %q, %v; want %q, %v", got, ok, tt.want, tt.ok)
 			}
 		})
 	}
 }
 
-func TestPhaseFromStatus(t *testing.T) {
-	if got := PhaseFromStatus(Status{Kind: StatusPlanned}); got != PhasePlanned {
-		t.Errorf("geplant: %s", got)
+func TestSetRunInfoRoundTrip(t *testing.T) {
+	out, ok := SetRunInfo("> Status: umgesetzt (2026-10-20) · Scope: a\n", 7.5, "opus")
+	if !ok {
+		t.Fatal("no status line")
 	}
-	if got := PhaseFromStatus(Status{Kind: StatusImplemented}); got != PhaseMerged {
-		t.Errorf("umgesetzt: %s", got)
-	}
-	if got := PhaseFromStatus(Status{Kind: StatusDiscarded}); got != PhaseDiscarded || got.Label() != "verworfen" || got.Symbol() != "✗" {
-		t.Errorf("verworfen: %s %s %s", got, got.Label(), got.Symbol())
-	}
-	if got := PhaseFromStatus(Status{}); got != PhaseUnknown {
-		t.Errorf("unbekannt: %s", got)
+	s, _ := ParseStatusLine(strings.TrimSuffix(out, "\n"))
+	cost, hasCost, model := RunInfo(s)
+	if cost != 7.5 || !hasCost || model != "opus" || s.Date != "2026-10-20" {
+		t.Errorf("round trip: %+v, %v, %v, %q", s, cost, hasCost, model)
 	}
 }

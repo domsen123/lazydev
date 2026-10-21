@@ -1,4 +1,4 @@
-// lazydev startet ohne Argumente die TUI. Die Unterbefehle steuern den Lauf eines PRDs.
+// lazydev starts the TUI without arguments. The commands control the run of a PRD.
 package main
 
 import (
@@ -7,144 +7,127 @@ import (
 	"os"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
-
-	"lazydev/internal/chatrun"
 	"lazydev/internal/config"
+	"lazydev/internal/project"
+	"lazydev/internal/repo"
 	"lazydev/internal/runner"
 	"lazydev/internal/state"
 	"lazydev/internal/tui"
-	"lazydev/internal/worktree"
 )
 
-const usage = `Aufruf:
-  lazydev                                          TUI starten
-  lazydev start <projekt-id> <prd-name>            Runner im Hintergrund starten, mit maxParallel
-  lazydev run <projekt-id> <prd-name>              Runner im Vordergrund: Setup, Umsetzung, Review
-  lazydev merge <projekt-id> <prd-name>            Merge freigeben, wenn autoMerge aus ist
-  lazydev stop <projekt-id> <prd-name>             Runner stoppen, der Worktree bleibt
-  lazydev teardown [--yes] <projekt-id> <prd-name> Lauf verwerfen: Datenbanken, Worktree, Branch
-  lazydev chat <projekt-id> <chat-id>              Eine Runde eines PRD-Chats ausführen, die TUI startet sie
-  lazydev trust <projekt-id>                       Hooks und Freigaben aus .lazydev/config.yaml prüfen und bestätigen
+const usage = `Usage:
+  lazydev                                  start the TUI
+  lazydev start <project> <prd>            start or continue the runner of a PRD in the background
+  lazydev stop <project> <prd>             stop the runner, the worktree stays
+  lazydev discard [--yes] <project> <prd>  throw away the run: worktree, branch and its commits
+  lazydev trust <project>                  check and trust hooks and allowed tools of .lazydev/config.yaml
 
-Die Projekt-ID ist der Ordnername des Projekts. Der PRD-Name ist der Dateiname ohne .md.
-Nach einem Fehler oder Abbruch macht start oder run beim gescheiterten Schritt weiter.
-Logs: %s
+<project> is the project ID (its folder name) or its path, <prd> the PRD file name without .md.
+Projects get added in the TUI. After an error or abort, start continues with the failed step.
 
-Konfiguration: %s
+Projects: %s
+State and logs: %s
 `
 
 func main() {
-	cfgPath := config.DefaultPath()
 	args := os.Args[1:]
-	if len(args) > 0 {
-		switch args[0] {
-		case "-h", "--help", "help":
-			fmt.Printf(usage, state.Dir(), cfgPath)
-			return
-		case "start", "run", "merge", "stop", "teardown", "chat", "trust":
-		default:
-			fmt.Fprintf(os.Stderr, "Unbekannter Befehl: %s\n\n"+usage, args[0], state.Dir(), cfgPath)
-			os.Exit(2)
-		}
-	}
-
-	cfg, err := config.Load(cfgPath)
-	if err != nil {
-		fail(err)
-	}
 	if len(args) == 0 {
-		p := tea.NewProgram(tui.New(cfgPath, cfg).WithWatch(), tea.WithAltScreen(), tea.WithMouseCellMotion())
-		if _, err := p.Run(); err != nil {
+		if err := tui.Run(); err != nil {
 			fail(err)
 		}
 		return
+	}
+	cmd, rest := args[0], args[1:]
+	switch cmd {
+	case "-h", "--help", "help":
+		fmt.Printf(usage, config.Dir(), state.Dir())
+		return
+	case "run":
+		// "lazydev run <id> <dir> <prd>" is the detached runner the TUI and start spawn.
+		if len(rest) != 3 {
+			usageError()
+		}
+		if err := runner.RunMain(rest[0], rest[1], rest[2]); err != nil {
+			fail(err)
+		}
+		return
+	case "trust":
+		if len(rest) != 1 {
+			usageError()
+		}
+		if err := trust(rest[0]); err != nil {
+			fail(err)
+		}
+		return
+	case "start", "stop", "discard":
+	default:
+		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
+		usageError()
 	}
 
-	cmd, rest := args[0], args[1:]
-	if cmd == "trust" {
-		if len(rest) != 1 {
-			fmt.Fprintf(os.Stderr, usage, state.Dir(), cfgPath)
-			os.Exit(2)
-		}
-		if err := trust(cfg, rest[0]); err != nil {
-			fail(err)
-		}
-		return
-	}
 	yes := false
-	if cmd == "teardown" && len(rest) > 0 && rest[0] == "--yes" {
+	if cmd == "discard" && len(rest) > 0 && rest[0] == "--yes" {
 		yes, rest = true, rest[1:]
 	}
 	if len(rest) != 2 {
-		fmt.Fprintf(os.Stderr, usage, state.Dir(), cfgPath)
-		os.Exit(2)
+		usageError()
 	}
-	target, err := runner.FindProject(cfg, rest[0])
+	t, err := runner.Find(rest[0])
 	if err != nil {
 		fail(err)
 	}
 	prdName := rest[1]
-
 	switch cmd {
-	case "start", "merge":
-		start := runner.Start
-		if cmd == "merge" {
-			start = runner.Merge
+	case "start":
+		started, err := runner.Start(t, prdName)
+		switch {
+		case err != nil:
+			fail(err)
+		case started:
+			fmt.Printf("Runner started. Log: %s\n", state.RunnerLogPath(t.ID, prdName))
+		default:
+			fmt.Printf("%d runners work already. %s waits and starts once one ends.\n", runner.MaxParallel, prdName)
 		}
-		var started bool
-		if started, err = start(cfg, target, prdName); err == nil {
-			if started {
-				fmt.Printf("Runner gestartet. Log: %s\n", state.RunnerLogPath(target.ID, prdName))
-			} else {
-				fmt.Printf("maxParallel (%d) erreicht. %s wartet und startet, sobald ein Runner endet.\n", cfg.MaxParallel, prdName)
-			}
-		}
-	case "run":
-		err = runner.Run(cfg, target, prdName, os.Stdout)
 	case "stop":
-		if err = runner.Stop(target, prdName); err == nil {
-			fmt.Println("SIGTERM gesendet.")
+		if err := runner.Stop(t.ID, prdName); err != nil {
+			fail(err)
 		}
-	case "teardown":
-		if !yes && !confirm(fmt.Sprintf("Datenbanken, Worktree und Branch %s von %s löschen? Ungemergte Commits gehen verloren. (j/n) ",
-			worktree.Branch(prdName), prdName)) {
-			fmt.Println("Abgebrochen.")
+		fmt.Println("SIGTERM sent.")
+	case "discard":
+		if !yes && !confirm(fmt.Sprintf("Delete worktree and branch %s%s of %s? Unmerged commits get lost. (y/n) ", project.FeaturePrefix, prdName, t.ID)) {
+			fmt.Println("Cancelled.")
 			return
 		}
-		err = runner.Teardown(target, prdName, os.Stdout)
-	case "chat":
-		err = chatrun.Round(cfg, target.ID, rest[1])
-	}
-	if err != nil {
-		fail(err)
+		if err := runner.Discard(t, prdName); err != nil {
+			fail(err)
+		}
 	}
 }
 
-// trust zeigt Hooks und Freigaben aus .lazydev/config.yaml und speichert ihren Hash nach "j".
-func trust(cfg *config.Config, projectID string) error {
-	target, err := runner.FindProject(cfg, projectID)
+// trust shows hooks and allowed tools of .lazydev/config.yaml and saves their hash after "y".
+func trust(idOrPath string) error {
+	t, err := runner.Find(idOrPath)
 	if err != nil {
 		return err
 	}
-	repo, exists, err := config.LoadRepo(target.Dir())
-	if err != nil {
-		return err
+	info := repo.Read(t.Dir, t.ID)
+	if info.Err != nil {
+		return info.Err
 	}
-	hash := repo.TrustHash()
-	if !exists || hash == "" {
-		fmt.Printf("%s setzt keine Hooks oder Freigaben in %s/config.yaml. Es gibt nichts zu bestätigen.\n", projectID, config.RepoDir)
+	hash := info.Config.TrustHash()
+	if hash == "" {
+		fmt.Printf("%s sets no hooks or allowed tools in %s/config.yaml, nothing to trust.\n", t.ID, repo.Dir)
 		return nil
 	}
-	fmt.Printf("%s/config.yaml von %s setzt Hooks oder Freigaben:\n\n%s\n", config.RepoDir, projectID, repo.TrustSections())
-	if !confirm("Erlauben? (j/n) ") {
-		fmt.Println("Abgebrochen.")
+	fmt.Printf("%s/config.yaml of %s sets hooks or allowed tools:\n\n%s\n", repo.Dir, t.ID, info.Config.TrustSections())
+	if !confirm("Trust them? (y/n) ") {
+		fmt.Println("Cancelled.")
 		return nil
 	}
-	if err := state.Trust(target.ID, hash); err != nil {
+	if err := state.Trust(t.ID, hash); err != nil {
 		return err
 	}
-	fmt.Println("Bestätigt.")
+	fmt.Println("Trusted.")
 	return nil
 }
 
@@ -152,7 +135,12 @@ func confirm(question string) bool {
 	fmt.Print(question)
 	answer, _ := bufio.NewReader(os.Stdin).ReadString('\n')
 	a := strings.ToLower(strings.TrimSpace(answer))
-	return a == "j" || a == "y"
+	return a == "y" || a == "j"
+}
+
+func usageError() {
+	fmt.Fprintf(os.Stderr, usage, config.Dir(), state.Dir())
+	os.Exit(2)
 }
 
 func fail(err error) {
