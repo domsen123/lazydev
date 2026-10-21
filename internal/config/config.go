@@ -69,6 +69,50 @@ type Settings struct {
 	AllowedTools []string `json:"allowedTools,omitempty"`
 	// PermissionMode is the --permission-mode of every Claude step, see Mode.
 	PermissionMode string `json:"permissionMode,omitempty"`
+	// Discord holds the webhook of the runner's notifications.
+	Discord Discord `json:"discord,omitzero"`
+}
+
+// Discord is the webhook runners post their notifications to, global and per project.
+type Discord struct {
+	// Enabled is the global switch, off by default.
+	Enabled bool   `json:"enabled,omitempty"`
+	URL     string `json:"url,omitempty"`
+	// Projects holds the settings of single projects by their absolute path.
+	Projects map[string]DiscordProject `json:"projects,omitempty"`
+}
+
+// DiscordProject is the Discord setting of one project.
+type DiscordProject struct {
+	// Enabled nil counts as on, false mutes the project.
+	Enabled *bool `json:"enabled,omitempty"`
+	// URL replaces the global URL, empty uses it.
+	URL string `json:"url,omitempty"`
+}
+
+// ProjectEnabled reports whether the project in dir is switched on. Without entry or field it is.
+func (d Discord) ProjectEnabled(dir string) bool {
+	p, ok := d.Projects[dir]
+	if !ok || p.Enabled == nil {
+		return true
+	}
+	return *p.Enabled
+}
+
+// ProjectURL is the URL of the project in dir, the global URL if it has none.
+func (d Discord) ProjectURL(dir string) string {
+	if u := d.Projects[dir].URL; u != "" {
+		return u
+	}
+	return d.URL
+}
+
+// Target is the URL notifications of the project in dir go to, empty if a switch is off.
+func (d Discord) Target(dir string) string {
+	if !d.Enabled || !d.ProjectEnabled(dir) {
+		return ""
+	}
+	return d.ProjectURL(dir)
 }
 
 // Permission modes a Claude step may run with.
@@ -98,13 +142,13 @@ func LoadSettings() Settings {
 	return s
 }
 
-// SaveSettings writes settings.json.
+// SaveSettings writes settings.json, readable by the user only: it may hold webhook URLs.
 func SaveSettings(s Settings) error {
 	data, err := json.MarshalIndent(s, "", "  ")
 	if err != nil {
 		return err
 	}
-	return fsutil.WriteAtomic(settingsPath(), append(data, '\n'), 0o644)
+	return fsutil.WriteAtomic(settingsPath(), append(data, '\n'), 0o600)
 }
 
 // IDs assigns the project IDs that name state and worktree folders: the folder name, plus a short

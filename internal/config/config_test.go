@@ -156,9 +156,64 @@ func TestSettings(t *testing.T) {
 	if s := LoadSettings(); !reflect.DeepEqual(s, full) {
 		t.Errorf("roundtrip with permissions: %+v", s)
 	}
+	off := false
+	withDiscord := Settings{Theme: "Default", Discord: Discord{Enabled: true, URL: "https://g", Projects: map[string]DiscordProject{
+		"/a/shop": {Enabled: &off, URL: "https://p"},
+		"/b/blog": {URL: "https://b"},
+	}}}
+	if err := SaveSettings(withDiscord); err != nil {
+		t.Fatal(err)
+	}
+	if s := LoadSettings(); !reflect.DeepEqual(s, withDiscord) {
+		t.Errorf("roundtrip with discord: %+v", s)
+	}
+	// Without Discord settings the field stays out of the file.
+	SaveSettings(Settings{Theme: "Default"})
+	if data, _ := os.ReadFile(settingsPath()); strings.Contains(string(data), "discord") {
+		t.Errorf("empty discord written:\n%s", data)
+	}
 	os.WriteFile(settingsPath(), []byte("not json"), 0o644)
 	if s := LoadSettings(); !reflect.DeepEqual(s, Settings{}) {
 		t.Errorf("broken file: %+v", s)
+	}
+}
+
+func TestSettingsPermissions(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	os.MkdirAll(Dir(), 0o755)
+	if err := os.WriteFile(settingsPath(), []byte("{}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := SaveSettings(Settings{Theme: "Default"}); err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(settingsPath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if perm := info.Mode().Perm(); perm != 0o600 {
+		t.Errorf("perm: %v", perm)
+	}
+}
+
+func TestDiscordTarget(t *testing.T) {
+	off, on := false, true
+	for _, tc := range []struct {
+		name string
+		d    Discord
+		want string
+	}{
+		{"global off", Discord{URL: "https://g"}, ""},
+		{"global on without entry", Discord{Enabled: true, URL: "https://g"}, "https://g"},
+		{"project off", Discord{Enabled: true, URL: "https://g", Projects: map[string]DiscordProject{"/a/shop": {Enabled: &off}}}, ""},
+		{"project on", Discord{Enabled: true, URL: "https://g", Projects: map[string]DiscordProject{"/a/shop": {Enabled: &on}}}, "https://g"},
+		{"project URL replaces global URL", Discord{Enabled: true, URL: "https://g", Projects: map[string]DiscordProject{"/a/shop": {URL: "https://p"}}}, "https://p"},
+		{"both URLs empty", Discord{Enabled: true, Projects: map[string]DiscordProject{"/a/shop": {}}}, ""},
+		{"other project off", Discord{Enabled: true, URL: "https://g", Projects: map[string]DiscordProject{"/b/blog": {Enabled: &off}}}, "https://g"},
+	} {
+		if got := tc.d.Target("/a/shop"); got != tc.want {
+			t.Errorf("%s: Target = %q, want %q", tc.name, got, tc.want)
+		}
 	}
 }
 
