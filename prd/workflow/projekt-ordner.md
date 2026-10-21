@@ -1,6 +1,6 @@
 # PRD: Projekt-Ordner `.lazydev/` für Einstellungen, Prompts und Knowledge
 
-> Status: geplant · Template: einfach · Scope: Jedes Projekt trägt seine lazydev-Einstellungen im Repo unter `.lazydev/`: Ziel-Branch, Preset, Knowledge pro Schritt, Freigaben, Hooks und eigene Prompts für Erstellen, Umsetzen, Review und Merge. Alle im Team arbeiten damit gleich. lazydev behält nur den allgemeinen Ablauf „einfach“ als Standard und hängt an jeden Prompt einen festen Vertrag an. Ein Wizard in der TUI legt den Ordner an.
+> Status: umgesetzt (2026-10-21) · Template: einfach · Scope: Jedes Projekt trägt seine lazydev-Einstellungen im Repo unter `.lazydev/`: Ziel-Branch, Preset, Knowledge pro Schritt, Freigaben, Hooks und eigene Prompts für Erstellen, Umsetzen, Review und Merge. Alle im Team arbeiten damit gleich. lazydev behält nur den allgemeinen Ablauf „einfach“ als Standard und hängt an jeden Prompt einen festen Vertrag an. Ein Wizard in der TUI legt den Ordner an.
 
 ## Context
 

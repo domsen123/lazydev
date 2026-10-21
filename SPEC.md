@@ -3,7 +3,7 @@
 > Status: umgesetzt (2026-10-20) · Meilensteine 1 bis 9
 
 lazydev ist eine Terminal-Oberfläche (TUI) im Stil von lazydocker und lazygit. Sie zeigt alle Projekte und
-deren PRDs auf einen Blick und steuert den PRD-Workflow: PRD erstellen, umsetzen, mit `/arewedone` prüfen,
+deren PRDs auf einen Blick und steuert den PRD-Workflow: PRD erstellen, umsetzen, im Review prüfen,
 committen und in den Ziel-Branch mergen, Standard `main`. Jedes PRD läuft in einem eigenen Git-Worktree,
 sodass mehrere PRDs pro Projekt parallel laufen. lazydev ersetzt das Experiment mit OpenRig durch ein schlankes, eigenes Werkzeug.
 
@@ -24,33 +24,210 @@ sodass mehrere PRDs pro Projekt parallel laufen. lazydev ersetzt das Experiment 
 - Kein `git push`, kein Pull Request. Gemergt wird nur lokal in den Ziel-Branch.
 - Kein Release von einem Ziel-Branch wie `next` nach `main`. Das bleibt Handarbeit.
 
-## Ausgangslage: eingebettete Prompts und Agenten
+## Projekt-Ordner `.lazydev/`
 
-lazydev bringt alle Prompts und Agenten per `go:embed` im Binary mit. Nichts kommt aus `~/.claude`, deshalb
-läuft lazydev auf jedem Rechner gleich, und Änderungen in `~/.claude` wirken nicht auf Chats und Runner.
+lazydev liefert die Mechanik: Worktree, Datenbanken, Ports, Merge-Queue, Rebase, Prüfung und
+Fast-Forward. Dazu kommen der allgemeine Ablauf „einfach“ als Standard-Prompts und ein fester Vertrag pro
+Schritt. Das Projekt legt im Ordner `.lazydev/` seines Hauptordners fest, wie lazydev und Claude dort
+arbeiten. Der Ordner ist mit dem Projekt versioniert, jedes Teammitglied und jeder Worktree hat dieselben
+Einstellungen. Lokal überschreiben lässt sich nichts davon.
 
-| Baustein | Pfad im Repo | Zweck |
-|---|---|---|
-| Erstellen (`nuxt`) | `internal/prdtemplate/nuxt/create.md` | Interaktives Interview, schreibt `prd/<bereich>/<name>.md`. Liest Checkliste und Anti-Patterns aus der `_ARCHITECTURE.md` des Projekts. |
-| Umsetzen (`nuxt`) | `internal/prdtemplate/nuxt/implement.md` | siehe „Umsetzen (`nuxt`)“ |
-| Erstellen, Umsetzen (`einfach`) | `internal/prdtemplate/einfach/` | siehe „PRD-Templates“ |
-| `/arewedone` | `internal/runner/prompts/arewedone.md` | Startet den Agenten `structural-completeness-reviewer`, behebt Befunde, committet über `committer`. |
-| `/merge-prd` | `internal/runner/prompts/merge.md` | siehe „Merge-Prompt“ |
-| `committer` | `internal/claude/agents/committer.md` | Conventional Commit mit `-m "<betreff>" -m "<body>"`, ohne `Co-Authored-By` und ohne jede Erwähnung von Claude oder KI. Sprache und Stil wie in `git log`. |
-| `structural-completeness-reviewer` | `internal/claude/agents/structural-completeness-reviewer.md` | Strukturelles Review nach einer Änderung. |
+### Dateien
 
-Die Prompts haben keine Frontmatter und nutzen `$ARGUMENTS` als Platzhalter. Ihre erste Zeile erscheint im
-Log, z. B. `# /arewedone: Review und Commit` oder `# /merge-prd feat/<prd-name>`. Die Namen `/arewedone`
-und `/merge-prd` bezeichnen in dieser Spezifikation die Schritte, nicht globale Commands.
+| Datei | Inhalt |
+|---|---|
+| `.lazydev/config.yaml` | `baseBranch`, `preset`, `knowledge`, `allowedTools`, `hooks` |
+| `.lazydev/create.md` | Prompt für den Chat zum PRD (Schritt `create`) |
+| `.lazydev/implement.md` | Prompt für die Umsetzung (Schritt `implement`) |
+| `.lazydev/review.md` | Prompt für Review und Commit (Schritt `review`) |
+| `.lazydev/merge.md` | Prompt für Konflikte und rote Prüfungen beim Merge (Schritt `merge`) |
+
+Andere Dateien im Ordner ignoriert lazydev. Fehlt eine Prompt-Datei, nutzt lazydev für diesen Schritt den
+Standard-Prompt. lazydev liest alle Dateien immer aus dem Hauptordner, beim Start jeder Chat-Runde und
+jedes Schritts. Uncommittete Änderungen gelten sofort.
+
+```yaml
+# .lazydev/config.yaml
+baseBranch: next          # Ziel-Branch, Standard main
+preset: nuxt-drizzle      # Setup, Teardown, Prüfbefehle, Env-Dateien. Standard: kein Preset
+knowledge:                # Pfade relativ zum Projekt, die Claude zuerst liest
+  all: [CLAUDE.md]        # jeder Schritt
+  create: [_ARCHITECTURE.md]
+  implement: [_ARCHITECTURE.md]
+allowedTools:             # ergänzt die Standard-Freigaben für implement, review und merge
+  - "Bash(pnpm test:e2e:*)"
+hooks:                    # ersetzt einzelne Preset-Hooks: setup, teardown, check, dev
+  setup: ./scripts/lazydev-setup.sh
+```
+
+- Unbekannte Felder und unbekannte Schritte unter `knowledge` sind ein Fehler mit Dateipfad und Feldname,
+  z. B. `<pfad>/.lazydev/config.yaml: unbekanntes Feld "autoMerge"`.
+- Standardwerte: `baseBranch` ist `main`, `preset` leer, also keine Preset-Hooks. `knowledge`,
+  `allowedTools` und `hooks` sind leer.
+- `allowedTools` ergänzt die Standard-Freigaben (siehe „Aufruf von Claude“) für implement, review und
+  merge. Der Chat behält seine festen Freigaben.
+- `hooks` mit `setup`, `teardown`, `check`, `dev` ersetzen einzelne Hooks des Presets. Relative Pfade gelten
+  ab dem Hauptordner.
+
+### Keine lokale Überschreibung
+
+Die zentrale `config.yaml` enthält nur noch `maxParallel`, `portBase`, `claude.binary` und pro Projekt
+`path` und `autoMerge`. `autoMerge` bleibt lokal, weil es eine persönliche Entscheidung ist, ob du Merges
+selbst freigibst.
+
+- Hat ein Projekt `.lazydev/config.yaml`, gelten `baseBranch`, `preset`, `allowedTools` und `hooks` nur
+  aus dieser Datei. Stehen sie für das Projekt noch in der zentralen `config.yaml`, ignoriert lazydev sie.
+  Die Statuszeile zeigt beim Laden einmal
+  `<projekt>: lokale Einstellungen ignoriert (baseBranch, …), es gilt .lazydev/config.yaml`.
+- Übergang für bestehende Projekte ohne `.lazydev/config.yaml`: lazydev liest `baseBranch`, `preset`,
+  `allowedTools` und `hooks` wie bisher aus der zentralen `config.yaml`. Der Titel der PRD-Box zeigt
+  ` · ohne .lazydev`. Der Wizard (`i`) übernimmt diese Werte und entfernt sie danach aus der zentralen
+  `config.yaml`.
+- `a` trägt ein neues Projekt nur mit `path` ein.
+
+### Aufbau eines Prompts
+
+Jeder Prompt besteht aus vier Teilen, getrennt durch eine Leerzeile:
+
+1. **Kopfzeile von lazydev:** `# lazydev <schritt>: <argument>`, z. B.
+   `# lazydev implement: prd/auth/token.md`. Das Argument ist die erste Zeile von `$ARGUMENTS`. Review hat
+   kein Argument, dort steht `<branch> → <ziel-branch>`, z. B. `# lazydev review: feat/token → next`. Die
+   Kopfzeile steht im Log.
+2. **Knowledge-Block**, falls Dateien eingetragen sind: `## Pflichtlektüre` mit dem Satz „Lies diese
+   Dateien vollständig, bevor du etwas anderes tust:“ und einer Liste der Pfade. lazydev kopiert den
+   Inhalt nicht in den Prompt.
+3. **Prompt** aus `.lazydev/<schritt>.md` oder der Standard-Prompt.
+4. **Vertrag des Schritts.**
+
+Platzhalter in Prompt und Vertrag:
+
+| Platzhalter | create | implement | review | merge |
+|---|---|---|---|---|
+| `$ARGUMENTS` | Beschreibung | PRD-Pfad | leer | Branch und Fehlerkontext |
+| `$BASE` | Ziel-Branch | Ziel-Branch | Ziel-Branch | Ziel-Branch |
+| `$BRANCH` | leer | `feat/<prd-name>` | `feat/<prd-name>` | `feat/<prd-name>` |
+
+Beginnt eine Prompt-Datei mit `---`, entfernt lazydev den Block bis zum nächsten `---`. So lassen sich
+Commands aus `.claude/commands/` übernehmen.
+
+Vor jedem Claude-Aufruf schreibt der Runner `Prompt: .lazydev/<schritt>.md` oder `Prompt: Standard` und,
+falls vorhanden, `Knowledge: <pfade>` ins Log.
+
+### Standard-Prompts
+
+Die Standard-Prompts liegen eingebettet unter `internal/prompts/default/<schritt>.md`. Sie bilden den
+allgemeinen Ablauf „einfach“:
+
+- **create:** Codebase verstehen, Klärungsfragen, PRD mit den Abschnitten `## Context`,
+  `## Produktentscheidungen (final)`, `## Scope`, `## Umsetzung`, `## Technische Hinweise` und
+  `## Erfolgskriterien`.
+- **implement:** PRD und `CLAUDE.md` lesen, `## Umsetzung` in Reihenfolge umsetzen, Tests und Doku,
+  Prüfbefehle aus `CLAUDE.md`, Abgleich mit `## Erfolgskriterien`. Keine eigenen Entscheidungen.
+- **review:** Startet den Agenten `structural-completeness-reviewer`, behebt Befunde und committet über
+  `committer`.
+- **merge:** Absicht verstehen, `git rebase $BASE`, Konflikte so lösen, dass beide Seiten erhalten bleiben,
+  Prüfbefehle, Korrekturen über `committer`. Generierte Dateien wie Migrationen behandelt Claude nach den
+  Regeln aus `CLAUDE.md` und führt sie nie von Hand zusammen.
+
+Projekte mit eigenem Ablauf, etwa ohne Migrationen im Feature-Branch, schreiben ihn in
+`.lazydev/<schritt>.md`.
+
+### Vertrag
+
+Der Vertrag liegt eingebettet unter `internal/prompts/contract/<schritt>.md` und ist nicht
+überschreibbar. Er beginnt mit `## Regeln von lazydev`, steht am Ende jedes Prompts und hat Vorrang vor
+allem, was davor steht. Er enthält, was der Runner auswertet oder was den Ablauf schützt. Jeder Vertrag
+verbietet Änderungen unter `.lazydev/`.
+
+- **create:** PRD unter `prd/<bereich>/<name>.md`, Statuszeile `> Status: geplant · Scope: …`, keine
+  Umsetzung, Klärungsfragen nummeriert mit Optionen A bis D, keine offenen Entscheidungen im PRD, nur unter
+  `prd/` schreiben, zum Schluss den Zielpfad nennen.
+- **implement:** Branch muss `$BRANCH` heißen. Kein Commit außer `git mv`. Statuszeile auf
+  `umgesetzt (YYYY-MM-DD)` nur bei Erfolg. Bericht mit `## Ergebnis` (`umgesetzt` | `abgebrochen`),
+  `## Geänderte Dateien`, `## Prüfungen`, `## Offene Fragen` und `## Nicht geprüft`. `umgesetzt` nur, wenn
+  alle Prüfungen `ok` sind und „Offene Fragen“ „keine“ enthält. Keine Watch-Befehle oder Dev-Server, kein
+  `git push`, `git reset --hard`, `git worktree`.
+- **review:** Änderungen gegenüber `$BASE` prüfen, alles über den Agenten `committer` committen, danach ist
+  `git status --porcelain` leer. Kein `git push`.
+- **merge:** Branch `$BRANCH` per Rebase auf `$BASE` bringen. Bericht mit `## Ergebnis`
+  (`bereit für Fast-Forward` | `abgebrochen`), `## Konflikte`, `## Prüfungen` und `## Offene Punkte`.
+  Korrekturen über `committer`. Kein `git merge` nach `$BASE`, kein `git push`. Bei Unklarheit
+  `git rebase --abort` und abbrechen.
+
+### Knowledge
+
+`knowledge` in `.lazydev/config.yaml` enthält Listen von Pfaden relativ zum Projekt: `all` für jeden
+Schritt, dazu `create`, `implement`, `review` und `merge`. Im Prompt stehen erst die Pfade aus `all`, dann
+die des Schritts. Doppelte Pfade fallen weg.
+
+Vor dem Start von Claude prüft lazydev, ob jede Datei im Arbeitsordner des Schritts existiert: beim Chat
+im Hauptordner, sonst im Worktree. Fehlt eine, scheitert der Schritt mit `Knowledge-Datei fehlt: <pfad>`,
+ohne Claude zu starten. Beim Chat zeigt die Statuszeile denselben Text als Fehler, und kein Chat entsteht.
+Eine nur lokal vorhandene Datei fehlt im Worktree. Der Wizard bietet deshalb nur getrackte Dateien an.
+
+### Vertrauen
+
+`hooks` und `allowedTools` aus dem Repo führen Code aus bzw. erweitern Claudes Rechte. lazydev speichert pro
+Projekt einen SHA-256 über beide Abschnitte in `$XDG_STATE_HOME/lazydev/trust/<projekt-id>.json`. Der Hash
+entsteht aus einer YAML-Struktur mit nur `allowedTools` und `hooks`, Kommentare und andere Felder ändern ihn
+nicht.
+
+- Weicht der Hash ab oder fehlt er, startet kein Runner. Sind beide Abschnitte leer, ist keine Bestätigung
+  nötig. `baseBranch`, `preset`, `knowledge` und die Prompts brauchen keine Bestätigung.
+- Projekte ohne `.lazydev/config.yaml` brauchen keine Bestätigung, ihre Hooks stehen in der eigenen
+  zentralen `config.yaml`.
+- **TUI:** `s` zeigt vor dem Start ein Fenster mit
+  `.lazydev/config.yaml von <projekt> setzt Hooks oder Freigaben:` und darunter beide Abschnitte. Die
+  Statuszeile fragt `Erlauben? (j/n)`. Nach `j` speichert lazydev den Hash und fragt wie bisher nach dem
+  Start. Nach `n` startet nichts.
+- **CLI:** `lazydev run` und `lazydev start` scheitern ohne passenden Hash mit
+  `Hooks oder Freigaben in .lazydev/config.yaml nicht bestätigt. Prüfen und bestätigen: lazydev trust <projekt-id>`.
+  `lazydev trust <projekt-id>` zeigt beide Abschnitte und speichert den Hash nach `j` auf stdin.
+
+### Schutz von `.lazydev/`
+
+Claude darf `.lazydev/` nicht ändern, der Vertrag verbietet es. Nach implement, review und dem
+Claude-Schritt merge prüft lazydev im Worktree `git diff --name-only <ziel-branch>...HEAD -- .lazydev` und
+`git status --porcelain -- .lazydev`. Ist eines nicht leer, scheitert der Schritt mit
+`.lazydev/ im Worktree geändert: <dateien>`.
+
+### Wizard (`i`)
+
+`i` bei gewähltem Projekt öffnet das Fenster `.lazydev/ anlegen · <projekt>` mit vier Seiten. `Enter` geht
+weiter, `Backspace` zurück, `Esc` bricht ohne Änderung ab. Existiert `.lazydev/` schon, zeigt die
+Statuszeile `.lazydev/ existiert schon. Bearbeite die Dateien im Editor.` als Fehler, und nichts öffnet sich.
+
+1. **Ziel-Branch:** Liste der lokalen Branches ohne `feat/*`. Vorgewählt ist `baseBranch` aus der
+   zentralen `config.yaml`, sonst der aktuelle Branch des Hauptordners. `j`/`k` wählen.
+2. **Knowledge-Dateien:** alle getrackten `.md`-Dateien (`git ls-files -- '*.md'`) ohne `prd/` und
+   `.lazydev/`, sortiert. `Leertaste` markiert, `j`/`k` wählen. Vorgewählt sind `CLAUDE.md`,
+   `ARCHITECTURE.md` und `_ARCHITECTURE.md`, falls vorhanden. Längere Listen scrollen mit der Auswahl.
+3. **Schritte je Datei:** eine Zeile pro markierter Datei mit vier Feldern `[c] [i] [r] [m]` für create,
+   implement, review und merge. `j`/`k` wählen die Datei, `1` bis `4` schalten das Feld um. Vorgewählt sind
+   create und implement. Ohne markierte Datei überspringt der Wizard diese Seite.
+4. **Zusammenfassung:** die entstehende `config.yaml` und die Dateien, die lazydev anlegt. `Enter` schreibt.
+
+Ergebnis: `.lazydev/config.yaml` mit `baseBranch` (nur wenn nicht `main`), `preset` (aus der zentralen
+`config.yaml`, sonst erkannt am Dateibestand), `knowledge`, `allowedTools` und `hooks` aus der zentralen
+`config.yaml`. Eine Datei, die bei allen vier Schritten markiert ist, steht unter `all`. Dazu kopiert der
+Wizard die vier Standard-Prompts nach `.lazydev/create.md`, `implement.md`, `review.md` und `merge.md`,
+damit das Projekt sie anpassen kann. Danach entfernt lazydev `baseBranch`, `preset`, `allowedTools` und
+`hooks` des Projekts aus der zentralen `config.yaml` und meldet
+`.lazydev/ angelegt. Committe den Ordner, damit das Team ihn bekommt.` lazydev committet nicht.
+
+### Eingebettete Agenten
+
+`committer` und `structural-completeness-reviewer` liegen eingebettet unter `internal/claude/agents/`:
+
+| Agent | Zweck |
+|---|---|
+| `committer` | Conventional Commit mit `-m "<betreff>" -m "<body>"`, ohne `Co-Authored-By` und ohne jede Erwähnung von Claude oder KI. Sprache und Stil wie in `git log`. |
+| `structural-completeness-reviewer` | Strukturelles Review nach einer Änderung. |
 
 Die Agenten schreibt lazydev vor jedem Aufruf von Claude als JSON nach `agents.json` im
 Zustandsverzeichnis (Frontmatter `description`, `tools`, `model`, Inhalt als `prompt`). Jeder Aufruf
-bekommt `--agents <datei>`, auch die Chats.
-
-Projekte folgen meist der Nuxt-4-Vertical-Slice-Architektur aus dem Boilerplate
-`~/development/nuxt/nuxt-drizzle`: PostgreSQL in Docker, Drizzle-Migrationen unter
-`server/database/migrations/`, `.env` und `.env.test` mit `DATABASE_URL`. Jedes Projekt hat eigene
-`CLAUDE.md` und `_ARCHITECTURE.md`.
+bekommt `--agents <datei>`, auch die Chats. Projekt-eigene Agenten in `.claude/agents/` lädt Claude wie
+bisher. Bei gleichem Namen gewinnt `--agents`. Nichts kommt aus `~/.claude`.
 
 ### PRD-Format
 
@@ -61,7 +238,8 @@ Ein PRD liegt unter `prd/<bereich>/<name>.md`. Die zweite Zeile trägt den Statu
 > Status: geplant · Scope: <Kurzfassung>
 ```
 
-Bekannte Statuswerte: `geplant`, `umgesetzt (YYYY-MM-DD)`. Der Teil nach `·` ist Freitext.
+Bekannte Statuswerte: `geplant`, `umgesetzt (YYYY-MM-DD)`. Der Teil nach `·` ist Freitext, lazydev wertet
+ihn nicht aus.
 
 Vor dem Fast-Forward schreibt lazydev die Felder `Kosten:` und `Modell:` in den Freitext, direkt nach
 dem Statuswert und vor allen anderen Teilen, getrennt mit ` · `:
@@ -71,7 +249,7 @@ dem Statuswert und vor allen anderen Teilen, getrennt mit ` · `:
 ```
 
 - **`Kosten:`** Summe aller Schritte des Laufs zum Zeitpunkt des Schreibens, inklusive gescheiterter
-  Versuche und eines `/merge-prd`. Zwei Nachkommastellen mit Punkt. Die Kosten des Chats, in dem das
+  Versuche und eines Claude-Schritts merge. Zwei Nachkommastellen mit Punkt. Die Kosten des Chats, in dem das
   PRD entstand, zählen nicht mit.
 - **`Modell:`** volle ID aus dem ersten `system`/`init`-Ereignis des letzten erfolgreichen Schritts
   `implement`. Fehlt sie, entfällt das Feld.
@@ -79,79 +257,10 @@ dem Statuswert und vor allen anderen Teilen, getrennt mit ` · `:
 Die Felder stehen immer in der ersten Zeile der Statuszeile. Ein Betrag, der sich nicht als Zahl lesen
 lässt, gilt als nicht vorhanden.
 
-### PRD-Templates
+Bestehende PRDs mit `Template: …` in der Statuszeile bleiben gültig, der Wert ist Freitext.
 
-Ein Template legt fest, wie lazydev ein PRD im Chat erstellt und wie der Runner es umsetzt. Review und
-Merge sind für alle Templates gleich: `/arewedone` und `/merge-prd`.
-
-| Template | Erstellen | Umsetzen | Für |
-|---|---|---|---|
-| Nuxt-Feature (`nuxt`) | `nuxt/create.md` | `nuxt/implement.md` | Features mit Datenmodell, Feature-Checkliste und UI-Handoff |
-| Einfach (`einfach`) | `einfach/create.md` | `einfach/implement.md` | Projekte und Änderungen ohne Datenmodell, UI-Handoff und Architektur-Doku |
-
-Die Prompts liegen unter `internal/prdtemplate/<template>/`. `$ARGUMENTS` steht für die Beschreibung bzw.
-den PRD-Pfad.
-
-Ein PRD trägt das Template im Freitext der Statuszeile:
-
-```
-# PRD: <Titel>
-> Status: geplant · Template: einfach · Scope: <Kurzfassung>
-```
-
-Ein PRD aus „Einfach“ hat die Abschnitte `## Context`, `## Produktentscheidungen (final)`, `## Scope`,
-`## Umsetzung`, `## Technische Hinweise` und `## Erfolgskriterien`. Ohne Angabe `Template:` gilt `nuxt`.
-
-Pencil ist beim Template `nuxt` optional. Liegt eine `.pen`-Datei im Projekt und ist der MCP-Server
-`pencil` verfügbar, trägt das PRD die Screens unter `## Pencil-Screens` ein. Sonst beschreibt
-`## Frontend-Umsetzung (Handoff)` die UI als Text. Claude liest das Design nur und verändert es nie.
-
-Der Vertrag zum Runner gilt für jedes Template: die Statuszeile und beim Umsetzen ein Bericht mit
-`## Ergebnis` (`umgesetzt` oder `abgebrochen`) und `## Offene Fragen`.
-
-## Umsetzen (`nuxt`) und Merge
-
-### Umsetzen (`nuxt`)
-
-1. Liest das PRD vollständig, dazu `CLAUDE.md` und `_ARCHITECTURE.md` des Projekts.
-2. Arbeitet nur auf dem Branch `feat/<prd-name>`. Heißt der aktuelle Branch anders, bricht er ab.
-   `<prd-name>` ist der Dateiname ohne `.md`.
-3. Setzt `## Datenmodell` und `## Umsetzung (Feature-Anatomie)` in der Reihenfolge der Checkliste um,
-   die UI erst nach dem Backend. Nennt das PRD Pencil-Screens, liest er sie über `pencil`. Fehlen
-   `pencil` oder ein Frame, bricht er ab.
-4. Trifft keine Entscheidung, die das PRD offenlässt. Fehlt eine Entscheidung, bricht er ab und nennt
-   die Frage im Abschlussbericht.
-5. Führt die Prüfbefehle des Projekts aus (aus `CLAUDE.md`, z. B. `pnpm lint`, `pnpm typecheck`,
-   `pnpm test:run`) und behebt Fehler. Nie den Watch-Modus wie `pnpm test` starten.
-6. Setzt die Statuszeile des PRDs auf `umgesetzt (YYYY-MM-DD)`.
-7. Committet **nicht**. Das übernimmt `/arewedone`. Erlaubt ist nur `git mv`, wenn das PRD eine Datei
-   verschiebt.
-8. Schreibt am Ende einen Bericht mit festen Abschnitten: `## Ergebnis` (`umgesetzt` oder
-   `abgebrochen`), `## Geänderte Dateien`, `## Prüfungen`, `## Offene Fragen` und `## Nicht geprüft`.
-   Offene Fragen blockieren und führen zu `abgebrochen`. Unter „Nicht geprüft“ stehen Kriterien, die
-   einen Dev-Server oder Browser brauchen, etwa der Abgleich mit Pencil. Sie blockieren nicht.
-
-Der Runner wertet den Abschnitt `## Ergebnis` aus. Steht dort `abgebrochen`, geht das PRD auf „Fehler“,
-auch bei Exit-Code 0.
-
-### Merge-Prompt (`/merge-prd <branch> [fehlerkontext]`)
-
-Löst Konflikte, wenn `feat/<prd-name>` sich nicht konfliktfrei auf den Ziel-Branch bringen lässt, oder behebt eine
-fehlgeschlagene Prüfung nach dem Rebase. Läuft im Worktree.
-
-1. Liest das PRD des Branches und `git log <ziel-branch>..HEAD`, um die Absicht der Änderung zu verstehen.
-2. Führt `git rebase <ziel-branch>` fort oder startet es und löst jeden Konflikt so, dass beide Seiten erhalten
-   bleiben.
-3. **Drizzle-Migrationen:** Kollidieren Migrationen (`server/database/migrations/*.sql`,
-   `meta/_journal.json`, `meta/*_snapshot.json`), verwirft er die Migrationen des Branches, übernimmt die
-   des Ziel-Branches und erzeugt die Migration des Branches neu mit `pnpm db:generate`. Migrationen werden nie
-   von Hand zusammengeführt.
-4. Führt die Prüfbefehle des Projekts aus und behebt Fehler.
-5. Committet Korrekturen über `committer`. Kein Push.
-6. Kann er einen Konflikt nicht eindeutig lösen, bricht er ab: `git rebase --abort`, Bericht mit Datei
-   und Frage.
-7. Bericht mit `## Ergebnis` (`bereit für Fast-Forward` oder `abgebrochen`), `## Konflikte`,
-   `## Prüfungen` und `## Offene Punkte`.
+Der Runner wertet beim Umsetzen den Abschnitt `## Ergebnis` des Berichts aus. Steht dort `abgebrochen`,
+geht das PRD auf „Fehler“, auch bei Exit-Code 0. Die erste offene Frage steht dann im Fehler.
 
 ## Bedienung
 
@@ -214,8 +323,8 @@ fehlgeschlagene Prüfung nach dem Rebase. Läuft im Worktree.
   oder ohne offene Issues entfällt der jeweilige Indikator.
 - **Unten:** Log des gewählten PRDs, live, scrollbar.
 
-**Fenster über der TUI:** Chat, Hilfe, Claude-Limits, „Template wählen“, „Neues PRD · <Template>“,
-„PRD: …“ und „Issue #<nummer>“ erscheinen als Fenster mit rundem Rahmen über der TUI. Innen haben sie
+**Fenster über der TUI:** Chat, Hilfe, Claude-Limits, „Neues PRD · <projekt>“, „Ziel-Branch“,
+„.lazydev/ anlegen · <projekt>“, die Rückfrage zum Vertrauen, „PRD: …“ und „Issue #<nummer>“ erscheinen als Fenster mit rundem Rahmen über der TUI. Innen haben sie
 2 Spalten Abstand links und rechts und 1 Zeile oben und unten. Hinter einem offenen Fenster erscheint die
 TUI ohne Farben in `colorMuted`. Die Fußzeile bleibt ungedimmt und zeigt die Tastenhilfe.
 
@@ -224,7 +333,7 @@ TUI ohne Farben in `colorMuted`. Die Fußzeile bleibt ungedimmt und zeigt die Ta
 Die Fußzeile zeigt nur die Tasten, die im aktiven Fokus und im Zustand des gewählten PRDs wirken. Vorn
 stehen immer `? Hilfe` und `q beenden`, bei schmalem Terminal kürzt sich die Zeile am Ende mit `…`.
 
-- **Projekte:** `a`, mit gewähltem Projekt dazu `d`, `D` und `n`.
+- **Projekte:** `a`, mit gewähltem Projekt dazu `d`, `b`, `i`, `D` und `n`.
 - **PRDs:** `n`, mit gewähltem PRD dazu `v` und die Aktionen, die gerade greifen. `s` heißt „starten“ ohne
   Lauf und „fortsetzen“ mit Lauf. `m`, `x` und `X` erscheinen unter denselben Bedingungen, unter denen die
   Taste etwas tut. `o` erscheint mit Worktree und Claude-Sitzung, `p` und `w` mit Worktree. `e` erscheint
@@ -243,15 +352,16 @@ nicht, nennt die Statuszeile den Grund. `?` zeigt die vollständige Liste.
 | `Tab` / `←` `→` | Wechsel zwischen Projekten, PRDs, Benachrichtigungen, Issues und unterem Bereich (Log oder Details). Unsichtbare Boxen „Benachrichtigungen“ und „Issues“ überspringt der Fokus. |
 | `a` | Projekt hinzufügen: Pfad eingeben, mit Tab-Vervollständigung |
 | `d` | Projekt aus der Liste entfernen (löscht keine Dateien), mit Rückfrage |
-| `b` | Ziel-Branch des Projekts aus den lokalen Branches wählen, ohne `feat/*`. Siehe „Merge“. |
-| `n` | Neues PRD: Template wählen, Beschreibung eingeben, öffnet ein Chat-Fenster mit Claude |
+| `b` | Ziel-Branch des Projekts aus den lokalen Branches wählen, ohne `feat/*`. Schreibt `baseBranch` in `.lazydev/config.yaml`. Siehe „Merge“. |
+| `i` | `.lazydev/` im Projekt anlegen, siehe „Wizard (`i`)“ |
+| `n` | Neues PRD: öffnet direkt das Fenster „Neues PRD · <projekt>“ für die Beschreibung, dann ein Chat-Fenster mit Claude |
 | `N` | Älteste Benachrichtigung über alle Projekte öffnen. Wählt ihr Projekt und setzt den Cursor der Box darauf. Ohne Benachrichtigung zeigt die Statuszeile `Keine offenen Rückfragen`. |
 | `Enter` / `X` | In „Benachrichtigungen“: Chat öffnen / Chat beenden, mit Rückfrage. Alle übrigen Tasten wirken wie sonst. |
 | `Enter` / `o` / `n` | In „Issues“: Issue im Fenster ansehen / im Browser öffnen / PRD-Chat aus dem Issue starten. Alle übrigen Tasten wirken wie sonst. |
 | `Ctrl+X` | Im Chat: Chat beenden, mit Rückfrage. Eine laufende Runde bricht ab, das Log bleibt. |
 | `Ctrl+R` | Im Chat: nach einem Fehler die letzte Runde mit derselben Eingabe wiederholen |
 | `v` | PRD vollständig als Markdown im Fenster ansehen. Darin öffnet `o` die Datei im Editor. |
-| `s` | Umsetzung des gewählten PRDs starten, mit Rückfrage. Nach Fehler oder Abbruch geht es beim gescheiterten Schritt weiter. |
+| `s` | Umsetzung des gewählten PRDs starten, mit Rückfrage. Nach Fehler oder Abbruch geht es beim gescheiterten Schritt weiter. Setzt `.lazydev/config.yaml` unbestätigte Hooks oder Freigaben, fragt `s` vorher danach (siehe „Vertrauen“). |
 | `m` | Merge des gewählten PRDs anstoßen (nur bei `autoMerge: false` oder nach einem Fehler) |
 | `x` | Laufenden Schritt abbrechen, mit Rückfrage |
 | `X` | PRD verwerfen: Worktree, Branch und Datenbank löschen, PRD zurück in den Hauptordner verschieben. Doppelte Rückfrage. |
@@ -277,7 +387,8 @@ lazydev seine Oberfläche und startet den Befehl im selben Terminal, wie lazygit
 `p` startet den Dev-Server dagegen immer losgelöst im Hintergrund (`setsid`), auch in Herdr. So übersteht
 er einen Neustart der TUI, und der Merge kann ihn vor dem Rebase stoppen. Die PID steht in
 `<prd-name>.devpid` mit dem Worktree-Ordner, die Ausgabe in `<prd-name>.dev.log`. Die Kopfzeile des Logs
-zeigt `dev :<port>`, solange er läuft. Den Befehl liefert das Preset (`pnpm dev`) oder `hooks.dev`.
+zeigt `dev :<port>`, solange er läuft. Den Befehl liefert das Preset (`pnpm dev`) oder `hooks.dev` aus
+`.lazydev/config.yaml`.
 Ist der Port belegt, startet lazydev den Server nicht.
 
 ### GitHub-Issues
@@ -312,11 +423,10 @@ Issue startet `n` den PRD-Chat.
   ändert sich nach dem Öffnen nicht.
 - **Browser:** `o` ruft `gh issue view <nummer> --repo <owner>/<repo> --web` im Hintergrund auf. Die
   Statuszeile meldet `Issue #<nummer> im Browser geöffnet`, bei Fehler die erste Zeile der Fehlermeldung.
-- **PRD aus Issue:** `n` öffnet „Template wählen“ mit dem Template des Presets vorgewählt. `Enter` startet
-  den Chat sofort, ohne Fenster „Neues PRD“. `Esc` bricht ab und verwirft den Bezug zum Issue. Die erste
-  Nachricht ist `#<nummer> <titel>`, eine Leerzeile und der Text des Issues ohne führende und abschließende
+- **PRD aus Issue:** `n` startet den Chat sofort, ohne Fenster „Neues PRD“. Die Beschreibung ist
+  `#<nummer> <titel>`, eine Leerzeile und der Text des Issues ohne führende und abschließende
   Leerzeichen, ohne Text nur die erste Zeile. Die Box „Benachrichtigungen“ zeigt als Beschreibung nur
-  `#<nummer> <titel>`. Der Titel des Chats lautet wie bisher `Neues PRD (<Template>): <Projekt>`.
+  `#<nummer> <titel>`. Der Titel des Chats lautet `Neues PRD: <Projekt>`.
 - lazydev schließt, kommentiert oder bearbeitet keine Issues.
 
 ## Docker-Status
@@ -409,9 +519,9 @@ den Port, zeigt lazydev Prozessname und PID und vergibt den nächsten freien Por
 | wartet | `◌` | Start angefordert, aber `maxParallel` ist erreicht |
 | Setup | `●` | Worktree, Abhängigkeiten, Datenbank werden vorbereitet |
 | Umsetzung | `●` | Umsetzungs-Prompt läuft |
-| Review | `●` | `/arewedone` läuft |
+| Review | `●` | Review-Prompt läuft |
 | Merge-Queue | `◐` | Review fertig, wartet auf den Merge-Slot des Projekts |
-| Merge | `●` | Rebase, ggf. `/merge-prd`, Prüfungen, Fast-Forward |
+| Merge | `●` | Rebase, ggf. Claude-Schritt merge, Prüfungen, Fast-Forward |
 | gemergt | `✓` | Im Ziel-Branch, Worktree aufgeräumt |
 | abgebrochen | `■` | Vom Menschen gestoppt oder Prozess beendet. Worktree bleibt. |
 | Fehler | `✗` | Ein Schritt endete mit Fehler oder offener Frage. Worktree bleibt. |
@@ -420,17 +530,16 @@ Ohne Lauf-Zustand gilt die Statuszeile des PRDs: `geplant` → geplant, `umgeset
 
 ### Neues PRD (`n`)
 
-1. lazydev öffnet das Fenster „Template wählen“ mit den Templates untereinander und ihrer Beschreibung
-   (siehe „PRD-Templates“). Vorgewählt ist „Nuxt-Feature“
-   bei Preset `nuxt-drizzle`, sonst „Einfach“. `←` `→`, `h` `l`, `j` `k` oder `Tab` wechseln, `Enter` bestätigt,
-   `Esc` bricht ab.
-2. lazydev fragt im Fenster „Neues PRD · <Template>“ nach einer kurzen Beschreibung.
+1. lazydev öffnet direkt das Fenster „Neues PRD · <projekt>“ und fragt nach einer kurzen Beschreibung.
+2. lazydev baut den Prompt des Schritts `create` (siehe „Aufbau eines Prompts“) mit dem Hauptordner als
+   Arbeitsordner. Scheitert das, etwa an einer fehlenden Knowledge-Datei, zeigt die Statuszeile den
+   Fehler, und kein Chat entsteht.
 3. lazydev legt den Zustand des Chats an und öffnet ein Chat-Fenster über der TUI. Jede Runde läuft als
    losgelöster Prozess `lazydev chat <projekt-id> <chat-id>` (`setsid`), zwischen zwei Runden läuft kein
    Prozess. Die Chat-ID ist die Startzeit im Format `2006-01-02-150405`. Gibt es die Zustandsdatei schon,
-   hängt lazydev `-2`, `-3` usw. an. Die erste Runde ist
-   `claude -p "<prompt>"` im Hauptordner des Projekts mit dem Erstellen-Prompt des Templates und der
-   Beschreibung. Der Chat zeigt nur die Beschreibung als erste Nachricht. Jede Antwort
+   hängt lazydev `-2`, `-3` usw. an. Der Titel des Chats ist `Neues PRD: <projekt>`. Die erste Runde ist
+   `claude -p "<prompt>"` im Hauptordner des Projekts mit dem Prompt aus Schritt 2. Der Chat zeigt nur die
+   Beschreibung als erste Nachricht. Jede Antwort
    im Fenster läuft als weitere Runde mit `--resume <sitzung>`. Claude stellt seine Klärungsfragen als Text.
    Der Chat läuft immer mit Opus: lazydev übergibt `--model opus`.
    Nach jeder Runde setzt lazydev den Status des Chats:
@@ -462,8 +571,8 @@ Ohne Lauf-Zustand gilt die Statuszeile des PRDs: `geplant` → geplant, `umgeset
 5. Freigaben im Chat: `Read`, `Glob`, `Grep`, `Task`, `Edit(prd/**)`, für die Kontextbefehle
    `Bash(find:*)`, `Bash(ls:*)`, `Bash(git log:*)`, `Bash(git status:*)` und für Pencil
    `mcp__pencil__get_app_state`, `mcp__pencil__read_skill`, `mcp__pencil__execute`. Claude schreibt
-   damit nur unter `prd/`. `execute` könnte das Design ändern, der Prompt verbietet das. Mit Haiku geprüft: Beide Runden liefen ohne Ablehnung, auch die Kontextbefehle
-   mit Pipe.
+   damit nur unter `prd/`. `allowedTools` aus `.lazydev/config.yaml` gilt im Chat nicht. Mit Haiku
+   geprüft: Beide Runden liefen ohne Ablehnung, auch die Kontextbefehle mit Pipe.
 6. Das PRD entsteht ungetrackt unter `prd/` im Hauptordner und erscheint über die Dateiüberwachung.
 7. Jeder Chat schreibt seinen Zustand nach `~/.local/state/lazydev/chats/<projekt-id>/<chat-id>.json` und
    ein Log nach `~/.local/state/lazydev/chats/<projekt-id>/<chat-id>.jsonl`: jede Eingabe als
@@ -474,17 +583,18 @@ Ohne Lauf-Zustand gilt die Statuszeile des PRDs: `geplant` → geplant, `umgeset
 
 ### Umsetzung starten (`s`)
 
-1. **Prüfen:** Läuft für dieses PRD schon ein Worktree, lehnt lazydev ab. Ist `maxParallel` erreicht,
-   setzt lazydev das PRD auf „wartet“ und startet es, sobald ein Platz frei wird.
+1. **Prüfen:** Läuft für dieses PRD schon ein Worktree, lehnt lazydev ab. Sind Hooks oder Freigaben aus
+   `.lazydev/config.yaml` nicht bestätigt, startet kein Runner (siehe „Vertrauen“). Ist `maxParallel`
+   erreicht, setzt lazydev das PRD auf „wartet“ und startet es, sobald ein Platz frei wird.
 2. **Worktree anlegen:** `git worktree add -b feat/<prd-name> <worktree-pfad> <ziel-branch>`. Der Lauf
    merkt sich den Ziel-Branch im Feld `base`. Ändert sich `baseBranch` später, bleibt der Lauf dabei.
 3. **PRD verschieben:** Ist das PRD im Hauptordner ungetrackt, **verschiebt** lazydev die Datei in den Worktree
    und committet sie dort als erster Commit `docs(prd): add <prd-name>`. Der Hauptordner bleibt sauber,
    und das PRD kommt mit dem Merge in den Ziel-Branch. Ist das PRD schon getrackt, entfällt der Schritt.
 4. **Setup:** siehe „Isolation pro Worktree“.
-5. **Umsetzung:** `claude -p "<prompt>"` im Worktree mit dem Umsetzungs-Prompt des Templates aus der
-   Statuszeile und dem PRD-Pfad.
-6. **Review:** nur nach Erfolg: `claude -p "<prompt>"` mit dem Prompt `/arewedone` im Worktree.
+5. **Umsetzung:** `claude -p "<prompt>"` im Worktree mit dem Prompt des Schritts `implement` und dem
+   PRD-Pfad als `$ARGUMENTS`.
+6. **Review:** nur nach Erfolg: `claude -p "<prompt>"` mit dem Prompt des Schritts `review` im Worktree.
 7. **Merge:** nach Erfolg in die Merge-Queue des Projekts (siehe „Merge“).
 
 Commits, die lazydev selbst erstellt (Schritt 3 und „Kosten und Modell vermerken“ im Merge), schreibt es
@@ -509,7 +619,7 @@ claude -p "<prompt>" \
   `Bash(git show:*)`, `Bash(git branch:*)`, `Bash(pnpm lint:*)`,
   `Bash(pnpm typecheck:*)`, `Bash(pnpm test:run:*)`, `Bash(pnpm db:generate:*)`, `Bash(pnpm db:migrate:*)`,
   `mcp__pencil__get_app_state`, `mcp__pencil__read_skill`, `mcp__pencil__execute`.
-  Sie ist pro Projekt in der Konfiguration erweiterbar.
+  `allowedTools` aus `.lazydev/config.yaml` ergänzt sie.
 - Alle Freigaben kommen über `--allowedTools`. Claude ignoriert `permissions.allow` aus
   `.claude/settings.json` in Ordnern ohne bestätigten Trust-Dialog, und jeder neue Worktree ist so ein
   Ordner.
@@ -521,9 +631,12 @@ claude -p "<prompt>" \
 Erfolg eines Schritts: Exit-Code 0 und das **letzte** `result`-Ereignis meldet keinen Fehler. Dazu prüft
 der Runner:
 
-- nach dem Umsetzungs-Prompt: `## Ergebnis` im Bericht ist `umgesetzt`, und die Statuszeile des PRDs im Worktree
+- vor dem Start: Jede Knowledge-Datei existiert im Worktree, sonst startet Claude nicht.
+- nach implement: `## Ergebnis` im Bericht ist `umgesetzt`, und die Statuszeile des PRDs im Worktree
   steht auf `umgesetzt`. Bei `abgebrochen` steht die erste offene Frage im Fehler.
-- nach `/arewedone`: Der Worktree ist sauber, `committer` hat also alles committet.
+- nach review: Der Worktree ist sauber, `committer` hat also alles committet.
+- nach implement, review und dem Claude-Schritt merge: Unter `.lazydev/` hat sich nichts geändert (siehe
+  „Schutz von `.lazydev/`“).
 
  Startet
 Claude Subagenten, laufen sie im Hintergrund. Der Stream enthält dann mehrere `result`-Ereignisse, eines
@@ -542,7 +655,7 @@ Parallele PRDs dürfen sich nicht gegenseitig stören. Pro Worktree vergibt lazy
 | Port | erster freier Port ab `portBase` (Standard 3100), gemerkt im Lauf-Zustand |
 | Slug | `<prd-name>` in `snake_case`, max. 40 Zeichen, für Datenbanknamen |
 
-Das Setup läuft als Hook-Skript aus der Projekt-Konfiguration. lazydev übergibt die Werte als
+Das Setup läuft als Preset-Hook oder als Skript aus `hooks.setup` in `.lazydev/config.yaml`. lazydev übergibt die Werte als
 Umgebungsvariablen: `LAZYDEV_PROJECT`, `LAZYDEV_WORKTREE`, `LAZYDEV_BRANCH`, `LAZYDEV_PORT`,
 `LAZYDEV_SLUG`.
 
@@ -585,37 +698,42 @@ ihr Review fertig wurde. Bei `autoMerge: true` (Standard) startet der Merge auto
 `lazydev merge <projekt-id> <prd-name>`. Ohne Freigabe endet der Runner in Phase „Merge-Queue“, und der
 Zustand trägt `mergeApproved: true`, sobald du freigibst.
 
-Ziel-Branch: `baseBranch` des Projekts, Standard `main`. Von ihm zweigen Worktrees ab, in ihn geht der
-Fast-Forward. Mit `b` wählst du ihn aus den lokalen Branches, lazydev schreibt ihn in `config.yaml`. `main`
-steht dort nicht, weil es der Standard ist. Steht der Hauptordner nicht auf dem Ziel-Branch, zeigt der
-Titel der PRD-Box `(Ziel <branch>)`. Die Prompts von Review und Merge bekommen den Ziel-Branch über
-`$BASE`.
+Ziel-Branch: `baseBranch` aus `.lazydev/config.yaml`, Standard `main`. Von ihm zweigen Worktrees ab, in
+ihn geht der Fast-Forward. Mit `b` wählst du ihn aus den lokalen Branches, lazydev schreibt ihn über
+`yaml.Node` in `.lazydev/config.yaml`, andere Felder und Kommentare bleiben erhalten. `main` steht dort
+nicht, weil es der Standard ist. Ohne `.lazydev/config.yaml` zeigt `b` den Fehler
+`Kein .lazydev/ im Projekt. Mit i anlegen.` Steht der Hauptordner nicht auf dem Ziel-Branch, zeigt der
+Titel der PRD-Box `(Ziel <branch>)`. Die Prompts bekommen den Ziel-Branch über `$BASE`. Der Lauf merkt
+sich den Ziel-Branch beim Start im Feld `base`, eine spätere Änderung wirkt erst auf neue Läufe.
 
 Ablauf pro PRD:
 
 1. **Rebase im Worktree:** `git rebase <ziel-branch>`.
    - Ohne Konflikt weiter mit Schritt 2.
-   - Mit Konflikt: `git rebase --abort`, dann Claude mit dem Prompt `/merge-prd feat/<prd-name>`. Scheitert der
+   - Mit Konflikt: `git rebase --abort`, dann Claude mit dem Prompt des Schritts `merge` und
+     `feat/<prd-name>` als `$ARGUMENTS`. Scheitert der
      Schritt, geht das PRD auf „Fehler“, und die Queue arbeitet mit dem nächsten PRD weiter.
 2. **Datenbank nachziehen:** Hat der Rebase Migrationen aus dem Ziel-Branch geholt, setzt lazydev die
    Worktree-Datenbanken zurück und migriert neu (Teil des Presets: `dropdb`, `createdb`, `pnpm db:migrate`).
 3. **Prüfen:** Prüfbefehle des Projekts im Worktree. Das Preset `nuxt-drizzle` führt `pnpm lint`,
    `pnpm typecheck` und `pnpm test:run` aus, `hooks.check` ersetzt sie durch ein Skript. Schlägt eine
-   Prüfung fehl, startet lazydev `/merge-prd` mit dem Fehler als Kontext. Scheitert auch das, geht das PRD
-   auf „Fehler“. Nach jedem `/merge-prd` prüft lazydev selbst, dass der Branch auf dem Ziel-Branch steht und der
-   Worktree sauber ist. Der Bericht allein reicht nicht.
+   Prüfung fehl, startet lazydev den Claude-Schritt merge mit dem Fehler als Kontext. Scheitert auch das,
+   geht das PRD auf „Fehler“. Nach jedem Claude-Schritt merge prüft lazydev selbst, dass der Branch auf dem
+   Ziel-Branch steht, der Worktree sauber ist und `.lazydev/` unverändert ist. Der Bericht allein reicht
+   nicht.
 4. **Kosten und Modell vermerken:** lazydev schreibt `Kosten:` und `Modell:` in die Statuszeile des PRDs
    im Worktree (siehe „PRD-Format“) und committet selbst mit
    `git commit -m "docs(prd): record cost of <prd-name>" -- <prd-pfad>`, ohne Claude und ohne Trailer.
-   So zählt ein `/merge-prd` mit, und der Commit kommt mit dem Fast-Forward in den Ziel-Branch. Stehen
-   die Felder schon da, ersetzt lazydev die Werte an ihrer Stelle. Ändert sich nichts, entsteht kein
+   So zählt ein Claude-Schritt merge mit, und der Commit kommt mit dem Fast-Forward in den Ziel-Branch.
+   Stehen die Felder schon da, ersetzt lazydev die Werte an ihrer Stelle. Ändert sich nichts, entsteht kein
    Commit. Die Prüfung läuft danach nicht erneut, der Commit ändert nur das PRD. Ist das PRD nicht lesbar
    oder hat es keine Statuszeile, scheitert der Merge mit „Kosten nicht im PRD vermerkt: <fehler>“. Das
    Log zeigt `Kosten im PRD vermerkt: 4.12 USD · claude-opus-5-5` und bei einem Commit
    `Commit: docs(prd): record cost of <prd-name>`.
 5. **Hauptordner prüfen:** Der Hauptordner muss auf dem Ziel-Branch stehen und sauber sein. Ungetrackte Dateien
-   unter `prd/` sind erlaubt, ebenso die vom Dev-Server geschriebenen `.mcp.json` und `.vscode/mcp.json`.
-   Berührt der Merge diese Dateien, bricht der Fast-Forward ab. Sonst wartet das PRD in der Queue mit dem
+   unter `prd/` sind erlaubt, ebenso die vom Dev-Server geschriebenen `.mcp.json` und `.vscode/mcp.json` und
+   geänderte oder ungetrackte Dateien unter `.lazydev/`. Berührt der Merge diese Dateien, bricht der
+   Fast-Forward mit der Meldung von git ab. Sonst wartet das PRD in der Queue mit dem
    Hinweis „Hauptordner nicht sauber“ im Feld `note`, bis du aufräumst. lazydev prüft alle 5 Sekunden.
 6. **Fast-Forward:** im Hauptordner `git merge --ff-only feat/<prd-name>`. Durch den Rebase ist das
    immer ein Fast-Forward. Es entstehen keine Merge-Commits.
@@ -636,6 +754,8 @@ beendet auch das Warten.
 - Jedes PRD läuft in einem eigenen Runner im Hintergrund: `lazydev run <projekt-id> <prd-name>`. Der
   Runner läuft losgelöst (`setsid`), schreibt Log und Zustand in Dateien und beendet sich nach dem Merge
   oder bei einem Fehler.
+- `start` prüft vor dem Start eines Runners, `run` vor dem ersten Schritt, ob Hooks und Freigaben aus
+  `.lazydev/config.yaml` bestätigt sind (siehe „Vertrauen“). `lazydev trust <projekt-id>` bestätigt sie.
 - `lazydev start <projekt-id> <prd-name>` startet den Runner losgelöst und beachtet `maxParallel`.
   stdout und stderr des Runners landen in `<prd-name>.runner.log`, auch bei einem Absturz.
   `lazydev run` startet ihn im Vordergrund, ohne `maxParallel`. `lazydev stop` sendet `SIGTERM`.
@@ -663,6 +783,8 @@ beendet auch das Warten.
 | Was | Pfad | Format |
 |---|---|---|
 | Konfiguration | `~/.config/lazydev/config.yaml` | YAML |
+| Projekt-Ordner | `<hauptordner>/.lazydev/` | `config.yaml` und Prompts, mit dem Projekt versioniert |
+| Vertrauen | `~/.local/state/lazydev/trust/<projekt-id>.json` | JSON mit `hash` |
 | Lauf-Zustand | `~/.local/state/lazydev/runs/<projekt-id>/<prd-name>.json` | JSON |
 | Logs | `~/.local/state/lazydev/runs/<projekt-id>/<prd-name>.<schritt>.jsonl` | stream-json, jede Zeile um `ts` ergänzt |
 | Runner-Ausgabe | `~/.local/state/lazydev/runs/<projekt-id>/<prd-name>.runner.log` | Text, Kurzfassung des Logs |
@@ -672,7 +794,8 @@ beendet auch das Warten.
 | Merge-Sperre | `~/.local/state/lazydev/locks/<projekt-id>.merge.lock` | `flock` |
 | Worktrees | `~/.local/share/lazydev/worktrees/<projekt-id>/<prd-name>/` | Git-Worktree |
 
-`config.yaml`:
+Zentrale `config.yaml`. Die Einstellungen der Projekte stehen in deren `.lazydev/config.yaml` (siehe
+„Projekt-Ordner `.lazydev/`“):
 
 ```yaml
 maxParallel: 3               # gleichzeitige Runner über alle Projekte
@@ -681,18 +804,8 @@ claude:
   binary: claude
 projects:
   - path: ~/development/nuxt/nuxt-drizzle
-    preset: nuxt-drizzle     # Setup, Teardown, Prüfbefehle, Env-Dateien
-    autoMerge: true
-  - path: ~/development/nuxt/phoenix
-    preset: nuxt-drizzle
-    baseBranch: next         # Ziel-Branch, Standard main
   - path: ~/development/nuxt/shop
-    preset: nuxt-drizzle
-    autoMerge: false
-    allowedTools:            # ergänzt die Standard-Allowlist
-      - "Bash(pnpm test:e2e:*)"
-    hooks:                   # überschreibt einzelne Preset-Hooks: setup, teardown, check, dev
-      setup: ./scripts/lazydev-setup.sh
+    autoMerge: false         # Merge erst nach Freigabe mit m, Standard true
 ```
 
 Lauf-Zustand (Beispiel):
@@ -728,7 +841,7 @@ Verlauf statt eines langen eingebetteten Prompts:
 
 ```json
 {
-  "title": "Neues PRD (Einfach): nuxt-drizzle",
+  "title": "Neues PRD: nuxt-drizzle",
   "description": "Avatar-Upload im Profil",
   "dir": "/home/user/development/nuxt/nuxt-drizzle",
   "sessionId": "…",
@@ -809,22 +922,23 @@ Aus dem stream-json zeigt lazydev eine kompakte Zeile pro Ereignis:
 - **Struktur:**
 
   ```
-  cmd/lazydev/main.go      Einstieg: TUI oder Unterbefehle start, run, merge, stop, teardown
-  internal/config/         config.yaml lesen und schreiben, Presets
+  cmd/lazydev/main.go      Einstieg: TUI oder Unterbefehle start, run, merge, stop, teardown, chat, trust
+  internal/config/         config.yaml und .lazydev/config.yaml lesen und schreiben, Presets
+  internal/prompts/        Standard-Prompts, Verträge, Aufbau der Prompts, .lazydev/ anlegen
   internal/project/        Projekte, PRDs, Statuszeile, Phasen, Git-Branch
   internal/git/            Aufruf des git-Programms
   internal/worktree/       Worktree anlegen und entfernen, Port und Slug vergeben
   internal/hooks/          Setup, Teardown, Prüfung, Dev-Befehl, Preset nuxt-drizzle
   internal/claude/         claude -p starten, stream-json auswerten, Kurzfassungen
   internal/runner/         Schritte ausführen, Start mit maxParallel, Merge-Queue, Teardown
-  internal/state/          Lauf-Zustand, PID prüfen, Sperren
+  internal/state/          Lauf-Zustand, PID prüfen, Sperren, Vertrauen
   internal/chatrun/        PRD-Chats: Zustand, losgelöste Runden, Erkennung der Rückfrage
   internal/runlog/         eigene Log-Zeilen des Runners
   internal/devserver/      Dev-Server in Worktrees starten und stoppen
   internal/docker/         Container, Compose-Services, Events
   internal/procnet/        Prozess hinter einem lauschenden Port
   internal/herdr/          Herdr erkennen, Pane öffnen
-  internal/tui/            Bubble-Tea-Modelle und Ansichten, Chat für n
+  internal/tui/            Bubble-Tea-Modelle und Ansichten, Chat für n, Wizard für i
   ```
 
 - **Tests:**
@@ -836,12 +950,12 @@ Aus dem stream-json zeigt lazydev eine kompakte Zeile pro Ereignis:
 ## Meilensteine
 
 1. **Gerüst:** Go-Modul, `config.yaml`, Projektliste mit `a` und `d`, PRD-Liste mit Status und Branch.
-2. **Commands:** `/implement-prd` und `/merge-prd` global anlegen. `/implement-prd` einmal manuell in
-   `nuxt-drizzle` mit `prd/auth/mobile-bearer-token-auth.md` prüfen.
+2. **Prompts:** Standard-Prompts und Verträge für implement und merge in `internal/prompts` einbetten.
+   implement einmal manuell in `nuxt-drizzle` mit `prd/auth/mobile-bearer-token-auth.md` prüfen.
 3. **Worktree und Setup:** Worktree anlegen, PRD verschieben, Preset `nuxt-drizzle` mit eigener
    Datenbank und Port, Teardown. Ohne TUI testbar über `lazydev run`.
 4. **Runner:** Umsetzung und Review im Worktree, Zustand und Log auf Platte, `maxParallel`.
-5. **Merge:** Merge-Queue mit Sperre, Rebase, `/merge-prd` bei Konflikt, Fast-Forward, Aufräumen.
+5. **Merge:** Merge-Queue mit Sperre, Rebase, Claude-Schritt merge bei Konflikt, Fast-Forward, Aufräumen.
 6. **Live-Ansicht:** Log-Pane, Phasen-Symbole, Dateiüberwachung, `s`, `m`, `x`, `X`.
 7. **Interaktiv:** `n`, `o`, `p`, `w`, mit und ohne Herdr.
 8. **Docker-Status:** Projekt-Symbol, Docker-Block und Dev-Zeile, Docker-Ansicht `D` mit `U`, `S`, `L`.
@@ -859,7 +973,7 @@ Claude-Tests liefen in einem Test-Repo mit `--model haiku`.
 | Worktree lädt `.claude/` des Projekts | Ja: Commands, Agenten und `env` aus `settings.json`. `env` aus `settings.local.json` des Hauptordners greift ebenfalls, obwohl die Datei im Worktree fehlt. `permissions.allow` aus `settings.json` ignoriert Claude ohne bestätigten Trust-Dialog. Ob ein Worktree den Trust des Hauptordners erbt, ist nicht getestet. |
 | `committer` committet ohne `Co-Authored-By` | Ja, im Worktree getestet. Ein Trailer entstand nicht. |
 | `--agents <datei>` mit `-p` lädt die eingebetteten Agenten | Ja, am 2026-10-21 mit `--model haiku` geprüft: `committer` und `structural-completeness-reviewer` stehen als Subagenten bereit. |
-| Drizzle-Migrationen nach Rebase | Beide Seiten mit `0003_*`: Konflikte in `meta/_journal.json`, `meta/0003_snapshot.json` und `schema/index.ts`. Das Verfahren aus `/merge-prd` Schritt 3 liefert eine saubere `0004_*` mit nur der Branch-Tabelle. Es braucht `git rm`. |
+| Drizzle-Migrationen nach Rebase | Beide Seiten mit `0003_*`: Konflikte in `meta/_journal.json`, `meta/0003_snapshot.json` und `schema/index.ts`. Das Verfahren des damaligen Merge-Prompts (Migrationen des Ziel-Branches übernehmen, eigene mit `git rm` entfernen, `pnpm db:generate`) liefert eine saubere `0004_*` mit nur der Branch-Tabelle. Es braucht `git rm`. |
 | Nuxt übernimmt `PORT` aus `.env` | Ja (`@nuxt/cli` 4.0.1: `NUXT_PORT` vor `NITRO_PORT` vor `PORT`). Der Server lauscht nur auf `[::1]`. Die Port-Prüfung muss IPv4 und IPv6 abfragen. |
 | Herdr startet einen Befehl im neuen Pane | Ja, mit Herdr 0.9.5 ausgeführt. `herdr pane split --current --direction right --cwd <pfad>` liefert die Pane-ID unter `.result.pane.pane_id`. `herdr pane run <pane-id> <befehl>` tippt den Befehl in die Shell des Panes, die Shell bleibt danach offen. Argumente mit Sonderzeichen übergibt lazydev mit `--env LAZYDEV_ARG<n>=<wert>` und schreibt `"$LAZYDEV_ARG<n>"` in den Befehl. Das funktioniert in fish, bash und zsh gleich. Herdr erkennst du an `HERDR_ENV=1`, das Programm liegt unter `HERDR_BIN_PATH`. |
 | Platz von `node_modules` pro Worktree | Rund 25 MB zusätzlich zum Store (741 MB scheinbar, Rest Hardlinks). `pnpm install --frozen-lockfile --prefer-offline` dauerte 3,4 Sekunden. Gilt nur auf derselben Partition wie der Store (`~/.local/share/pnpm/store`). |
@@ -888,7 +1002,7 @@ globalen Einstellungen (aktuell `auto`). `--permission-mode acceptEdits` übersc
 
 ## Später
 
-- Rückgabe von `/arewedone` an die Umsetzung bei groben Befunden, mit Höchstzahl an Runden.
+- Rückgabe vom Review an die Umsetzung bei groben Befunden, mit Höchstzahl an Runden.
 - Benachrichtigung bei Ende, Fehler oder wartendem Merge, z. B. über `notify-send` oder
   Herdr-Notifications.
 - Weitere Presets für Projekte ohne Postgres.

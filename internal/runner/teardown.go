@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 
 	"lazydev/internal/devserver"
-	"lazydev/internal/hooks"
 	"lazydev/internal/project"
 	"lazydev/internal/runlog"
 	"lazydev/internal/state"
@@ -45,7 +44,9 @@ func Teardown(t Target, prdName string, echo io.Writer) error {
 	if err := devserver.Stop(t.ID, prdName); err != nil {
 		errs = append(errs, err)
 	}
-	if err := hooks.For(t.Config).Teardown(env(t, r, log)); err != nil {
+	if h, err := t.Hooks(); err != nil {
+		errs = append(errs, err)
+	} else if err := h.Teardown(env(t, r, log)); err != nil {
 		errs = append(errs, err)
 	}
 	if err := restorePRD(t.Dir(), r.Worktree, r.PRD, prdName, log); err != nil {

@@ -3,9 +3,12 @@ package tui
 import (
 	"fmt"
 	"io"
+	"path/filepath"
+	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"lazydev/internal/config"
 	"lazydev/internal/project"
 	"lazydev/internal/runner"
 	"lazydev/internal/state"
@@ -74,7 +77,15 @@ func (m Model) ask(question string, yes func(Model) (Model, tea.Cmd)) (Model, te
 	return m, nil
 }
 
+// askDetails fragt wie ask und zeigt dazu details im Fenster title.
+func (m Model) askDetails(question, title string, details []string, yes func(Model) (Model, tea.Cmd)) (Model, tea.Cmd) {
+	m.mode = modeConfirm
+	m.confirm = &confirmation{question: question, title: title, details: details, yes: yes}
+	return m, nil
+}
+
 // startPRD fragt nach und startet die Umsetzung, nach Fehler oder Abbruch ab dem gescheiterten Schritt.
+// Setzt .lazydev/config.yaml unbestätigte Hooks oder Freigaben, fragt startPRD zuerst danach.
 func (m Model) startPRD() (Model, tea.Cmd) {
 	t, d, r, ok := m.target()
 	if !ok {
@@ -84,6 +95,29 @@ func (m Model) startPRD() (Model, tea.Cmd) {
 		m.setMessage(reason, true)
 		return m, nil
 	}
+	repo, exists, err := config.LoadRepo(t.Dir())
+	if err != nil {
+		m.setMessage(firstLine(err.Error()), true)
+		return m, nil
+	}
+	if hash := repo.TrustHash(); exists && !state.Trusted(t.ID, hash) {
+		name := filepath.Base(t.Dir())
+		details := []string{fmt.Sprintf("%s/config.yaml von %s setzt Hooks oder Freigaben:", config.RepoDir, name), ""}
+		details = append(details, strings.Split(strings.TrimRight(repo.TrustSections(), "\n"), "\n")...)
+		return m.askDetails("Erlauben? (j/n)", config.RepoDir+"/config.yaml · "+name, details,
+			func(m Model) (Model, tea.Cmd) {
+				if err := state.Trust(t.ID, hash); err != nil {
+					m.setMessage(firstLine(err.Error()), true)
+					return m, nil
+				}
+				return m.askStart(t, d, r)
+			})
+	}
+	return m.askStart(t, d, r)
+}
+
+// askStart fragt, ob die Umsetzung starten oder fortsetzen soll, und startet den Runner nach „j“.
+func (m Model) askStart(t runner.Target, d *project.PRD, r *state.Run) (Model, tea.Cmd) {
 	question := fmt.Sprintf("Umsetzung von %s starten? (j/n)", d.Label())
 	if r != nil {
 		question = fmt.Sprintf("%s ab Schritt %s fortsetzen? (j/n)", d.Label(), runner.NextStep(r))

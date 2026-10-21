@@ -79,12 +79,12 @@ func ChatsDir(projectID string) string {
 	return filepath.Join(Dir(), "chats", projectID)
 }
 
-// ChatPath ist der Zustand eines Chats mit /create-prd.
+// ChatPath ist der Zustand eines Chats zum PRD.
 func ChatPath(projectID, chatID string) string {
 	return filepath.Join(ChatsDir(projectID), chatID+".json")
 }
 
-// ChatLogPath ist das Log eines Chats mit /create-prd.
+// ChatLogPath ist das Log eines Chats zum PRD.
 func ChatLogPath(projectID, chatID string) string {
 	return filepath.Join(ChatsDir(projectID), chatID+".jsonl")
 }

@@ -13,7 +13,6 @@ import (
 
 	"lazydev/internal/chatrun"
 	"lazydev/internal/config"
-	"lazydev/internal/prdtemplate"
 	"lazydev/internal/state"
 )
 
@@ -117,20 +116,11 @@ func TestNewPRDChat(t *testing.T) {
 	m := setupRun(t)
 	bin, argsPath := fakeClaude(t)
 	m.cfg.Claude.Binary = bin
-	m.cfg.Projects[0].Preset = config.PresetNuxtDrizzle
 	inlineRounds(t, m.cfg)
 	m = drive(t, m, keys("n")...)
-	if m.mode != modeTemplate || prdtemplate.All[m.template].Name != prdtemplate.Nuxt {
-		t.Fatalf("Picker nach n: Modus %v, Template %d", m.mode, m.template)
-	}
-	if view := ansi.Strip(m.View()); !strings.Contains(view, "Template wählen") || !strings.Contains(view, "> Nuxt-Feature") {
-		t.Errorf("Picker ohne Vorauswahl Nuxt-Feature:\n%s", view)
-	}
-	checkViewSize(t, m)
-	m = drive(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if view := ansi.Strip(m.View()); !strings.Contains(view, "Neues PRD · Nuxt-Feature") ||
+	if view := ansi.Strip(m.View()); m.mode != modeNewPRD || !strings.Contains(view, "Neues PRD · alpha") ||
 		!strings.Contains(view, "Beschreibe das Feature in einem Satz.") {
-		t.Errorf("Fenster für die Beschreibung fehlt:\n%s", view)
+		t.Errorf("Fenster für die Beschreibung fehlt nach n (%v):\n%s", m.mode, view)
 	}
 	checkViewSize(t, m)
 	m.input.SetValue("Avatar-Upload")
@@ -143,7 +133,7 @@ func TestNewPRDChat(t *testing.T) {
 		t.Fatalf("Chat nach der ersten Runde: %+v", m.chat.state)
 	}
 	view := ansi.Strip(m.View())
-	for _, want := range []string{"Neues PRD (Nuxt-Feature): alpha", "Du: Avatar-Upload", "· Read _ARCHITECTURE.md",
+	for _, want := range []string{"Neues PRD: alpha", "Du: Avatar-Upload", "· Read _ARCHITECTURE.md",
 		"Claude: Frage 1: Wie groß darf das Bild sein?", "0.05 USD", "Antwort"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("Chat ohne %q:\n%s", want, view)
@@ -176,7 +166,8 @@ func TestNewPRDChat(t *testing.T) {
 	}
 	got, _ := os.ReadFile(argsPath)
 	lines := strings.Split(strings.TrimSuffix(string(got), "#ENDE\n"), "#ENDE\n")
-	if len(lines) != 2 || !strings.Contains(lines[0], "Template: nuxt") || !strings.Contains(lines[0], "\nAvatar-Upload\n") ||
+	if len(lines) != 2 || !strings.Contains(lines[0], "-p|# lazydev create: Avatar-Upload\n") || !strings.Contains(lines[0], "\nAvatar-Upload\n") ||
+		!strings.Contains(lines[0], "## Regeln von lazydev") || strings.Contains(lines[0], "Template") ||
 		strings.Contains(lines[0], "$ARGUMENTS") || strings.Contains(lines[0], "--resume") ||
 		!strings.Contains(lines[1], "-p|2 MB|") || !strings.Contains(lines[1], "--resume|chat-1|") ||
 		!strings.Contains(lines[1], "Edit(prd/**)") || !strings.Contains(lines[0], "--model|opus|") {
@@ -213,37 +204,51 @@ func TestNewPRDChat(t *testing.T) {
 	}
 }
 
-func TestNewPRDSimpleTemplate(t *testing.T) {
+// TestNewPRDProjectPrompt prüft den Chat mit .lazydev/create.md und Knowledge aus dem Hauptordner.
+func TestNewPRDProjectPrompt(t *testing.T) {
 	m := setupRun(t)
 	bin, argsPath := fakeClaude(t)
 	m.cfg.Claude.Binary = bin
 	inlineRounds(t, m.cfg)
+	dir := m.selectedProject().Path
+	writeTestFile(t, dir, ".lazydev/config.yaml", "knowledge:\n  create: [CLAUDE.md]\n")
+	writeTestFile(t, dir, ".lazydev/create.md", "# PRD im Team\n$ARGUMENTS für $BASE\n")
+
+	// Ohne die Knowledge-Datei entsteht kein Chat, die Statuszeile nennt den Fehler.
 	m = drive(t, m, keys("n")...)
-	if prdtemplate.All[m.template].Name != prdtemplate.Simple {
-		t.Fatalf("Vorauswahl ohne Preset: %d", m.template)
-	}
-	// Esc bricht den Picker ab, l und h wechseln das Template.
-	m = drive(t, m, tea.KeyMsg{Type: tea.KeyEsc})
-	if m.mode != modeNormal {
-		t.Fatalf("nach Esc: %v", m.mode)
-	}
-	m = drive(t, m, keys("nlh")...)
+	m.input.SetValue("Avatar")
 	m = drive(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if view := ansi.Strip(m.View()); m.mode != modeNewPRD || !strings.Contains(view, "Neues PRD · Einfach") {
-		t.Fatalf("Eingabe nach dem Picker: %v\n%s", m.mode, view)
+	if m.mode != modeNormal || m.chat != nil || !m.messageErr || m.message != "Knowledge-Datei fehlt: CLAUDE.md" {
+		t.Fatalf("ohne Knowledge-Datei: %v %q", m.mode, m.message)
 	}
-	m.input.SetValue("Template-Picker")
+	if all, _ := chatrun.All(); len(all) != 0 {
+		t.Errorf("Chat trotz Fehler: %+v", all)
+	}
+
+	writeTestFile(t, dir, "CLAUDE.md", "# Regeln\n")
+	m = drive(t, m, keys("n")...)
+	m.input.SetValue("Avatar")
 	m = drive(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	m = waitRound(t, m)
-
-	view := ansi.Strip(m.View())
-	if !strings.Contains(view, "Neues PRD (Einfach): alpha") || !strings.Contains(view, "Du: Template-Picker") {
-		t.Errorf("Chat:\n%s", view)
+	if view := ansi.Strip(m.View()); !strings.Contains(view, "Du: Avatar") {
+		t.Errorf("Chat zeigt nicht die Beschreibung:\n%s", view)
 	}
 	got, _ := os.ReadFile(argsPath)
-	if !strings.Contains(string(got), "Template: einfach") || !strings.Contains(string(got), "Template-Picker") ||
-		strings.Contains(string(got), "$ARGUMENTS") || strings.Contains(string(got), "/create-prd") {
+	want := "-p|# lazydev create: Avatar\n\n## Pflichtlektüre\n\nLies diese Dateien vollständig, bevor du etwas anderes tust:\n\n- `CLAUDE.md`\n\n" +
+		"# PRD im Team\nAvatar für main\n\n## Regeln von lazydev"
+	if !strings.Contains(string(got), want) {
 		t.Errorf("Aufruf von claude:\n%s", got)
+	}
+}
+
+func writeTestFile(t *testing.T, root, rel, content string) {
+	t.Helper()
+	path := filepath.Join(root, rel)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 

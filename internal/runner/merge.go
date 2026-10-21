@@ -2,7 +2,6 @@ package runner
 
 import (
 	"context"
-	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -17,18 +16,13 @@ import (
 	"lazydev/internal/git"
 	"lazydev/internal/hooks"
 	"lazydev/internal/project"
+	"lazydev/internal/prompts"
 	"lazydev/internal/runlog"
 	"lazydev/internal/state"
 	"lazydev/internal/worktree"
 )
 
-// mergePrompt löst Konflikte beim Rebase. $ARGUMENTS steht für Branch und Fehlerkontext, $BASE für
-// den Ziel-Branch. Die erste Zeile nennt den Schritt im Log /merge-prd.
-//
-//go:embed prompts/merge.md
-var mergePrompt string
-
-// resultMergeReady ist der Erfolgswert unter "## Ergebnis" im Bericht von /merge-prd.
+// resultMergeReady ist der Erfolgswert unter "## Ergebnis" im Bericht des Claude-Schritts merge.
 const resultMergeReady = "bereit für fast-forward"
 
 // mergePollInterval ist der Abstand, in dem ein PRD in der Merge-Queue auf die Sperre oder einen
@@ -56,7 +50,10 @@ func mergeStep(ctx context.Context, cfg *config.Config, t Target, prdName string
 	if err := state.Save(t.ID, prdName, r); err != nil {
 		return 1, err
 	}
-	h := hooks.For(t.Config)
+	h, err := t.Hooks()
+	if err != nil {
+		return 1, err
+	}
 	e := env(t, r, log)
 	m := merger{ctx: ctx, cfg: cfg, t: t, prdName: prdName, r: r, log: log, h: h, e: e}
 	if err := m.run(); err != nil {
@@ -119,7 +116,7 @@ func (m merger) run() error {
 			return err
 		}
 		if err := m.h.Check(m.e); err != nil {
-			return fmt.Errorf("Prüfung nach /merge-prd weiter rot: %w", err)
+			return fmt.Errorf("Prüfung nach dem Claude-Schritt merge weiter rot: %w", err)
 		}
 	}
 
@@ -153,19 +150,18 @@ func (m merger) run() error {
 	return nil
 }
 
-// mergePRD lässt /merge-prd den Branch auf den Ziel-Branch bringen. context ist der Fehlerkontext.
+// mergePRD lässt Claude den Branch auf den Ziel-Branch bringen. context ist der Fehlerkontext.
 func (m merger) mergePRD(context string) error {
 	args := m.r.Branch
 	if context != "" {
 		args += " " + context
 	}
-	prompt := strings.NewReplacer("$ARGUMENTS", args, "$BASE", m.r.Base).Replace(mergePrompt)
-	s, exitCode, err := runClaude(m.ctx, m.cfg, m.t, m.prdName, m.r, prompt, m.log)
+	s, exitCode, err := runClaude(m.ctx, m.cfg, m.t, m.prdName, m.r, prompts.Merge, args, m.log)
 	if err == nil {
 		err = checkSummary(s, exitCode)
 	}
 	if err == nil {
-		err = checkReport(s.Result, "/merge-prd", resultMergeReady, "Offene Punkte")
+		err = checkReport(s.Result, string(prompts.Merge), resultMergeReady, "Offene Punkte")
 	}
 	if err != nil {
 		return err
@@ -173,12 +169,15 @@ func (m merger) mergePRD(context string) error {
 	// Der Bericht allein reicht nicht: Der Branch muss wirklich auf dem Ziel-Branch stehen.
 	wt, base := m.r.Worktree, m.r.Base
 	if _, err := git.Run(wt, "merge-base", "--is-ancestor", base, "HEAD"); err != nil {
-		return fmt.Errorf("nach /merge-prd steht %s nicht auf %s", m.r.Branch, base)
+		return fmt.Errorf("nach dem Claude-Schritt merge steht %s nicht auf %s", m.r.Branch, base)
 	}
 	if err := m.h.Clean(m.e); err != nil {
 		return err
 	}
-	return requireClean(wt, "Worktree nach /merge-prd")
+	if err := requireClean(wt, "Worktree nach dem Claude-Schritt merge"); err != nil {
+		return err
+	}
+	return checkLazydevUntouched(m.r)
 }
 
 // recordRunInfo schreibt Kosten und Modell des Laufs in die Statuszeile des PRDs im Worktree und
@@ -241,8 +240,8 @@ func (m merger) resetDatabaseIfMigrated(from, to string) error {
 	return m.h.ResetDatabase(m.e)
 }
 
-// waitMainClean wartet, bis der Hauptordner auf dem Ziel-Branch steht und sauber ist. Ungetrackte PRDs und
-// die Dateien aus IgnoreDirty stören nicht.
+// waitMainClean wartet, bis der Hauptordner auf dem Ziel-Branch steht und sauber ist. Ungetrackte PRDs,
+// Dateien unter .lazydev/ und die Dateien aus IgnoreDirty stören nicht.
 func (m merger) waitMainClean() error {
 	waiting := false
 	for {
@@ -292,6 +291,11 @@ func mainDirProblem(dir, base string, ignore []string) (string, error) {
 		}
 		path := line[3:]
 		if strings.HasPrefix(line, "?? ") && strings.HasPrefix(path, project.PRDDir+"/") {
+			continue
+		}
+		// Änderungen an .lazydev/ blockieren nicht. Überschreibt der Fast-Forward eine davon,
+		// scheitert er mit der Meldung von git.
+		if strings.HasPrefix(path, config.RepoDir+"/") {
 			continue
 		}
 		if slices.Contains(ignore, path) {

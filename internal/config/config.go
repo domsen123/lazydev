@@ -1,4 +1,5 @@
-// Package config liest und schreibt ~/.config/lazydev/config.yaml.
+// Package config liest und schreibt ~/.config/lazydev/config.yaml und .lazydev/config.yaml der
+// Projekte.
 package config
 
 import (
@@ -16,7 +17,7 @@ const (
 	DefaultMaxParallel  = 3
 	DefaultPortBase     = 3100
 	DefaultClaudeBinary = "claude"
-	// DefaultBaseBranch gilt, wenn ein Projekt kein baseBranch setzt.
+	// DefaultBaseBranch gilt, wenn .lazydev/config.yaml kein baseBranch setzt.
 	DefaultBaseBranch = "main"
 )
 
@@ -33,11 +34,14 @@ type Claude struct {
 
 type Project struct {
 	// Path steht so in der Datei, wie der Mensch ihn schreibt, also gern mit "~".
-	Path   string `yaml:"path"`
-	Preset string `yaml:"preset,omitempty"`
-	// BaseBranch ist der Ziel-Branch: Von ihm zweigen Worktrees ab, in ihn mergt lazydev.
+	Path string `yaml:"path"`
+	// AutoMerge bleibt lokal: Ob du Merges selbst freigibst, entscheidest du für dich.
+	AutoMerge *bool `yaml:"autoMerge,omitempty"`
+
+	// Übergangsfelder für Projekte ohne .lazydev/config.yaml. Mit der Datei ignoriert lazydev sie,
+	// siehe Effective.
+	Preset       string   `yaml:"preset,omitempty"`
 	BaseBranch   string   `yaml:"baseBranch,omitempty"`
-	AutoMerge    *bool    `yaml:"autoMerge,omitempty"`
 	AllowedTools []string `yaml:"allowedTools,omitempty"`
 	Hooks        Hooks    `yaml:"hooks,omitempty"`
 }
@@ -55,14 +59,6 @@ type Hooks struct {
 // AbsPath liefert den Projektpfad absolut und mit aufgelöstem "~".
 func (p Project) AbsPath() string {
 	return ExpandPath(p.Path)
-}
-
-// Base liefert BaseBranch, ohne Angabe DefaultBaseBranch.
-func (p Project) Base() string {
-	if p.BaseBranch == "" {
-		return DefaultBaseBranch
-	}
-	return p.BaseBranch
 }
 
 // AutoMergeEnabled liefert den Standard true, wenn autoMerge fehlt.
@@ -108,25 +104,12 @@ func (c *Config) Save(path string) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".config-*.yaml")
-	if err != nil {
-		return err
-	}
-	defer os.Remove(tmp.Name())
-	if _, err := tmp.Write(data); err != nil {
-		tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmp.Name(), path)
+	// 0600 wie bisher über os.CreateTemp.
+	return writeFileAtomic(path, data, 0o600)
 }
 
-// AddProject trägt einen bestehenden Ordner ein und erkennt das Preset.
+// AddProject trägt einen bestehenden Ordner ein. Die Einstellungen des Projekts stehen in
+// .lazydev/config.yaml, der Eintrag enthält nur den Pfad.
 func (c *Config) AddProject(path string) (Project, error) {
 	abs := ExpandPath(path)
 	info, err := os.Stat(abs)
@@ -141,7 +124,7 @@ func (c *Config) AddProject(path string) (Project, error) {
 			return Project{}, fmt.Errorf("%s ist schon eingetragen", ContractPath(abs))
 		}
 	}
-	p := Project{Path: ContractPath(abs), Preset: DetectPreset(abs)}
+	p := Project{Path: ContractPath(abs)}
 	c.Projects = append(c.Projects, p)
 	return p, nil
 }

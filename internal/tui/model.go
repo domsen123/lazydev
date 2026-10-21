@@ -2,6 +2,9 @@
 package tui
 
 import (
+	"errors"
+	"fmt"
+	"slices"
 	"strings"
 	"sync"
 
@@ -11,7 +14,6 @@ import (
 
 	"lazydev/internal/chatrun"
 	"lazydev/internal/config"
-	"lazydev/internal/github"
 	"lazydev/internal/project"
 	"lazydev/internal/state"
 	"lazydev/internal/usage"
@@ -39,8 +41,6 @@ const (
 	modeConfirm
 	// modeEvent zeigt ein Log-Ereignis vollständig.
 	modeEvent
-	// modeTemplate wählt das Template eines neuen PRDs.
-	modeTemplate
 	// modeNewPRD fragt nach der Beschreibung eines neuen PRDs.
 	modeNewPRD
 	// modeChat zeigt den Chat mit Claude über der TUI.
@@ -57,11 +57,16 @@ const (
 	modeIssueView
 	// modeBranch wählt den Ziel-Branch des gewählten Projekts.
 	modeBranch
+	// modeInit legt .lazydev/ im gewählten Projekt an.
+	modeInit
 )
 
-// confirmation ist eine Rückfrage. yes läuft nach „j“.
+// confirmation ist eine Rückfrage. yes läuft nach „j“. Mit details zeigt die TUI ein Fenster mit
+// diesem Titel und diesen Zeilen, die Frage steht in der Statuszeile.
 type confirmation struct {
 	question string
+	title    string
+	details  []string
 	yes      func(Model) (Model, tea.Cmd)
 }
 
@@ -81,9 +86,15 @@ type Model struct {
 
 	input      textinput.Model
 	candidates []string
-	// template ist die Position des gewählten Templates in prdtemplate.All.
-	template int
-	branch   *branchPicker
+	branch     *branchPicker
+	// wizard ist der offene Wizard „.lazydev/ anlegen“, sonst nil.
+	wizard *initWizard
+
+	// withoutRepo enthält die Pfade der Projekte ohne .lazydev/config.yaml.
+	withoutRepo map[string]bool
+	// ignoredShown merkt sich die Projekte, deren ignorierte lokale Einstellungen die Statuszeile
+	// schon gemeldet hat. Der Zeiger überlebt die Kopie des Modells.
+	ignoredShown map[string]bool
 
 	message    string
 	messageErr bool
@@ -122,8 +133,6 @@ type Model struct {
 	issueCursor int
 	// issueView ist das offene Issue-Fenster, sonst nil.
 	issueView *issueView
-	// fromIssue ist das Issue, aus dem „Template wählen“ einen Chat startet, sonst nil.
-	fromIssue *github.Issue
 
 	limits           usage.Snapshot
 	limitsOK         bool
@@ -152,6 +161,10 @@ type projectsLoadedMsg struct {
 	projects []project.Project
 	runs     runs
 	chats    []chatrun.Entry
+	// withoutRepo enthält die Pfade der Projekte ohne .lazydev/config.yaml.
+	withoutRepo map[string]bool
+	// ignored nennt je Projektpfad die lokalen Felder, die .lazydev/config.yaml ersetzt.
+	ignored map[string][]string
 	// selectPath wählt nach dem Laden dieses Projekt aus, sonst bleibt die Auswahl.
 	selectPath string
 }
@@ -161,7 +174,7 @@ func New(cfgPath string, cfg *config.Config) Model {
 	in.Prompt = "Projektpfad: "
 	in.Placeholder = "~/development/…"
 	return Model{cfgPath: cfgPath, cfg: cfg, input: in, loading: true, runs: runs{}, logs: logCache{}, logFollow: true,
-		md: &markdown{}, chats: chats{}, issues: issues{}}
+		md: &markdown{}, chats: chats{}, issues: issues{}, ignoredShown: map[string]bool{}}
 }
 
 // WithWatch schaltet Dateiüberwachung und regelmäßiges Neueinlesen ein. Tests lassen beides aus.
@@ -179,30 +192,45 @@ func (m Model) Init() tea.Cmd {
 
 // loadProjects liest alle Projekte parallel, weil jedes Projekt mehrere git-Aufrufe braucht.
 func (m Model) loadProjects(selectPath string) tea.Cmd {
-	paths := make([]string, len(m.cfg.Projects))
-	bases := make([]string, len(m.cfg.Projects))
-	for i, p := range m.cfg.Projects {
-		paths[i] = p.AbsPath()
-		bases[i] = p.Base()
-	}
+	cfgProjects := slices.Clone(m.cfg.Projects)
 	return func() tea.Msg {
+		paths := make([]string, len(cfgProjects))
+		for i, p := range cfgProjects {
+			paths[i] = p.AbsPath()
+		}
 		ids := project.AssignIDs(paths)
 		projects := make([]project.Project, len(paths))
+		hasRepo := make([]bool, len(paths))
+		ignored := make([][]string, len(paths))
 		var wg sync.WaitGroup
 		for i := range paths {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				projects[i] = project.Load(ids[i], paths[i], bases[i])
+				repo, ign, err := config.Effective(cfgProjects[i])
+				projects[i] = project.Load(ids[i], paths[i], repo.Base())
+				if err != nil {
+					projects[i].Err = errors.Join(err, projects[i].Err)
+				}
+				hasRepo[i] = config.RepoExists(paths[i])
+				ignored[i] = ign
 			}()
 		}
 		wg.Wait()
 		rs := loadRuns()
+		msg := projectsLoadedMsg{runs: rs, withoutRepo: map[string]bool{}, ignored: map[string][]string{}, selectPath: selectPath}
 		for i := range projects {
 			addWorktreePRDs(&projects[i], rs)
+			if !hasRepo[i] {
+				msg.withoutRepo[paths[i]] = true
+			}
+			if len(ignored[i]) > 0 {
+				msg.ignored[paths[i]] = ignored[i]
+			}
 		}
-		all, _ := chatrun.All()
-		return projectsLoadedMsg{projects: projects, runs: rs, chats: all, selectPath: selectPath}
+		msg.projects = projects
+		msg.chats, _ = chatrun.All()
+		return msg
 	}
 }
 
@@ -239,7 +267,9 @@ func (m *Model) applyLoaded(msg projectsLoadedMsg) {
 	}
 	m.projects = msg.projects
 	m.runs = msg.runs
+	m.withoutRepo = msg.withoutRepo
 	m.loading = false
+	m.showIgnored(msg.ignored)
 	m.projCursor = clamp(m.projCursor, len(m.projects))
 	for i, p := range m.projects {
 		if p.Path == prev {
@@ -252,6 +282,23 @@ func (m *Model) applyLoaded(msg projectsLoadedMsg) {
 		m.selectPRD(prevPRD)
 	} else {
 		m.prdCursor = clamp(m.prdCursor, len(m.prdList(p)))
+	}
+}
+
+// showIgnored meldet einmal je Projekt die lokalen Felder, die .lazydev/config.yaml ersetzt.
+func (m *Model) showIgnored(ignored map[string][]string) {
+	var notes []string
+	for _, p := range m.projects {
+		fields, ok := ignored[p.Path]
+		if !ok || m.ignoredShown[p.Path] {
+			continue
+		}
+		m.ignoredShown[p.Path] = true
+		notes = append(notes, fmt.Sprintf("%s: lokale Einstellungen ignoriert (%s), es gilt %s/config.yaml",
+			p.Name(), strings.Join(fields, ", "), config.RepoDir))
+	}
+	if len(notes) > 0 {
+		m.setMessage(strings.Join(notes, ". "), false)
 	}
 }
 

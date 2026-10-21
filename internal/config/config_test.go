@@ -88,8 +88,9 @@ func TestAddRemoveSaveRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Preset != PresetNuxtDrizzle {
-		t.Errorf("Preset = %q", p.Preset)
+	// Das Preset steht in .lazydev/config.yaml, der Eintrag enthält nur den Pfad.
+	if p.Preset != "" || DetectPreset(proj) != PresetNuxtDrizzle {
+		t.Errorf("Preset = %q, erkannt %q", p.Preset, DetectPreset(proj))
 	}
 	if _, err := cfg.AddProject(proj + "/"); err == nil || !strings.Contains(err.Error(), "schon eingetragen") {
 		t.Errorf("doppeltes Hinzufügen: %v", err)
@@ -148,14 +149,5 @@ func writeFile(t *testing.T, path, content string) {
 	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestBaseDefaultsToMain(t *testing.T) {
-	if got := (Project{}).Base(); got != DefaultBaseBranch {
-		t.Errorf("Base ohne Angabe: %q", got)
-	}
-	if got := (Project{BaseBranch: "next"}).Base(); got != "next" {
-		t.Errorf("Base: %q", got)
 	}
 }

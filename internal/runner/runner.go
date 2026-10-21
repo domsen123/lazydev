@@ -33,6 +33,36 @@ func (t Target) Dir() string {
 	return t.Config.AbsPath()
 }
 
+// Repo liefert die wirksamen Einstellungen des Projekts. Der Runner liest sie bei jedem Schritt
+// neu aus dem Hauptordner, uncommittete Änderungen an .lazydev/config.yaml gelten also sofort.
+func (t Target) Repo() (config.Repo, error) {
+	r, _, err := config.Effective(t.Config)
+	return r, err
+}
+
+// Hooks liefert die Hooks aus den wirksamen Einstellungen.
+func (t Target) Hooks() (hooks.Hooks, error) {
+	r, err := t.Repo()
+	if err != nil {
+		return hooks.Hooks{}, err
+	}
+	return hooks.For(t.Dir(), r), nil
+}
+
+// CheckTrust prüft, dass Hooks und Freigaben aus .lazydev/config.yaml bestätigt sind. Ohne die
+// Datei stammen sie aus der eigenen zentralen Konfiguration und brauchen keine Bestätigung.
+func CheckTrust(t Target) error {
+	r, exists, err := config.LoadRepo(t.Dir())
+	if err != nil || !exists {
+		return err
+	}
+	if !state.Trusted(t.ID, r.TrustHash()) {
+		return fmt.Errorf("Hooks oder Freigaben in %s/config.yaml nicht bestätigt. Prüfen und bestätigen: lazydev trust %s",
+			config.RepoDir, t.ID)
+	}
+	return nil
+}
+
 // FindProject sucht ein eingetragenes Projekt über seine ID.
 func FindProject(cfg *config.Config, id string) (Target, error) {
 	paths := make([]string, len(cfg.Projects))
@@ -104,6 +134,9 @@ func run(ctx context.Context, cfg *config.Config, t Target, prdName string, echo
 	if err := checkClaude(cfg); err != nil {
 		return err
 	}
+	if err := CheckTrust(t); err != nil {
+		return err
+	}
 	unlock, err := state.Lock(startLock)
 	if err != nil {
 		return err
@@ -138,6 +171,10 @@ func run(ctx context.Context, cfg *config.Config, t Target, prdName string, echo
 // prepare lädt den bestehenden Lauf oder legt einen neuen in Phase "wartet" an. Der Port steht
 // damit fest, bevor der Runner startet.
 func prepare(cfg *config.Config, t Target, prdName string) (*state.Run, error) {
+	repo, err := t.Repo()
+	if err != nil {
+		return nil, err
+	}
 	if r, err := state.Load(t.ID, prdName); err == nil {
 		if isRunning(r) && r.PID != os.Getpid() {
 			return nil, fmt.Errorf("für %s läuft schon ein Runner (PID %d, Phase %s)", prdName, r.PID, r.Phase.Label())
@@ -148,14 +185,14 @@ func prepare(cfg *config.Config, t Target, prdName string) (*state.Run, error) {
 		}
 		// Läufe ohne Base stammen aus der Zeit vor baseBranch.
 		if r.Base == "" {
-			r.Base = t.Config.Base()
+			r.Base = repo.Base()
 		}
 		return r, nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 
-	p := project.Load(t.ID, t.Dir(), t.Config.Base())
+	p := project.Load(t.ID, t.Dir(), repo.Base())
 	if p.Err != nil {
 		return nil, p.Err
 	}
@@ -177,7 +214,7 @@ func prepare(cfg *config.Config, t Target, prdName string) (*state.Run, error) {
 	r := &state.Run{
 		PRD:       prd.Path,
 		Branch:    worktree.Branch(prdName),
-		Base:      t.Config.Base(),
+		Base:      repo.Base(),
 		Worktree:  worktree.Path(t.ID, prdName),
 		Port:      port,
 		Slug:      worktree.Slug(prdName),
@@ -260,7 +297,11 @@ func setup(t Target, r *state.Run, log *runlog.Logger) error {
 			return err
 		}
 	}
-	return hooks.For(t.Config).Setup(env(t, r, log))
+	h, err := t.Hooks()
+	if err != nil {
+		return err
+	}
+	return h.Setup(env(t, r, log))
 }
 
 // movePRD verschiebt ein ungetracktes PRD aus dem Hauptordner in den Worktree und committet

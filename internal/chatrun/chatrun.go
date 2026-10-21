@@ -1,5 +1,5 @@
-// Package chatrun führt die Chats mit /create-prd als losgelöste Runden aus. Jede Runde läuft als
-// eigener Prozess "lazydev chat <projekt-id> <chat-id>". Zustand und Log liegen unter
+// Package chatrun führt die Chats zum PRD (Schritt create) als losgelöste Runden aus. Jede Runde
+// läuft als eigener Prozess "lazydev chat <projekt-id> <chat-id>". Zustand und Log liegen unter
 // chats/<projekt-id>/ im Zustandsverzeichnis.
 package chatrun
 

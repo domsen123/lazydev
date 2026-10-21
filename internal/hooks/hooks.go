@@ -1,5 +1,5 @@
 // Package hooks führt Setup und Teardown eines Worktrees aus: eingebaute Presets oder
-// Skripte aus der Projekt-Konfiguration.
+// Skripte aus .lazydev/config.yaml des Projekts.
 package hooks
 
 import (
@@ -59,11 +59,13 @@ type Hooks struct {
 
 func noop(Env) error { return nil }
 
-// For liefert die Hooks eines Projekts. Skripte aus hooks.setup, hooks.teardown, hooks.check
-// und hooks.dev ersetzen den jeweiligen Hook des Presets. Ohne Preset und Skript tun die Hooks nichts.
-func For(p config.Project) Hooks {
+// For liefert die Hooks eines Projekts aus seinen wirksamen Einstellungen r. Erst gilt das Preset,
+// dann ersetzen Skripte aus hooks.setup, hooks.teardown, hooks.check und hooks.dev den jeweiligen
+// Hook. Ohne Preset und Skript tun die Hooks nichts. projectDir ist der Hauptordner, relative
+// Skriptpfade gelten ab dort.
+func For(projectDir string, r config.Repo) Hooks {
 	h := Hooks{Setup: noop, Teardown: noop, Clean: noop, Check: noop, ResetDatabase: noop}
-	if p.Preset == config.PresetNuxtDrizzle {
+	if r.Preset == config.PresetNuxtDrizzle {
 		h = Hooks{
 			Setup:         nuxtDrizzleSetup,
 			Teardown:      nuxtDrizzleTeardown,
@@ -75,27 +77,27 @@ func For(p config.Project) Hooks {
 			IgnoreDirty:   mcpFiles,
 		}
 	}
-	if p.Hooks.Setup != "" {
-		h.Setup = script(p.Hooks.Setup)
+	if r.Hooks.Setup != "" {
+		h.Setup = script(r.Hooks.Setup)
 	}
-	if p.Hooks.Teardown != "" {
-		h.Teardown = script(p.Hooks.Teardown)
+	if r.Hooks.Teardown != "" {
+		h.Teardown = script(r.Hooks.Teardown)
 	}
-	if p.Hooks.Check != "" {
-		h.Check = script(p.Hooks.Check)
+	if r.Hooks.Check != "" {
+		h.Check = script(r.Hooks.Check)
 	}
-	if p.Hooks.Dev != "" {
-		h.Dev = []string{scriptPath(p, p.Hooks.Dev)}
+	if r.Hooks.Dev != "" {
+		h.Dev = []string{scriptPath(projectDir, r.Hooks.Dev)}
 	}
 	return h
 }
 
 // scriptPath löst einen relativen Skriptpfad ab dem Hauptordner auf.
-func scriptPath(p config.Project, path string) string {
+func scriptPath(projectDir, path string) string {
 	if filepath.IsAbs(path) {
 		return path
 	}
-	return filepath.Join(p.AbsPath(), path)
+	return filepath.Join(projectDir, path)
 }
 
 // script führt ein Skript im Worktree aus. Relative Pfade gelten ab dem Hauptordner des Projekts.

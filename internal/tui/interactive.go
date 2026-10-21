@@ -11,10 +11,10 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"lazydev/internal/chatrun"
+	"lazydev/internal/config"
 	"lazydev/internal/devserver"
 	"lazydev/internal/herdr"
-	"lazydev/internal/hooks"
-	"lazydev/internal/prdtemplate"
+	"lazydev/internal/prompts"
 	"lazydev/internal/state"
 	"lazydev/internal/worktree"
 )
@@ -48,47 +48,17 @@ func execInteractive(dir string, args []string, done func(error) tea.Msg) tea.Cm
 	return tea.Exec(interruptSafe{c}, done)
 }
 
-// newPRD lässt das Template wählen. Vorgewählt ist das Template, das zum Preset passt.
+// newPRD öffnet das Fenster „Neues PRD“ für die Beschreibung.
 func (m Model) newPRD() (Model, tea.Cmd) {
-	p := m.selectedProject()
-	if p == nil {
+	if m.selectedProject() == nil {
 		return m, nil
 	}
-	preset := ""
-	if i := m.configIndex(p.Path); i >= 0 {
-		preset = m.cfg.Projects[i].Preset
-	}
-	m.template = prdtemplate.Index(prdtemplate.Default(preset))
-	m.mode = modeTemplate
-	return m, nil
-}
-
-func (m Model) updateTemplate(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
-	n := len(prdtemplate.All)
-	switch msg.String() {
-	case "esc", "ctrl+c", "q":
-		m.mode = modeNormal
-		m.fromIssue = nil
-	case "left", "h", "k", "up", "shift+tab":
-		m.template = (m.template + n - 1) % n
-	case "right", "l", "j", "down", "tab":
-		m.template = (m.template + 1) % n
-	case "enter":
-		// Aus einem Issue startet der Chat ohne Fenster „Neues PRD“.
-		if m.fromIssue != nil {
-			display, desc := issueChat(*m.fromIssue)
-			m.fromIssue = nil
-			m.mode = modeNormal
-			return m.startChat(display, desc)
-		}
-		m.mode = modeNewPRD
-		m.input.Prompt = "> "
-		m.input.Placeholder = "z. B. Avatar-Upload im Profil"
-		m.input.Width = m.newPRDInputWidth()
-		m.input.SetValue("")
-		return m, m.input.Focus()
-	}
-	return m, nil
+	m.mode = modeNewPRD
+	m.input.Prompt = "> "
+	m.input.Placeholder = "z. B. Avatar-Upload im Profil"
+	m.input.Width = m.newPRDInputWidth()
+	m.input.SetValue("")
+	return m, m.input.Focus()
 }
 
 // newPRDInputWidth liefert die Breite des Eingabefelds im Fenster „Neues PRD“. Die -1 lässt Platz
@@ -118,14 +88,28 @@ func (m Model) updateNewPRD(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, cmd
 }
 
-// startChat legt den Chat mit dem gewählten Template an und öffnet sein Fenster. display ist die
-// Beschreibung in „Benachrichtigungen“, desc geht in die erste Nachricht.
+// startChat legt den Chat an und öffnet sein Fenster. display ist die Beschreibung in
+// „Benachrichtigungen“, desc geht in die erste Nachricht. Den Prompt baut startChat aus
+// .lazydev/create.md im Hauptordner, sonst aus dem Standard-Prompt. Scheitert das, entsteht kein Chat.
 func (m Model) startChat(display, desc string) (Model, tea.Cmd) {
 	p := m.selectedProject()
-	t := prdtemplate.All[m.template]
-	id, err := chatrun.Create(p.ID, "Neues PRD ("+t.Label+"): "+p.Name(), display, p.Path, time.Now())
+	idx := m.configIndex(p.Path)
+	if idx < 0 {
+		m.setMessage("Projekt nicht in der Konfiguration gefunden", true)
+		return m, nil
+	}
+	repo, _, err := config.Effective(m.cfg.Projects[idx])
+	var prompt prompts.Prompt
 	if err == nil {
-		err = chatrun.Send(p.ID, id, desc, t.CreatePrompt(desc))
+		prompt, err = prompts.Build(p.Path, repo, prompts.Create, prompts.Vars{Arguments: desc, Base: repo.Base(), WorkDir: p.Path})
+	}
+	if err != nil {
+		m.setMessage(firstLine(err.Error()), true)
+		return m, nil
+	}
+	id, err := chatrun.Create(p.ID, "Neues PRD: "+p.Name(), display, p.Path, time.Now())
+	if err == nil {
+		err = chatrun.Send(p.ID, id, desc, prompt.Text)
 	}
 	var c *chat
 	if err == nil {
@@ -205,9 +189,14 @@ func (m Model) toggleDev() (Model, tea.Cmd) {
 			return "Dev-Server gestoppt", devserver.Stop(t.ID, name)
 		})
 	}
-	command := hooks.For(t.Config).Dev
+	h, err := t.Hooks()
+	if err != nil {
+		m.setMessage(firstLine(err.Error()), true)
+		return m, nil
+	}
+	command := h.Dev
 	if len(command) == 0 {
-		m.setMessage("Kein Dev-Befehl. Trage hooks.dev in der Konfiguration ein.", true)
+		m.setMessage("Kein Dev-Befehl. Trage hooks.dev in .lazydev/config.yaml ein.", true)
 		return m, nil
 	}
 	if !worktree.PortFree(r.Port) {

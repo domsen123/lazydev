@@ -106,8 +106,12 @@ func TestRunMovesUntrackedPRD(t *testing.T) {
 	if !strings.Contains(string(implLog), `"type":"result"`) || !strings.Contains(string(implLog), `"type":"stderr"`) {
 		t.Errorf("Log von implement:\n%s", implLog)
 	}
+	if !strings.Contains(string(implLog), "Prompt: Standard") || strings.Contains(string(implLog), "Knowledge:") {
+		t.Errorf("Prompt-Quelle fehlt im Log:\n%s", implLog)
+	}
 	args, _ := os.ReadFile(filepath.Join(wt, ".fake-args"))
-	if !strings.Contains(string(args), "# PRD umsetzen (Template „nuxt“): prd/auth/new-token.md") ||
+	if !strings.Contains(string(args), "# lazydev implement: prd/auth/new-token.md\n") ||
+		!strings.Contains(string(args), "## Regeln von lazydev") ||
 		!strings.Contains(string(args), "Bash(git status:*),") || !strings.Contains(string(args), "GIT_EDITOR=true") ||
 		!strings.Contains(string(args), "--agents\n"+claude.AgentsPath()) {
 		t.Errorf("Aufruf von claude:\n%s", args)
@@ -304,8 +308,10 @@ func TestStartRespectsMaxParallel(t *testing.T) {
 	}
 }
 
-// fakeClaude schreibt ein Skript, das claude -p nachahmt. FAKE_CLAUDE_MODE steuert das
-// Verhalten: ok, abort, exit, noresult, status (Statuszeile bleibt), dirty (Review committet nicht).
+// fakeClaude schreibt ein Skript, das claude -p nachahmt. Es erkennt den Schritt an der Kopfzeile
+// "# lazydev <schritt>:" des Prompts. FAKE_CLAUDE_MODE steuert das Verhalten: ok, abort, exit,
+// noresult, status (Statuszeile bleibt), dirty (Review committet nicht), lazydev (die Umsetzung
+// legt eine Datei unter .lazydev/ an).
 func fakeClaude(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "claude")
@@ -316,19 +322,21 @@ echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"claude-op
 echo 'eine Warnung' >&2
 mode="$FAKE_CLAUDE_MODE"
 case "$2" in
-"# PRD umsetzen"*)
-	prd=$(printf '%s\n' "$2" | sed -n '1s/^.*): //p')
+"# lazydev implement: "*)
+	prd=$(printf '%s\n' "$2" | sed -n '1s/^# lazydev implement: //p')
 	case "$mode" in
 	exit) echo '{"type":"result","is_error":true,"result":"kaputt"}'; exit 3 ;;
 	noresult) exit 0 ;;
 	abort) printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Feld fehlt im PRD\n"}'; exit 0 ;;
 	status) ;;
+	lazydev) mkdir -p .lazydev && echo x > .lazydev/neu.md
+		sed -i 's/^> Status: geplant/> Status: umgesetzt (2026-10-20)/' "$prd" ;;
 	*) sed -i 's/^> Status: geplant/> Status: umgesetzt (2026-10-20)/' "$prd" ;;
 	esac
 	echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"x.ts"}}]}}'
 	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.5,"result":"## Ergebnis\numgesetzt\n\n## Offene Fragen\n- keine\n"}'
 	;;
-"# /merge-prd"*)
+"# lazydev merge: "*)
 	if [ "$FAKE_MERGE_MODE" = abort ]; then
 		printf '%s\n' '{"type":"result","is_error":false,"result":"## Ergebnis\nabgebrochen\n\n## Offene Punkte\n- review.txt: beide Seiten unklar\n"}'
 		exit 0
@@ -337,7 +345,7 @@ case "$2" in
 	touch .merge-fixed
 	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\nbereit für Fast-Forward\n"}'
 	;;
-"# /arewedone"*)
+"# lazydev review: "*)
 	echo change > review.txt
 	if [ "$mode" != dirty ]; then
 		git add -A && git commit -q -m "feat: review"
@@ -372,46 +380,107 @@ func runGit(t *testing.T, dir string, args ...string) string {
 	return strings.TrimSpace(string(out))
 }
 
-func TestImplementPromptFollowsTemplate(t *testing.T) {
-	wt := t.TempDir()
-	os.MkdirAll(filepath.Join(wt, "prd", "a"), 0o755)
-	r := &state.Run{PRD: "prd/a/b.md", Worktree: wt}
-	if got := prompt(r, StepImplement); !strings.HasPrefix(got, "# PRD umsetzen (Template „nuxt“): prd/a/b.md\n") {
-		t.Errorf("ohne PRD: %q", claude.FirstLine(got))
+// commitRepo legt Dateien unter .lazydev/ und weitere im Hauptordner an und committet nur sie. Das
+// ungetrackte PRD bleibt ungetrackt.
+func commitRepo(t *testing.T, target Target, files map[string]string) {
+	t.Helper()
+	for rel, content := range files {
+		write(t, target.Dir(), rel, content)
+		runGit(t, target.Dir(), "add", "--", rel)
 	}
-	os.WriteFile(filepath.Join(wt, r.PRD), []byte("# PRD: B\n> Status: geplant · Template: einfach · Scope: x\n"), 0o644)
-	if got := prompt(r, StepImplement); !strings.HasPrefix(got, "# PRD umsetzen (Template „einfach“): prd/a/b.md") {
-		t.Errorf("Template einfach: %q", claude.FirstLine(got))
-	}
+	runGit(t, target.Dir(), "commit", "-q", "-m", "lazydev")
 }
 
-// TestEmbeddedPrompts prüft, dass Review und Merge eingebettet sind, die Agenten unter ihrem Namen
-// aufrufen und $ARGUMENTS ersetzen.
-func TestEmbeddedPrompts(t *testing.T) {
-	agents, err := claude.Agents()
-	if err != nil {
+func TestRunUsesProjectPrompt(t *testing.T) {
+	cfg, target := setupProject(t)
+	commitRepo(t, target, map[string]string{
+		".lazydev/config.yaml":  "knowledge:\n  all: [CLAUDE.md]\n  review: [docs/review.md]\n",
+		".lazydev/implement.md": "---\ndescription: Team\n---\n# Ablauf des Teams\nSetze $ARGUMENTS auf $BRANCH um.\n",
+		"CLAUDE.md":             "# Regeln\n",
+		"docs/review.md":        "# Review\n",
+	})
+	// Hooks aus der zentralen config.yaml brauchen keine Bestätigung, sie wirken hier aber nicht.
+	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
 		t.Fatal(err)
 	}
-	review := prompt(&state.Run{}, StepReview)
-	if claude.FirstLine(review) != "# /arewedone: Review und Commit" || strings.HasPrefix(review, "---") {
-		t.Errorf("Review-Prompt: %q", claude.FirstLine(review))
+	wt := worktree.Path("app", "new-token")
+	args, _ := os.ReadFile(filepath.Join(wt, ".fake-args"))
+	want := "# lazydev implement: prd/auth/new-token.md\n\n## Pflichtlektüre\n\nLies diese Dateien vollständig, bevor du etwas anderes tust:\n\n- `CLAUDE.md`\n\n" +
+		"# Ablauf des Teams\nSetze prd/auth/new-token.md auf feat/new-token um.\n\n## Regeln von lazydev"
+	if !strings.Contains(string(args), want) {
+		t.Errorf("Aufruf von claude ohne Projekt-Prompt:\n%s", args)
 	}
-	for _, name := range []string{"structural-completeness-reviewer", "committer"} {
-		if _, ok := agents[name]; !ok || !strings.Contains(review, "`"+name+"`") {
-			t.Errorf("Review ruft Agent %s nicht auf", name)
-		}
+	implLog, _ := os.ReadFile(state.LogPath("app", "new-token", StepImplement))
+	if !strings.Contains(string(implLog), "Prompt: .lazydev/implement.md") || !strings.Contains(string(implLog), "Knowledge: CLAUDE.md") {
+		t.Errorf("Log von implement:\n%s", implLog)
 	}
-	if _, ok := agents["committer"]; !ok || !strings.Contains(mergePrompt, "`committer`") {
-		t.Error("Merge ruft committer nicht auf")
+	reviewLog, _ := os.ReadFile(state.LogPath("app", "new-token", StepReview))
+	if !strings.Contains(string(reviewLog), "Prompt: Standard") || !strings.Contains(string(reviewLog), "Knowledge: CLAUDE.md, docs/review.md") {
+		t.Errorf("Log von review:\n%s", reviewLog)
 	}
-	if strings.HasPrefix(mergePrompt, "---") || !strings.Contains(mergePrompt, "$ARGUMENTS") {
-		t.Errorf("Merge-Prompt: %q", claude.FirstLine(mergePrompt))
+	// Mit .lazydev/config.yaml wirken die Hooks der zentralen config.yaml nicht.
+	if _, err := os.Stat(filepath.Join(wt, "port.txt")); err == nil {
+		t.Error("Setup-Skript der zentralen config.yaml lief")
 	}
 }
 
-func TestReviewPromptUsesBase(t *testing.T) {
-	got := prompt(&state.Run{Base: "next"}, StepReview)
-	if !strings.Contains(got, "git diff next...HEAD") || strings.Contains(got, "$BASE") {
-		t.Errorf("Review-Prompt ohne Ziel-Branch:\n%s", got)
+func TestRunMissingKnowledgeSkipsClaude(t *testing.T) {
+	cfg, target := setupProject(t)
+	commitRepo(t, target, map[string]string{".lazydev/config.yaml": "knowledge:\n  implement: [LOKAL.md]\n"})
+	// Nur im Hauptordner, nicht im Worktree.
+	write(t, target.Dir(), "LOKAL.md", "x")
+	err := Run(cfg, target, "new-token", io.Discard)
+	if err == nil || err.Error() != "Knowledge-Datei fehlt: LOKAL.md" {
+		t.Fatalf("Fehler: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(worktree.Path("app", "new-token"), ".fake-args")); err == nil {
+		t.Error("claude lief trotz fehlender Knowledge-Datei")
+	}
+	if r, _ := state.Load("app", "new-token"); r.Phase != project.PhaseError || NextStep(r) != StepImplement {
+		t.Errorf("Zustand: %+v", r)
+	}
+}
+
+func TestRunFailsWhenClaudeChangesLazydev(t *testing.T) {
+	cfg, target := setupProject(t)
+	t.Setenv("FAKE_CLAUDE_MODE", "lazydev")
+	err := Run(cfg, target, "new-token", io.Discard)
+	if err == nil || err.Error() != ".lazydev/ im Worktree geändert: .lazydev/neu.md" {
+		t.Fatalf("Fehler: %v", err)
+	}
+	if r, _ := state.Load("app", "new-token"); NextStep(r) != StepImplement {
+		t.Errorf("Zustand: %+v", r)
+	}
+}
+
+func TestRunNeedsTrust(t *testing.T) {
+	cfg, target := setupProject(t)
+	commitRepo(t, target, map[string]string{".lazydev/config.yaml": "hooks:\n  setup: ./setup.sh\n"})
+	const hint = "Hooks oder Freigaben in .lazydev/config.yaml nicht bestätigt. Prüfen und bestätigen: lazydev trust app"
+	if err := Run(cfg, target, "new-token", io.Discard); err == nil || err.Error() != hint {
+		t.Fatalf("Run ohne Vertrauen: %v", err)
+	}
+	if _, err := Start(cfg, target, "new-token"); err == nil || err.Error() != hint {
+		t.Errorf("Start ohne Vertrauen: %v", err)
+	}
+	if _, err := state.Load("app", "new-token"); err == nil {
+		t.Error("Lauf ohne Vertrauen angelegt")
+	}
+
+	repo, _, _ := config.LoadRepo(target.Dir())
+	if err := state.Trust("app", repo.TrustHash()); err != nil {
+		t.Fatal(err)
+	}
+	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if port, _ := os.ReadFile(filepath.Join(worktree.Path("app", "new-token"), "port.txt")); len(port) == 0 {
+		t.Error("Setup-Hook aus .lazydev/config.yaml lief nicht")
+	}
+
+	// Eine Änderung an den Freigaben verlangt erneut eine Bestätigung, auch uncommittet.
+	write(t, target.Dir(), ".lazydev/config.yaml", "hooks:\n  setup: ./setup.sh\nallowedTools: [\"Bash(make:*)\"]\n")
+	if err := Run(cfg, target, "tracked", io.Discard); err == nil || err.Error() != hint {
+		t.Errorf("Run nach Änderung: %v", err)
 	}
 }

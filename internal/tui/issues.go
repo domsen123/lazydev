@@ -210,10 +210,10 @@ func (m Model) openIssueWeb(issue github.Issue) (Model, tea.Cmd) {
 	})
 }
 
-// prdFromIssue öffnet „Template wählen“. Enter startet danach den Chat mit dem Issue.
+// prdFromIssue startet den Chat zum PRD direkt mit dem Issue.
 func (m Model) prdFromIssue(issue github.Issue) (Model, tea.Cmd) {
-	m.fromIssue = &issue
-	return m.newPRD()
+	display, desc := issueChat(issue)
+	return m.startChat(display, desc)
 }
 
 // issueChat liefert die kurze Beschreibung und die Beschreibung mit Text für den Chat aus issue.

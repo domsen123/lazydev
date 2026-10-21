@@ -257,8 +257,8 @@ func overlay(bg, fg string, width int) string {
 	return strings.Join(bgLines, "\n")
 }
 
-// dialogSize liefert die Größe der großen Fenster für das Terminal: Chat, Template-Auswahl und
-// „Neues PRD“.
+// dialogSize liefert die Größe der großen Fenster für das Terminal: Chat, „Neues PRD“, Ziel-Branch
+// und „.lazydev/ anlegen“.
 func (m Model) dialogSize() (int, int) {
 	return max(20, min(m.width-6, 110)), max(10, m.height-4)
 }

@@ -115,7 +115,7 @@ func TestMergeConflictUsesMergePRD(t *testing.T) {
 	}
 	r, _ := state.Load("app", "new-token")
 	if s := r.Steps[3]; s.SessionID != "sess-1" || s.CostUSD == nil {
-		t.Errorf("Sitzung von /merge-prd fehlt: %+v", s)
+		t.Errorf("Sitzung des Claude-Schritts merge fehlt: %+v", s)
 	}
 	// Die Kosten von /merge-prd zählen mit.
 	prd, _ := os.ReadFile(filepath.Join(main, "prd/auth/new-token.md"))
@@ -180,7 +180,7 @@ func TestMergeCheckFailureUsesMergePRD(t *testing.T) {
 		t.Fatal(err)
 	}
 	log, _ := os.ReadFile(state.LogPath("app", "new-token", StepMerge))
-	if !strings.Contains(string(log), "Prüfung rot") || !strings.Contains(string(log), "/merge-prd feat/new-token") {
+	if !strings.Contains(string(log), "Prüfung rot") || !strings.Contains(string(log), "# lazydev merge: feat/new-token Prüfung nach dem Rebase") {
 		t.Errorf("Log:\n%s", log)
 	}
 }
@@ -224,8 +224,12 @@ func TestMainDirProblem(t *testing.T) {
 	if p, _ := mainDirProblem(dir, "main", []string{"setup.sh"}); p != "" {
 		t.Errorf("ignorierte Datei blockiert: %q", p)
 	}
+	write(t, dir, ".lazydev/implement.md", "x")
+	if p, _ := mainDirProblem(dir, "main", []string{"setup.sh"}); p != "" {
+		t.Errorf("ungetrackte Datei unter .lazydev/ blockiert: %q", p)
+	}
 	write(t, dir, "neu.txt", "x")
-	if p, _ := mainDirProblem(dir, "main", []string{"setup.sh"}); !strings.Contains(p, "neu.txt") {
+	if p, _ := mainDirProblem(dir, "main", []string{"setup.sh"}); !strings.Contains(p, "neu.txt") || strings.Contains(p, ".lazydev") {
 		t.Errorf("ungetrackte Datei: %q", p)
 	}
 	runGit(t, dir, "switch", "-q", "-c", "other")
@@ -259,6 +263,39 @@ func TestMergeIntoBaseBranch(t *testing.T) {
 	}
 	if got := runGit(t, main, "rev-parse", "main"); got != mainHead {
 		t.Error("main hat sich verändert")
+	}
+}
+
+// TestMergeUsesRepoBaseBranch prüft baseBranch aus .lazydev/config.yaml: Der Worktree zweigt von next
+// ab, der Merge geht nach next. baseBranch der zentralen config.yaml wirkt nicht, und eine
+// uncommittete Änderung unter .lazydev/ im Hauptordner blockiert den Merge nicht.
+func TestMergeUsesRepoBaseBranch(t *testing.T) {
+	cfg, target := setupProject(t)
+	commitRepo(t, target, map[string]string{".lazydev/config.yaml": "# Ziel des Teams\nbaseBranch: next\n"})
+	main := target.Dir()
+	runGit(t, main, "switch", "-q", "-c", "next")
+	commitRepo(t, target, map[string]string{"next.txt": "nur auf next\n"})
+	mainHead := runGit(t, main, "rev-parse", "main")
+	cfg.Projects[0].BaseBranch = "main"
+	target = enableAutoMerge(t, cfg)
+	write(t, main, ".lazydev/config.yaml", "# Ziel des Teams, geändert\nbaseBranch: next\n")
+	write(t, main, ".lazydev/notiz.md", "ungetrackt\n")
+
+	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := state.Load("app", "new-token")
+	if r.Phase != project.PhaseMerged || r.Base != "next" {
+		t.Errorf("Zustand nach Merge: %+v", r)
+	}
+	if got := runGit(t, main, "log", "--format=%s", "-4", "next"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token\nlazydev" {
+		t.Errorf("next: %q", got)
+	}
+	if runGit(t, main, "rev-parse", "main") != mainHead {
+		t.Error("main hat sich verändert")
+	}
+	if got := runGit(t, main, "status", "--porcelain", "--", ".lazydev"); got != "M .lazydev/config.yaml\n?? .lazydev/notiz.md" {
+		t.Errorf("Änderungen unter .lazydev/: %q", got)
 	}
 }
 

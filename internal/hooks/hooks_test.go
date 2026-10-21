@@ -44,7 +44,10 @@ func TestScriptHookOverridesPreset(t *testing.T) {
 	script := filepath.Join(proj, "setup.sh")
 	os.WriteFile(script, []byte("#!/bin/sh\necho \"$LAZYDEV_SLUG:$LAZYDEV_PORT:$PWD\" > out.txt\necho hallo\n"), 0o755)
 
-	h := For(config.Project{Preset: config.PresetNuxtDrizzle, Hooks: config.Hooks{Setup: "./setup.sh"}})
+	h := For(proj, config.Repo{Preset: config.PresetNuxtDrizzle, Hooks: config.Hooks{Setup: "./setup.sh", Dev: "dev.sh"}})
+	if len(h.Dev) != 1 || h.Dev[0] != filepath.Join(proj, "dev.sh") {
+		t.Errorf("Dev ab dem Hauptordner: %v", h.Dev)
+	}
 	logPath := filepath.Join(t.TempDir(), "setup.jsonl")
 	log, err := runlog.Open(logPath, nil)
 	if err != nil {
@@ -70,7 +73,7 @@ func TestScriptHookFailure(t *testing.T) {
 	proj := t.TempDir()
 	os.WriteFile(filepath.Join(proj, "fail.sh"), []byte("#!/bin/sh\nexit 3\n"), 0o755)
 	log, _ := runlog.Open("", nil)
-	h := For(config.Project{Hooks: config.Hooks{Teardown: "fail.sh"}})
+	h := For(proj, config.Repo{Hooks: config.Hooks{Teardown: "fail.sh"}})
 	err := h.Teardown(Env{ProjectDir: proj, Worktree: proj, Log: log})
 	if err == nil || !strings.Contains(err.Error(), "Exit-Code 3") {
 		t.Errorf("Fehler = %v", err)

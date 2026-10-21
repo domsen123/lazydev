@@ -10,7 +10,6 @@ import (
 
 	"lazydev/internal/config"
 	"lazydev/internal/devserver"
-	"lazydev/internal/prdtemplate"
 	"lazydev/internal/project"
 	"lazydev/internal/state"
 )
@@ -166,10 +165,12 @@ func (m Model) View() string {
 		fg = m.viewHelp()
 	case m.mode == modeLimits:
 		fg = m.viewLimits(time.Now())
-	case m.mode == modeTemplate:
-		fg = m.viewTemplatePicker()
 	case m.mode == modeBranch && m.branch != nil:
 		fg = m.viewBranchPicker()
+	case m.mode == modeInit && m.wizard != nil:
+		fg = m.viewInitWizard()
+	case m.mode == modeConfirm && m.returnMode == modeNormal && m.confirm != nil && m.confirm.details != nil:
+		fg = m.viewConfirmDetails()
 	case m.mode == modeNewPRD:
 		fg = m.viewNewPRD()
 	case m.mode == modePRDView && m.prdView != nil:
@@ -238,6 +239,9 @@ func (m Model) viewPRDs(l layout) string {
 	}
 	if total := m.runs.projectCost(p); total > 0 {
 		title += fmt.Sprintf(" · %.2f USD", total)
+	}
+	if m.withoutRepo[p.Path] {
+		title += " · ohne " + config.RepoDir
 	}
 
 	colPRD := prdColWidth(l.rightWidth - 2)
@@ -396,30 +400,21 @@ func (m Model) viewFooter(l layout) string {
 	return strings.Join(lines, "\n")
 }
 
-// viewTemplatePicker zeigt das Fenster „Template wählen“: die Templates untereinander, jedes mit
-// seiner Beschreibung darunter.
-func (m Model) viewTemplatePicker() string {
-	var lines []string
-	for i, t := range prdtemplate.All {
-		if i > 0 {
-			lines = append(lines, "")
-		}
-		if i == m.template {
-			lines = append(lines, styleSelected.Render("> "+t.Label))
-		} else {
-			lines = append(lines, styleMuted.Render("  "+t.Label))
-		}
-		lines = append(lines, styleMuted.Render("    "+t.Description))
-	}
-	w, _ := m.dialogSize()
-	return dialog("Template wählen", lines, w, len(lines)+4)
-}
-
 // viewNewPRD zeigt das Fenster „Neues PRD“ mit dem Eingabefeld für die Beschreibung.
 func (m Model) viewNewPRD() string {
 	lines := []string{styleMuted.Render("Beschreibe das Feature in einem Satz."), "", m.input.View()}
 	w, _ := m.dialogSize()
-	return dialog("Neues PRD · "+prdtemplate.All[m.template].Label, lines, w, len(lines)+4)
+	title := "Neues PRD"
+	if p := m.selectedProject(); p != nil {
+		title += " · " + p.Name()
+	}
+	return dialog(title, lines, w, len(lines)+4)
+}
+
+// viewConfirmDetails zeigt die Zeilen einer Rückfrage im Fenster. Die Frage steht in der Statuszeile.
+func (m Model) viewConfirmDetails() string {
+	w, h := m.dialogSize()
+	return dialog(m.confirm.title, m.confirm.details, w, min(h, len(m.confirm.details)+4))
 }
 
 func (m Model) helpLine() string {
@@ -431,10 +426,10 @@ func (m Model) helpLine() string {
 		keys = [][2]string{{"j", "entfernen"}, {"n", "abbrechen"}}
 	case modeConfirm:
 		keys = [][2]string{{"j", "ja"}, {"n", "nein"}}
-	case modeTemplate:
-		keys = [][2]string{{"↑ ↓", "Template wählen"}, {"Enter", "weiter"}, {"Esc", "abbrechen"}}
 	case modeBranch:
 		keys = [][2]string{{"↑ ↓", "Branch wählen"}, {"Enter", "übernehmen"}, {"Esc", "abbrechen"}}
+	case modeInit:
+		keys = m.wizard.keys()
 	case modeNewPRD:
 		keys = [][2]string{{"Enter", "Chat mit Claude öffnen"}, {"Esc", "abbrechen"}}
 	case modeChat:
@@ -473,7 +468,8 @@ func (m Model) normalKeys() [][2]string {
 	default:
 		keys = append(keys, [2]string{"a", "Projekt"})
 		if m.selectedProject() != nil {
-			keys = append(keys, [][2]string{{"d", "entfernen"}, {"b", "Ziel-Branch"}, {"D", "Docker"}, {"n", "neues PRD"}}...)
+			keys = append(keys, [][2]string{{"d", "entfernen"}, {"b", "Ziel-Branch"}, {"i", ".lazydev"}, {"D", "Docker"},
+				{"n", "neues PRD"}}...)
 		}
 	}
 	if m.hasNotifications() {
@@ -665,11 +661,12 @@ var helpSections = []struct {
 	{"Projekte", [][2]string{
 		{"a", "Projekt hinzufügen, Tab vervollständigt den Pfad"},
 		{"d", "Projekt aus der Liste entfernen, die Dateien bleiben"},
-		{"b", "Ziel-Branch wählen: Worktrees zweigen davon ab, der Merge geht dorthin"},
+		{"b", "Ziel-Branch wählen, schreibt .lazydev/config.yaml"},
+		{"i", ".lazydev/ anlegen: Ziel-Branch, Knowledge, Prompts"},
 		{"D", "Docker-Ansicht: U compose up, S compose stop, L Logs"},
 	}},
 	{"PRDs", [][2]string{
-		{"n", "neues PRD im Chat (Opus), vorher Template wählen: Nuxt-Feature oder Einfach"},
+		{"n", "neues PRD im Chat (Opus)"},
 		{"N", "älteste Rückfrage eines Chats öffnen"},
 		{"v", "PRD vollständig ansehen, darin o für den Editor"},
 		{"s", "Umsetzung starten oder beim gescheiterten Schritt fortsetzen"},

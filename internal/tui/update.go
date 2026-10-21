@@ -1,7 +1,6 @@
 package tui
 
 import (
-	"fmt"
 	"slices"
 	"strings"
 
@@ -118,10 +117,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateConfirm(msg)
 		case modeEvent:
 			return m.updateEvent(msg)
-		case modeTemplate:
-			return m.updateTemplate(msg)
 		case modeBranch:
 			return m.updateBranch(msg)
+		case modeInit:
+			return m.updateInitWizard(msg)
 		case modeNewPRD:
 			return m.updateNewPRD(msg)
 		case modeChat:
@@ -239,6 +238,8 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "b":
 		return m.openBranchPicker()
+	case "i":
+		return m.openInitWizard()
 	case "s":
 		return m.startPRD()
 	case "m":
@@ -370,14 +371,10 @@ func (m Model) updateAddProject(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.mode = modeNormal
 		m.input.Blur()
 		m.candidates = nil
-		note := ""
-		if added.Preset != "" {
-			note = fmt.Sprintf(" (Preset %s)", added.Preset)
-		}
 		if m.watch != nil {
 			m.watch.addProject(added.AbsPath())
 		}
-		m.setMessage("Projekt hinzugefügt: "+added.Path+note, false)
+		m.setMessage("Projekt hinzugefügt: "+added.Path, false)
 		m.loading = true
 		return m, m.loadProjects(added.AbsPath())
 	}

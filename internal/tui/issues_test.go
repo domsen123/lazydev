@@ -305,28 +305,19 @@ func TestPRDFromIssue(t *testing.T) {
 	m = runCmd(t, m, fetch)
 	m = drive(t, m, tea.KeyMsg{Type: tea.KeyRight}, tea.KeyMsg{Type: tea.KeyRight})
 
-	// Esc in „Template wählen“ verwirft den Bezug zum Issue.
+	// n in der Box startet den Chat direkt, ohne Fenster „Neues PRD“.
 	m = drive(t, m, keys("n")...)
-	if m.mode != modeTemplate || m.fromIssue == nil || m.fromIssue.Number != 3 {
-		t.Fatalf("n in der Box: %v %+v", m.mode, m.fromIssue)
-	}
-	m = drive(t, m, tea.KeyMsg{Type: tea.KeyEsc})
-	if m.mode != modeNormal || m.fromIssue != nil {
-		t.Fatalf("nach Esc: %v %+v", m.mode, m.fromIssue)
-	}
-
-	m = drive(t, m, keys("n")...)
-	m = drive(t, m, tea.KeyMsg{Type: tea.KeyEnter})
-	if m.mode != modeChat || m.chat == nil || m.fromIssue != nil {
-		t.Fatalf("kein Chat nach Enter: %v %q", m.mode, m.message)
+	if m.mode != modeChat || m.chat == nil {
+		t.Fatalf("kein Chat nach n: %v %q", m.mode, m.message)
 	}
 	m = waitRound(t, m)
 	all, _ := chatrun.All()
-	if len(all) != 1 || all[0].Chat.Description != "#3 Login mit Passkey" || !strings.HasPrefix(all[0].Chat.Title, "Neues PRD (") {
-		t.Fatalf("Chat: %+v", all)
+	if len(all) != 1 || all[0].Chat.Description != "#3 Login mit Passkey" || all[0].Chat.Title != "Neues PRD: alpha" {
+		t.Fatalf("Chat: %+v", all[0].Chat)
 	}
 	got, _ := os.ReadFile(argsPath)
-	if !strings.Contains(string(got), "#3 Login mit Passkey\n\nNutzer melden sich **ohne** Passwort an.") {
+	if !strings.Contains(string(got), "-p|# lazydev create: #3 Login mit Passkey\n") ||
+		!strings.Contains(string(got), "#3 Login mit Passkey\n\nNutzer melden sich **ohne** Passwort an.") {
 		t.Errorf("Prompt ohne Text des Issues:\n%s", got)
 	}
 	m = drive(t, m, tea.KeyMsg{Type: tea.KeyEsc})
@@ -335,17 +326,17 @@ func TestPRDFromIssue(t *testing.T) {
 		t.Errorf("Benachrichtigung:\n%s", view)
 	}
 
-	// n im Fenster schließt es und öffnet „Template wählen“. Der Fokus bleibt auf den Issues.
+	// n im Fenster schließt es und startet den Chat. Der Fokus bleibt auf den Issues.
 	if m.focus != focusIssues {
 		t.Fatalf("Fokus: %v", m.focus)
 	}
 	m = drive(t, m, keys("j")...)
 	m = drive(t, m, tea.KeyMsg{Type: tea.KeyEnter})
 	m = drive(t, m, keys("n")...)
-	if m.mode != modeTemplate || m.issueView != nil || m.fromIssue == nil || m.fromIssue.Number != 2 {
-		t.Fatalf("n im Fenster: %v %+v", m.mode, m.fromIssue)
+	if m.mode != modeChat || m.issueView != nil || m.chat == nil || m.chat.state.Description != "#2 Alter Fehler" {
+		t.Fatalf("n im Fenster: %v %q", m.mode, m.message)
 	}
-	display, desc := issueChat(*m.fromIssue)
+	display, desc := issueChat(github.Issue{Number: 2, Title: "Alter Fehler"})
 	if display != "#2 Alter Fehler" || desc != display {
 		t.Errorf("Beschreibung ohne Text: %q, %q", display, desc)
 	}

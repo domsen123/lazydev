@@ -2,62 +2,47 @@ package runner
 
 import (
 	"context"
-	_ "embed"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"lazydev/internal/claude"
 	"lazydev/internal/config"
 	"lazydev/internal/git"
-	"lazydev/internal/hooks"
-	"lazydev/internal/prdtemplate"
 	"lazydev/internal/project"
+	"lazydev/internal/prompts"
 	"lazydev/internal/runlog"
 	"lazydev/internal/state"
 	"lazydev/internal/usage"
 )
 
-// Werte unter "## Ergebnis" im Bericht von /implement-prd.
+// Werte unter "## Ergebnis" im Bericht des Schritts implement.
 const (
 	resultImplemented = "umgesetzt"
 	resultAborted     = "abgebrochen"
 )
 
-// reviewPrompt ist der Prompt des Schritts review. Seine erste Zeile nennt ihn im Log /arewedone.
-// $BASE steht für den Ziel-Branch.
-//
-//go:embed prompts/arewedone.md
-var reviewPrompt string
-
-func prompt(r *state.Run, step string) string {
-	if step == StepImplement {
-		return prdtemplate.Get(prdTemplate(r)).ImplementPrompt(r.PRD)
-	}
-	return strings.ReplaceAll(reviewPrompt, "$BASE", r.Base)
+// stepPrompts ordnet den Claude-Schritten des Runners ihren Prompt zu.
+var stepPrompts = map[string]prompts.Step{
+	StepImplement: prompts.Implement,
+	StepReview:    prompts.Review,
 }
 
-// prdTemplate liest das Template aus der Statuszeile des PRDs im Worktree. Ist das PRD nicht
-// lesbar, gilt das Standard-Template. Den Fehler meldet dann der Schritt selbst.
-func prdTemplate(r *state.Run) string {
-	f, err := os.Open(filepath.Join(r.Worktree, r.PRD))
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	_, status, _ := project.ParseHeader(f)
-	return prdtemplate.Of(status)
-}
-
-func allowedTools(p config.Project) []string {
-	return append(append([]string{}, claude.DefaultAllowedTools...), p.AllowedTools...)
+// allowedTools ergänzt die Standard-Freigaben um allowedTools des Projekts.
+func allowedTools(r config.Repo) []string {
+	return append(slices.Clone(claude.DefaultAllowedTools), r.AllowedTools...)
 }
 
 // claudeStep startet claude im Worktree und prüft danach das Ergebnis des Schritts.
 func claudeStep(ctx context.Context, cfg *config.Config, t Target, prdName string, r *state.Run, step string, log *runlog.Logger) (int, error) {
-	s, exitCode, err := runClaude(ctx, cfg, t, prdName, r, prompt(r, step), log)
+	args := ""
+	if step == StepImplement {
+		args = r.PRD
+	}
+	s, exitCode, err := runClaude(ctx, cfg, t, prdName, r, stepPrompts[step], args, log)
 	if err != nil {
 		return exitCode, err
 	}
@@ -65,19 +50,35 @@ func claudeStep(ctx context.Context, cfg *config.Config, t Target, prdName strin
 		return exitCode, err
 	}
 	if step == StepImplement {
-		if err := checkReport(s.Result, "/implement-prd", resultImplemented, "Offene Fragen"); err != nil {
+		if err := checkReport(s.Result, string(prompts.Implement), resultImplemented, "Offene Fragen"); err != nil {
 			return 0, err
 		}
-		return 0, checkImplemented(r)
+		if err := checkImplemented(r); err != nil {
+			return 0, err
+		}
+	} else if err := checkReviewed(t, r, log); err != nil {
+		return 0, err
 	}
-	return 0, checkReviewed(t, r, log)
+	return 0, checkLazydevUntouched(r)
 }
 
-// runClaude setzt erzeugte Dateien zurück und startet claude im Worktree. Sitzung, Modell und Kosten
-// schreibt runClaude laufend in den letzten Schritt. Mehrere Aufrufe in einem Schritt addieren
-// ihre Kosten.
-func runClaude(ctx context.Context, cfg *config.Config, t Target, prdName string, r *state.Run, prompt string, log *runlog.Logger) (claude.Summary, int, error) {
-	if err := hooks.For(t.Config).Clean(env(t, r, log)); err != nil {
+// runClaude baut den Prompt des Schritts, setzt erzeugte Dateien zurück und startet claude im
+// Worktree. Fehlt eine Knowledge-Datei, startet claude nicht. Sitzung, Modell und Kosten schreibt
+// runClaude laufend in den letzten Schritt. Mehrere Aufrufe in einem Schritt addieren ihre Kosten.
+func runClaude(ctx context.Context, cfg *config.Config, t Target, prdName string, r *state.Run, step prompts.Step, args string, log *runlog.Logger) (claude.Summary, int, error) {
+	repo, err := t.Repo()
+	if err != nil {
+		return claude.Summary{}, 1, err
+	}
+	p, err := prompts.Build(t.Dir(), repo, step, prompts.Vars{Arguments: args, Base: r.Base, Branch: r.Branch, WorkDir: r.Worktree})
+	if err != nil {
+		return claude.Summary{}, 1, err
+	}
+	h, err := t.Hooks()
+	if err != nil {
+		return claude.Summary{}, 1, err
+	}
+	if err := h.Clean(env(t, r, log)); err != nil {
 		return claude.Summary{}, 1, err
 	}
 	baseCost := 0.0
@@ -87,8 +88,8 @@ func runClaude(ctx context.Context, cfg *config.Config, t Target, prdName string
 	o := claude.Options{
 		Binary:       cfg.Claude.Binary,
 		Dir:          r.Worktree,
-		Prompt:       prompt,
-		AllowedTools: allowedTools(t.Config),
+		Prompt:       p.Text,
+		AllowedTools: allowedTools(repo),
 		Log:          eventLog{log},
 		OnChange: func(s claude.Summary) {
 			last := r.LastStep()
@@ -106,6 +107,10 @@ func runClaude(ctx context.Context, cfg *config.Config, t Target, prdName string
 				log.Printf("Zustand nicht gespeichert: %v", err)
 			}
 		},
+	}
+	log.Printf("Prompt: %s", p.Source)
+	if len(p.Knowledge) > 0 {
+		log.Printf("Knowledge: %s", strings.Join(p.Knowledge, ", "))
 	}
 	log.Printf("$ %s %s", o.Binary, claude.FirstLine(o.Prompt))
 	s, exitCode, err := claude.Run(ctx, o)
@@ -131,12 +136,12 @@ func checkSummary(s claude.Summary, exitCode int) error {
 	return nil
 }
 
-// checkReport prüft "## Ergebnis" im Bericht eines Commands. Weicht der Wert von want ab, nennt
+// checkReport prüft "## Ergebnis" im Bericht eines Schritts. Weicht der Wert von want ab, nennt
 // der Fehler den ersten Punkt aus dem Abschnitt questions.
-func checkReport(report, command, want, questions string) error {
+func checkReport(report, step, want, questions string) error {
 	res, ok := claude.Section(report, "Ergebnis")
 	if !ok {
-		return fmt.Errorf("Bericht von %s ohne Abschnitt „## Ergebnis“", command)
+		return fmt.Errorf("Bericht von %s ohne Abschnitt „## Ergebnis“", step)
 	}
 	switch v := strings.ToLower(claude.FirstLine(res)); v {
 	case want:
@@ -144,15 +149,15 @@ func checkReport(report, command, want, questions string) error {
 	case resultAborted:
 		q, _ := claude.Section(report, questions)
 		if q := claude.FirstLine(q); q != "" && q != "keine" && q != "- keine" {
-			return fmt.Errorf("%s abgebrochen: %s", command, strings.TrimPrefix(q, "- "))
+			return fmt.Errorf("%s abgebrochen: %s", step, strings.TrimPrefix(q, "- "))
 		}
-		return fmt.Errorf("%s abgebrochen", command)
+		return fmt.Errorf("%s abgebrochen", step)
 	default:
-		return fmt.Errorf("unbekanntes Ergebnis %q im Bericht von %s", v, command)
+		return fmt.Errorf("unbekanntes Ergebnis %q im Bericht von %s", v, step)
 	}
 }
 
-// checkImplemented prüft, dass /implement-prd die Statuszeile auf "umgesetzt" gesetzt hat.
+// checkImplemented prüft, dass implement die Statuszeile auf "umgesetzt" gesetzt hat.
 func checkImplemented(r *state.Run) error {
 	f, err := os.Open(filepath.Join(r.Worktree, r.PRD))
 	if err != nil {
@@ -169,10 +174,14 @@ func checkImplemented(r *state.Run) error {
 	return nil
 }
 
-// checkReviewed prüft, dass /arewedone alles committet hat. Der Merge braucht einen sauberen
+// checkReviewed prüft, dass review alles committet hat. Der Merge braucht einen sauberen
 // Worktree.
 func checkReviewed(t Target, r *state.Run, log *runlog.Logger) error {
-	if err := hooks.For(t.Config).Clean(env(t, r, log)); err != nil {
+	h, err := t.Hooks()
+	if err != nil {
+		return err
+	}
+	if err := h.Clean(env(t, r, log)); err != nil {
 		return err
 	}
 	out, err := git.Run(r.Worktree, "status", "--porcelain")
@@ -181,6 +190,29 @@ func checkReviewed(t Target, r *state.Run, log *runlog.Logger) error {
 	}
 	if dirty := git.Lines(out); len(dirty) > 0 {
 		return fmt.Errorf("Worktree nach dem Review nicht sauber: %s", strings.Join(dirty, ", "))
+	}
+	return nil
+}
+
+// checkLazydevUntouched prüft, dass Claude im Worktree nichts unter .lazydev/ geändert hat, weder
+// in Commits seit dem Ziel-Branch noch uncommittet.
+func checkLazydevUntouched(r *state.Run) error {
+	committed, err := git.Run(r.Worktree, "diff", "--name-only", r.Base+"...HEAD", "--", config.RepoDir)
+	if err != nil {
+		return err
+	}
+	status, err := git.Run(r.Worktree, "status", "--porcelain", "--untracked-files=all", "--", config.RepoDir)
+	if err != nil {
+		return err
+	}
+	changed := git.Lines(committed)
+	for _, line := range git.Lines(status) {
+		if len(line) > 3 && !slices.Contains(changed, line[3:]) {
+			changed = append(changed, line[3:])
+		}
+	}
+	if len(changed) > 0 {
+		return fmt.Errorf("%s/ im Worktree geändert: %s", config.RepoDir, strings.Join(changed, ", "))
 	}
 	return nil
 }

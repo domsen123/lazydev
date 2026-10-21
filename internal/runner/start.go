@@ -44,6 +44,9 @@ func Start(cfg *config.Config, t Target, prdName string) (started bool, err erro
 	if err := checkClaude(cfg); err != nil {
 		return false, err
 	}
+	if err := CheckTrust(t); err != nil {
+		return false, err
+	}
 	unlock, err := state.Lock(startLock)
 	if err != nil {
 		return false, err
