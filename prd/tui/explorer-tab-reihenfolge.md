@@ -1,6 +1,6 @@
 # PRD: PRDs als erster Tab im Explorer
 
-> Status: geplant · Scope: Der Explorer zeigt die Tabs in der Reihenfolge `PRDs`, `Files`. `PRDs` ist beim Start aktiv, das Details-Pane zeigt damit sofort das gewählte PRD.
+> Status: umgesetzt (2026-10-21) · Scope: Der Explorer zeigt die Tabs in der Reihenfolge `PRDs`, `Files`. `PRDs` ist beim Start aktiv, das Details-Pane zeigt damit sofort das gewählte PRD.
 
 ## Context
 
