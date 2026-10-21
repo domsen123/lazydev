@@ -117,7 +117,12 @@ hooks:                    # ersetzt einzelne Hooks des Presets
 Zusammenfassung. `Enter` geht weiter, `Backspace` zurück, `Esc` bricht ab. Der Wizard schreibt
 `config.yaml` und kopiert die vier Standard-Prompts in den Ordner, damit du sie anpassen kannst. Er
 übernimmt `baseBranch`, `preset`, `allowedTools` und `hooks` aus der zentralen Konfiguration und entfernt
-sie danach dort. lazydev committet den Ordner nicht.
+sie danach dort. lazydev committet den Ordner nicht. Existiert `.lazydev/` schon, öffnet `i` den Wizard
+im Modus „bearbeiten“ (`.lazydev/ bearbeiten`): Die Seiten zeigen den aktuellen Ziel-Branch und die
+Knowledge, und eine zusätzliche Seite „Prompts“ öffnet `create.md`, `implement.md`, `review.md` und
+`merge.md` im Editor (`o`) oder setzt einen Prompt auf den Standard zurück (`r`). Änderungen an Prompts
+gelten sofort. Speichern ändert in `.lazydev/config.yaml` nur `baseBranch` und `knowledge`, Kommentare,
+`preset`, `allowedTools` und `hooks` bleiben.
 
 **Projekte ohne `.lazydev/`** lesen `baseBranch`, `preset`, `allowedTools` und `hooks` weiter aus der
 zentralen Konfiguration. Der Titel der PRD-Box zeigt ` · ohne .lazydev`.
@@ -133,7 +138,8 @@ anderen Tasten funktionieren trotzdem, `?` zeigt die vollständige Liste.
 | `Tab` / `←` `→` | Fokus wechseln: Projekte, PRDs, Benachrichtigungen, Issues, Log oder Details. Im unteren Bereich scrollen `j` `k`. |
 | `a` / `d` | Projekt hinzufügen / aus der Liste entfernen |
 | `b` | Ziel-Branch des Projekts wählen und in `.lazydev/config.yaml` schreiben. Worktrees zweigen davon ab, der Merge geht dorthin. |
-| `i` | Ordner `.lazydev/` des Projekts mit dem Wizard anlegen |
+| `i` | Ordner `.lazydev/` des Projekts mit dem Wizard anlegen oder bearbeiten: Ziel-Branch, Knowledge, Prompts |
+| `o` / `r` | Im Wizard auf der Seite „Prompts“: Prompt im Editor öffnen / auf den Standard zurücksetzen, mit Rückfrage |
 | `n` | Neues PRD: Feature beschreiben, dann Chat-Fenster mit Opus |
 | `N` | Älteste Rückfrage eines Chats über alle Projekte öffnen |
 | `Enter` / `X` | In „Benachrichtigungen“: Chat öffnen / Chat beenden, mit Rückfrage |

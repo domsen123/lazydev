@@ -117,7 +117,11 @@ hooks:                    # replaces single hooks of the preset
 summary. `Enter` goes forward, `Backspace` back, and `Esc` cancels. The wizard writes `config.yaml` and
 copies the four default prompts into the folder so you can adapt them. It takes over `baseBranch`,
 `preset`, `allowedTools`, and `hooks` from the central configuration and then removes them there. lazydev
-doesn't commit the folder.
+doesn't commit the folder. If `.lazydev/` already exists, `i` opens the wizard in edit mode
+(`.lazydev/ bearbeiten`): the pages show the current target branch and knowledge, and an extra page
+"Prompts" opens `create.md`, `implement.md`, `review.md`, and `merge.md` in your editor (`o`) or resets one
+to the default (`r`). Prompt changes apply right away. Saving only changes `baseBranch` and `knowledge`
+in `.lazydev/config.yaml` and keeps comments, `preset`, `allowedTools`, and `hooks`.
 
 **Projects without `.lazydev/`** keep reading `baseBranch`, `preset`, `allowedTools`, and `hooks` from the
 central configuration. The title of the PRD box shows ` · ohne .lazydev` (without .lazydev).
@@ -133,7 +137,8 @@ work, and `?` shows the full list.
 | `Tab` / `←` `→` | Move the focus: projects, PRDs, notifications, issues, log, or details. In the bottom area, `j` `k` scroll. |
 | `a` / `d` | Add a project / remove it from the list |
 | `b` | Choose the project's target branch and write it to `.lazydev/config.yaml`. Worktrees branch off it, and merges go there. |
-| `i` | Create the project's `.lazydev/` folder with the wizard |
+| `i` | Create or edit the project's `.lazydev/` folder with the wizard: target branch, knowledge, prompts |
+| `o` / `r` | In the wizard's "Prompts" page: open the prompt in your editor / reset it to the default, with confirmation |
 | `n` | New PRD: describe the feature, then a chat window with Opus |
 | `N` | Open the oldest open question of a chat across all projects |
 | `Enter` / `X` | In "Benachrichtigungen": open the chat / end the chat, with confirmation |

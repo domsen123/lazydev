@@ -69,7 +69,7 @@ Schritt fort, deshalb muss jeder Schritt wiederholbar sein.
 - `internal/config`: zentrale `config.yaml` unter `~/.config/lazydev/` oder `LAZYDEV_CONFIG` mit
   `maxParallel`, `portBase`, `claude.binary` und pro Projekt `path` und `autoMerge`. Die TUI schreibt die
   Datei selbst. `repo.go` liest und schreibt `.lazydev/config.yaml` im Hauptordner (`Repo`, `LoadRepo`,
-  `SetRepoBaseBranch` über `yaml.Node`). `Effective` liefert die wirksamen Einstellungen: mit
+  `SetRepoSettings`, `SetRepoBaseBranch` über `yaml.Node`). `Effective` liefert die wirksamen Einstellungen: mit
   `.lazydev/config.yaml` nur deren Werte, sonst die Übergangsfelder `baseBranch`, `preset`, `allowedTools`
   und `hooks` aus der zentralen Datei. Wer Ziel-Branch, Preset, Freigaben oder Hooks braucht, nutzt
   `Effective` bzw. `runner.Target.Repo`. `presets.go` erkennt `nuxt-drizzle`.

@@ -193,9 +193,12 @@ Claude-Schritt merge prüft lazydev im Worktree `git diff --name-only <ziel-bran
 
 ### Wizard (`i`)
 
-`i` bei gewähltem Projekt öffnet das Fenster `.lazydev/ anlegen · <projekt>` mit vier Seiten. `Enter` geht
-weiter, `Backspace` zurück, `Esc` bricht ohne Änderung ab. Existiert `.lazydev/` schon, zeigt die
-Statuszeile `.lazydev/ existiert schon. Bearbeite die Dateien im Editor.` als Fehler, und nichts öffnet sich.
+`i` bei gewähltem Projekt öffnet den Wizard immer. Ohne `.lazydev/` startet er im Modus „anlegen“ mit dem
+Fenster `.lazydev/ anlegen · <projekt>` und vier Seiten, mit `.lazydev/` im Modus „bearbeiten“, siehe
+unten. `Enter` geht weiter, `Backspace` zurück, `Esc` bricht ohne Änderung ab. Die Fußzeile zeigt je Seite
+deren Tasten.
+
+**Modus „anlegen“:**
 
 1. **Ziel-Branch:** Liste der lokalen Branches ohne `feat/*`. Vorgewählt ist `baseBranch` aus der
    zentralen `config.yaml`, sonst der aktuelle Branch des Hauptordners. `j`/`k` wählen.
@@ -214,6 +217,42 @@ Wizard die vier Standard-Prompts nach `.lazydev/create.md`, `implement.md`, `rev
 damit das Projekt sie anpassen kann. Danach entfernt lazydev `baseBranch`, `preset`, `allowedTools` und
 `hooks` des Projekts aus der zentralen `config.yaml` und meldet
 `.lazydev/ angelegt. Committe den Ordner, damit das Team ihn bekommt.` lazydev committet nicht.
+
+**Modus „bearbeiten“:** Das Fenster heißt `.lazydev/ bearbeiten · <projekt>` und hat fünf Seiten, nummeriert
+von 1 bis 5. Liefert `LoadRepo` einen Fehler, öffnet `i` nichts und zeigt den Fehler in der Statuszeile.
+
+1. **Ziel-Branch:** vorgewählt und mit ` (aktuell)` markiert ist `baseBranch` aus `.lazydev/config.yaml`,
+   ohne Angabe `main`.
+2. **Knowledge-Dateien:** Kandidaten wie beim Anlegen. Markiert sind alle Dateien, die in `knowledge` unter
+   irgendeinem Schritt oder `all` stehen. Eine Datei aus `knowledge`, die kein Kandidat ist, steht am Ende
+   der Liste, markiert, mit ` (nicht getrackt)`. Sie bleibt erhalten, solange sie markiert bleibt.
+3. **Schritte je Datei:** vorbelegt aus `knowledge`. Eine Datei unter `all` hat alle vier Schritte, sonst die
+   Schritte, unter denen sie steht. Neu markierte Dateien bekommen create und implement.
+4. **Prompts:** unter der Überschrift der Hinweis `Änderungen an Prompts gelten sofort.`, darunter eine Zeile
+   pro Schritt in der Reihenfolge create, implement, review, merge: `<schritt>  <datei>  <zustand>`. Zustand
+   `eigener Prompt`, wenn die Datei existiert und vom Standard abweicht, `Kopie des Standards`, wenn sie
+   existiert und dem Standard gleicht, sonst `Standard von lazydev`. Beim Vergleich zählen Frontmatter und
+   Leerraum am Ende nicht.
+   - `j`/`k` wählen, `Enter` geht zur Zusammenfassung, `Backspace` zurück, `Esc` bricht ab.
+   - `o` öffnet die Datei wie `o` in der PRD-Ansicht mit `$VISUAL`, sonst `$EDITOR`, sonst `vi`, mit dem
+     absoluten Pfad im Hauptordner. Fehlt die Datei, legt lazydev sie vorher mit dem Standard-Prompt an. In
+     Herdr öffnet sich ein neuer Pane, und die Seite bestimmt ihre Zustände bei jedem Tastendruck neu.
+     Sonst unterbricht lazydev die Oberfläche bis zum Ende des Editors, bestimmt danach die Zustände neu und
+     bleibt auf der Seite.
+   - `r` fragt `<datei> löschen und den Standard von lazydev nutzen? (j/n)` und löscht die Datei nach `j`.
+     Bei `Standard von lazydev` bewirkt `r` nichts.
+   - Editor und Zurücksetzen wirken sofort auf die Dateien, auch wenn der Wizard danach mit `Esc` endet.
+5. **Zusammenfassung:** die künftige `config.yaml` und darunter `Prompts:` mit `<schritt>: <zustand>` für
+   alle vier Schritte. `Enter` speichert.
+
+Beim Speichern ändert lazydev in `.lazydev/config.yaml` nur `baseBranch` und `knowledge` über `yaml.Node`.
+`preset`, `allowedTools`, `hooks`, Kommentare und die Reihenfolge der übrigen Felder bleiben. `baseBranch:
+main` entfällt, eine leere `knowledge` entfällt, eine Datei mit allen vier Schritten steht unter `all`. In
+`knowledge` steht `all` vorn, danach die Schritte in ihrer Reihenfolge. Ergeben Ziel-Branch und Knowledge
+denselben Inhalt wie vorher, schreibt lazydev nichts und meldet `Keine Änderung an .lazydev/config.yaml`.
+Sonst meldet es `.lazydev/config.yaml gespeichert. Committe die Änderung, damit das Team sie bekommt.`
+lazydev committet nicht. Die zentrale `config.yaml` bleibt unverändert. Weil der Wizard weder
+`allowedTools` noch `hooks` ändert, entsteht beim nächsten `s` keine neue Rückfrage zum Vertrauen.
 
 ### Eingebettete Agenten
 
@@ -327,7 +366,7 @@ geht das PRD auf „Fehler“, auch bei Exit-Code 0. Die erste offene Frage steh
 - **Unten:** Log des gewählten PRDs, live, scrollbar.
 
 **Fenster über der TUI:** Chat, Hilfe, Claude-Limits, „Neues PRD · <projekt>“, „Ziel-Branch“,
-„Status · <bereich>/<name>“, „.lazydev/ anlegen · <projekt>“, die Rückfrage zum Vertrauen, „PRD: …“ und „Issue #<nummer>“ erscheinen als Fenster mit rundem Rahmen über der TUI. Innen haben sie
+„Status · <bereich>/<name>“, „.lazydev/ anlegen · <projekt>“, „.lazydev/ bearbeiten · <projekt>“, die Rückfrage zum Vertrauen, „PRD: …“ und „Issue #<nummer>“ erscheinen als Fenster mit rundem Rahmen über der TUI. Innen haben sie
 2 Spalten Abstand links und rechts und 1 Zeile oben und unten. Hinter einem offenen Fenster erscheint die
 TUI ohne Farben in `colorMuted`. Die Fußzeile bleibt ungedimmt und zeigt die Tastenhilfe.
 
@@ -357,7 +396,8 @@ nicht, nennt die Statuszeile den Grund. `?` zeigt die vollständige Liste.
 | `a` | Projekt hinzufügen: Pfad eingeben, mit Tab-Vervollständigung |
 | `d` | Projekt aus der Liste entfernen (löscht keine Dateien), mit Rückfrage |
 | `b` | Ziel-Branch des Projekts aus den lokalen Branches wählen, ohne `feat/*`. Schreibt `baseBranch` in `.lazydev/config.yaml`. Siehe „Merge“. |
-| `i` | `.lazydev/` im Projekt anlegen, siehe „Wizard (`i`)“ |
+| `i` | `.lazydev/` im Projekt anlegen oder bearbeiten: Ziel-Branch, Knowledge, Prompts. Siehe „Wizard (`i`)“. |
+| `o` / `r` | Im Wizard auf der Seite „Prompts“: Prompt im Editor öffnen / auf den Standard zurücksetzen, mit Rückfrage |
 | `n` | Neues PRD: öffnet direkt das Fenster „Neues PRD · <projekt>“ für die Beschreibung, dann ein Chat-Fenster mit Claude |
 | `N` | Älteste Benachrichtigung über alle Projekte öffnen. Wählt ihr Projekt und setzt den Cursor der Box darauf. Ohne Benachrichtigung zeigt die Statuszeile `Keine offenen Rückfragen`. |
 | `Enter` / `X` | In „Benachrichtigungen“: Chat öffnen / Chat beenden, mit Rückfrage. Alle übrigen Tasten wirken wie sonst. |
