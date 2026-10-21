@@ -19,8 +19,8 @@ import (
 	"lazydev/internal/worktree"
 )
 
-// mergePrompt löst Konflikte beim Rebase. $ARGUMENTS steht für Branch und Fehlerkontext, die erste
-// Zeile nennt den Schritt im Log /merge-prd.
+// mergePrompt löst Konflikte beim Rebase. $ARGUMENTS steht für Branch und Fehlerkontext, $BASE für
+// den Ziel-Branch. Die erste Zeile nennt den Schritt im Log /merge-prd.
 //
 //go:embed prompts/merge.md
 var mergePrompt string
@@ -39,7 +39,7 @@ func mergeLock(projectID string) string {
 	return projectID + ".merge"
 }
 
-// mergeStep bringt den Branch per Rebase auf main, prüft ihn und führt den Fast-Forward im
+// mergeStep bringt den Branch per Rebase auf den Ziel-Branch, prüft ihn und führt den Fast-Forward im
 // Hauptordner aus. Pro Projekt mergt immer nur ein Runner, die anderen warten in der
 // Merge-Queue.
 func mergeStep(ctx context.Context, cfg *config.Config, t Target, prdName string, r *state.Run, log *runlog.Logger) (int, error) {
@@ -74,7 +74,7 @@ type merger struct {
 }
 
 func (m merger) run() error {
-	wt, main := m.r.Worktree, m.t.Dir()
+	wt, main, base := m.r.Worktree, m.t.Dir(), m.r.Base
 	if pid := devserver.PID(m.t.ID, m.prdName); pid != 0 {
 		m.log.Printf("Stoppe den Dev-Server im Worktree (PID %d)", pid)
 		if err := devserver.Stop(m.t.ID, m.prdName); err != nil {
@@ -87,13 +87,13 @@ func (m merger) run() error {
 	if err := requireClean(wt, "Worktree"); err != nil {
 		return err
 	}
-	oldBase, err := git.Run(wt, "merge-base", project.MainBranch, "HEAD")
+	oldBase, err := git.Run(wt, "merge-base", base, "HEAD")
 	if err != nil {
 		return err
 	}
 
-	m.log.Printf("$ git rebase %s", project.MainBranch)
-	if _, err := git.Run(wt, "rebase", project.MainBranch); err != nil {
+	m.log.Printf("$ git rebase %s", base)
+	if _, err := git.Run(wt, "rebase", base); err != nil {
 		m.log.Printf("Konflikt beim Rebase: %v", err)
 		if _, err := git.Run(wt, "rebase", "--abort"); err != nil {
 			m.log.Printf("git rebase --abort: %v", err)
@@ -102,7 +102,7 @@ func (m merger) run() error {
 			return err
 		}
 	}
-	if err := m.resetDatabaseIfMigrated(oldBase, project.MainBranch); err != nil {
+	if err := m.resetDatabaseIfMigrated(oldBase, base); err != nil {
 		return err
 	}
 
@@ -123,7 +123,7 @@ func (m merger) run() error {
 	if err := m.waitMainClean(); err != nil {
 		return err
 	}
-	mainBefore, err := git.Run(main, "rev-parse", project.MainBranch)
+	mainBefore, err := git.Run(main, "rev-parse", base)
 	if err != nil {
 		return err
 	}
@@ -131,11 +131,11 @@ func (m merger) run() error {
 	if _, err := git.Run(main, "merge", "--ff-only", m.r.Branch); err != nil {
 		return err
 	}
-	m.log.Printf("%s steht auf %s", project.MainBranch, m.r.Branch)
+	m.log.Printf("%s steht auf %s", base, m.r.Branch)
 
 	var notes []string
 	if m.h.MigrationsDir != "" {
-		if changed, _ := changedFiles(main, mainBefore, project.MainBranch, m.h.MigrationsDir); len(changed) > 0 {
+		if changed, _ := changedFiles(main, mainBefore, base, m.h.MigrationsDir); len(changed) > 0 {
 			notes = append(notes, "Neue Migrationen: pnpm db:migrate im Hauptordner ausführen")
 		}
 	}
@@ -147,13 +147,13 @@ func (m merger) run() error {
 	return nil
 }
 
-// mergePRD lässt /merge-prd den Branch auf main bringen. context ist der Fehlerkontext.
+// mergePRD lässt /merge-prd den Branch auf den Ziel-Branch bringen. context ist der Fehlerkontext.
 func (m merger) mergePRD(context string) error {
 	args := m.r.Branch
 	if context != "" {
 		args += " " + context
 	}
-	prompt := strings.ReplaceAll(mergePrompt, "$ARGUMENTS", args)
+	prompt := strings.NewReplacer("$ARGUMENTS", args, "$BASE", m.r.Base).Replace(mergePrompt)
 	s, exitCode, err := runClaude(m.ctx, m.cfg, m.t, m.prdName, m.r, prompt, m.log)
 	if err == nil {
 		err = checkSummary(s, exitCode)
@@ -164,10 +164,10 @@ func (m merger) mergePRD(context string) error {
 	if err != nil {
 		return err
 	}
-	// Der Bericht allein reicht nicht: Der Branch muss wirklich auf main stehen.
-	wt := m.r.Worktree
-	if _, err := git.Run(wt, "merge-base", "--is-ancestor", project.MainBranch, "HEAD"); err != nil {
-		return fmt.Errorf("nach /merge-prd steht %s nicht auf %s", m.r.Branch, project.MainBranch)
+	// Der Bericht allein reicht nicht: Der Branch muss wirklich auf dem Ziel-Branch stehen.
+	wt, base := m.r.Worktree, m.r.Base
+	if _, err := git.Run(wt, "merge-base", "--is-ancestor", base, "HEAD"); err != nil {
+		return fmt.Errorf("nach /merge-prd steht %s nicht auf %s", m.r.Branch, base)
 	}
 	if err := m.h.Clean(m.e); err != nil {
 		return err
@@ -189,12 +189,12 @@ func (m merger) resetDatabaseIfMigrated(from, to string) error {
 	return m.h.ResetDatabase(m.e)
 }
 
-// waitMainClean wartet, bis der Hauptordner auf main steht und sauber ist. Ungetrackte PRDs und
+// waitMainClean wartet, bis der Hauptordner auf dem Ziel-Branch steht und sauber ist. Ungetrackte PRDs und
 // die Dateien aus IgnoreDirty stören nicht.
 func (m merger) waitMainClean() error {
 	waiting := false
 	for {
-		problem, err := mainDirProblem(m.t.Dir(), m.h.IgnoreDirty)
+		problem, err := mainDirProblem(m.t.Dir(), m.r.Base, m.h.IgnoreDirty)
 		if err != nil {
 			return err
 		}
@@ -221,13 +221,13 @@ func (m merger) waitMainClean() error {
 }
 
 // mainDirProblem beschreibt, was den Fast-Forward im Hauptordner blockiert. Leer heißt: nichts.
-func mainDirProblem(dir string, ignore []string) (string, error) {
+func mainDirProblem(dir, base string, ignore []string) (string, error) {
 	branch, err := git.Run(dir, "rev-parse", "--abbrev-ref", "HEAD")
 	if err != nil {
 		return "", err
 	}
-	if branch != project.MainBranch {
-		return fmt.Sprintf("Branch %s statt %s", branch, project.MainBranch), nil
+	if branch != base {
+		return fmt.Sprintf("Branch %s statt %s", branch, base), nil
 	}
 	out, err := git.Run(dir, "status", "--porcelain", "--untracked-files=all")
 	if err != nil {

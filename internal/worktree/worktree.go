@@ -92,7 +92,7 @@ func isAddrUnavailable(err error) bool {
 }
 
 // Create legt den Worktree mit neuem Branch von main an.
-func Create(mainDir, path, branch string) error {
+func Create(mainDir, path, branch, base string) error {
 	if _, err := os.Stat(path); err == nil {
 		return fmt.Errorf("Worktree-Ordner existiert schon: %s", path)
 	}
@@ -102,7 +102,7 @@ func Create(mainDir, path, branch string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	_, err := git.Run(mainDir, "worktree", "add", "-b", branch, path, project.MainBranch)
+	_, err := git.Run(mainDir, "worktree", "add", "-b", branch, path, base)
 	return err
 }
 

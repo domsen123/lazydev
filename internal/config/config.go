@@ -16,6 +16,8 @@ const (
 	DefaultMaxParallel  = 3
 	DefaultPortBase     = 3100
 	DefaultClaudeBinary = "claude"
+	// DefaultBaseBranch gilt, wenn ein Projekt kein baseBranch setzt.
+	DefaultBaseBranch = "main"
 )
 
 type Config struct {
@@ -31,8 +33,10 @@ type Claude struct {
 
 type Project struct {
 	// Path steht so in der Datei, wie der Mensch ihn schreibt, also gern mit "~".
-	Path         string   `yaml:"path"`
-	Preset       string   `yaml:"preset,omitempty"`
+	Path   string `yaml:"path"`
+	Preset string `yaml:"preset,omitempty"`
+	// BaseBranch ist der Ziel-Branch: Von ihm zweigen Worktrees ab, in ihn mergt lazydev.
+	BaseBranch   string   `yaml:"baseBranch,omitempty"`
 	AutoMerge    *bool    `yaml:"autoMerge,omitempty"`
 	AllowedTools []string `yaml:"allowedTools,omitempty"`
 	Hooks        Hooks    `yaml:"hooks,omitempty"`
@@ -51,6 +55,14 @@ type Hooks struct {
 // AbsPath liefert den Projektpfad absolut und mit aufgelöstem "~".
 func (p Project) AbsPath() string {
 	return ExpandPath(p.Path)
+}
+
+// Base liefert BaseBranch, ohne Angabe DefaultBaseBranch.
+func (p Project) Base() string {
+	if p.BaseBranch == "" {
+		return DefaultBaseBranch
+	}
+	return p.BaseBranch
 }
 
 // AutoMergeEnabled liefert den Standard true, wenn autoMerge fehlt.

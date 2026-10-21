@@ -7,9 +7,6 @@ import (
 // FeatureBranchPrefix ergibt mit dem PRD-Namen den Branch "feat/<prd-name>".
 const FeatureBranchPrefix = "feat/"
 
-// MainBranch ist der Branch, von dem Worktrees abzweigen und in den lazydev mergt.
-const MainBranch = "main"
-
 // currentBranch liefert bei einem losgelösten HEAD den Kurz-Hash.
 func currentBranch(dir string) (string, error) {
 	if b, err := git.Run(dir, "symbolic-ref", "--quiet", "--short", "HEAD"); err == nil {

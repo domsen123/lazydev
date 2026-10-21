@@ -26,8 +26,10 @@ type Step struct {
 
 // Run ist der Zustand eines PRDs zwischen Start und Aufräumen.
 type Run struct {
-	PRD       string        `json:"prd"`
-	Branch    string        `json:"branch"`
+	PRD    string `json:"prd"`
+	Branch string `json:"branch"`
+	// Base ist der Ziel-Branch, von dem der Worktree abzweigt und in den der Merge geht.
+	Base      string        `json:"base,omitempty"`
 	Worktree  string        `json:"worktree"`
 	Port      int           `json:"port"`
 	Slug      string        `json:"slug"`

@@ -150,3 +150,12 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatal(err)
 	}
 }
+
+func TestBaseDefaultsToMain(t *testing.T) {
+	if got := (Project{}).Base(); got != DefaultBaseBranch {
+		t.Errorf("Base ohne Angabe: %q", got)
+	}
+	if got := (Project{BaseBranch: "next"}).Base(); got != "next" {
+		t.Errorf("Base: %q", got)
+	}
+}

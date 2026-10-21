@@ -21,7 +21,9 @@ type Project struct {
 	Path string
 	// Branch ist der aktuelle Branch des Hauptordners.
 	Branch string
-	PRDs   []PRD
+	// Base ist der Ziel-Branch aus der Konfiguration.
+	Base string
+	PRDs []PRD
 	// Err beschreibt, warum das Projekt nicht vollständig lesbar ist.
 	Err error
 }
@@ -41,7 +43,7 @@ type PRD struct {
 	Status Status
 	// Tracked ist false, solange das PRD im Hauptordner ungetrackt liegt.
 	Tracked bool
-	// Branch ist "feat/<name>", wenn der Branch existiert. Sonst "main" für gemergte
+	// Branch ist "feat/<name>", wenn der Branch existiert. Sonst der Ziel-Branch für gemergte
 	// PRDs und leer für alle anderen.
 	Branch string
 	// Created ist der frühere Zeitpunkt aus Erstellzeit der Datei und erstem Commit.
@@ -62,8 +64,8 @@ func (d PRD) Phase() Phase {
 
 // Load liest ein Projekt. Fehler landen in Project.Err, damit die Liste das Projekt
 // trotzdem zeigt.
-func Load(id, path string) Project {
-	p := Project{ID: id, Path: path}
+func Load(id, path, base string) Project {
+	p := Project{ID: id, Path: path, Base: base}
 	if info, err := os.Stat(path); err != nil {
 		p.Err = err
 		return p
@@ -98,7 +100,7 @@ func Load(id, path string) Project {
 		case features[fb]:
 			d.Branch = fb
 		case d.Status.Kind == StatusImplemented:
-			d.Branch = MainBranch
+			d.Branch = base
 		}
 	}
 	p.PRDs = prds

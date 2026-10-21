@@ -4,8 +4,8 @@
 
 lazydev ist eine Terminal-Oberfläche (TUI) im Stil von lazydocker und lazygit. Sie zeigt alle Projekte und
 deren PRDs auf einen Blick und steuert den PRD-Workflow: PRD erstellen, umsetzen, mit `/arewedone` prüfen,
-committen und in `main` mergen. Jedes PRD läuft in einem eigenen Git-Worktree, sodass mehrere PRDs pro
-Projekt parallel laufen. lazydev ersetzt das Experiment mit OpenRig durch ein schlankes, eigenes Werkzeug.
+committen und in den Ziel-Branch mergen, Standard `main`. Jedes PRD läuft in einem eigenen Git-Worktree,
+sodass mehrere PRDs pro Projekt parallel laufen. lazydev ersetzt das Experiment mit OpenRig durch ein schlankes, eigenes Werkzeug.
 
 ## Ziel
 
@@ -13,7 +13,7 @@ Projekt parallel laufen. lazydev ersetzt das Experiment mit OpenRig durch ein sc
 - Pro Projekt siehst du jedes PRD mit Phase, Branch und laufendem Log.
 - Mit einer Taste startest du ein neues PRD-Interview oder die Umsetzung eines fertigen PRDs.
 - Mehrere PRDs laufen parallel, jedes in einem eigenen Worktree mit eigener Datenbank und eigenem Port.
-- Nach erfolgreichem Review mergt lazydev den Branch in `main`, nacheinander. Konflikte
+- Nach erfolgreichem Review mergt lazydev den Branch in den Ziel-Branch, nacheinander. Konflikte
   löst ein eigener Claude-Schritt. Danach räumt lazydev Worktree, Branch und Datenbank auf.
 
 ## Nicht-Ziele
@@ -21,7 +21,8 @@ Projekt parallel laufen. lazydev ersetzt das Experiment mit OpenRig durch ein sc
 - Keine dauerhaften Agenten-Teams, keine Queue zwischen Agenten, kein Daemon.
 - Keine Wiederaufnahme laufender Schritte nach einem Neustart des Rechners. Ein abgebrochener Schritt wird
   als „abgebrochen“ markiert und lässt sich neu starten. Der Worktree bleibt erhalten.
-- Kein `git push`, kein Pull Request. Gemergt wird nur lokal in `main`.
+- Kein `git push`, kein Pull Request. Gemergt wird nur lokal in den Ziel-Branch.
+- Kein Release von einem Ziel-Branch wie `next` nach `main`. Das bleibt Handarbeit.
 
 ## Ausgangslage: eingebettete Prompts und Agenten
 
@@ -119,15 +120,15 @@ auch bei Exit-Code 0.
 
 ### Merge-Prompt (`/merge-prd <branch> [fehlerkontext]`)
 
-Löst Konflikte, wenn `feat/<prd-name>` sich nicht konfliktfrei auf `main` bringen lässt, oder behebt eine
+Löst Konflikte, wenn `feat/<prd-name>` sich nicht konfliktfrei auf den Ziel-Branch bringen lässt, oder behebt eine
 fehlgeschlagene Prüfung nach dem Rebase. Läuft im Worktree.
 
-1. Liest das PRD des Branches und `git log main..HEAD`, um die Absicht der Änderung zu verstehen.
-2. Führt `git rebase main` fort oder startet es und löst jeden Konflikt so, dass beide Seiten erhalten
+1. Liest das PRD des Branches und `git log <ziel-branch>..HEAD`, um die Absicht der Änderung zu verstehen.
+2. Führt `git rebase <ziel-branch>` fort oder startet es und löst jeden Konflikt so, dass beide Seiten erhalten
    bleiben.
 3. **Drizzle-Migrationen:** Kollidieren Migrationen (`server/database/migrations/*.sql`,
    `meta/_journal.json`, `meta/*_snapshot.json`), verwirft er die Migrationen des Branches, übernimmt die
-   von `main` und erzeugt die Migration des Branches neu mit `pnpm db:generate`. Migrationen werden nie
+   des Ziel-Branches und erzeugt die Migration des Branches neu mit `pnpm db:generate`. Migrationen werden nie
    von Hand zusammengeführt.
 4. Führt die Prüfbefehle des Projekts aus und behebt Fehler.
 5. Committet Korrekturen über `committer`. Kein Push.
@@ -219,6 +220,7 @@ nicht, nennt die Statuszeile den Grund. `?` zeigt die vollständige Liste.
 | `Tab` / `←` `→` | Wechsel zwischen Projekten, PRDs, Benachrichtigungen, Issues und unterem Bereich (Log oder Details). Unsichtbare Boxen „Benachrichtigungen“ und „Issues“ überspringt der Fokus. |
 | `a` | Projekt hinzufügen: Pfad eingeben, mit Tab-Vervollständigung |
 | `d` | Projekt aus der Liste entfernen (löscht keine Dateien), mit Rückfrage |
+| `b` | Ziel-Branch des Projekts aus den lokalen Branches wählen, ohne `feat/*`. Siehe „Merge“. |
 | `n` | Neues PRD: Template wählen, Beschreibung eingeben, öffnet ein Chat-Fenster mit Claude |
 | `N` | Älteste Benachrichtigung über alle Projekte öffnen. Wählt ihr Projekt und setzt den Cursor der Box darauf. Ohne Benachrichtigung zeigt die Statuszeile `Keine offenen Rückfragen`. |
 | `Enter` / `X` | In „Benachrichtigungen“: Chat öffnen / Chat beenden, mit Rückfrage. Alle übrigen Tasten wirken wie sonst. |
@@ -229,7 +231,7 @@ nicht, nennt die Statuszeile den Grund. `?` zeigt die vollständige Liste.
 | `s` | Umsetzung des gewählten PRDs starten, mit Rückfrage. Nach Fehler oder Abbruch geht es beim gescheiterten Schritt weiter. |
 | `m` | Merge des gewählten PRDs anstoßen (nur bei `autoMerge: false` oder nach einem Fehler) |
 | `x` | Laufenden Schritt abbrechen, mit Rückfrage |
-| `X` | PRD verwerfen: Worktree, Branch und Datenbank löschen, PRD zurück nach `main` verschieben. Doppelte Rückfrage. |
+| `X` | PRD verwerfen: Worktree, Branch und Datenbank löschen, PRD zurück in den Hauptordner verschieben. Doppelte Rückfrage. |
 | `o` | Letzte Claude-Sitzung des PRDs interaktiv öffnen (`claude --resume <id>` im Worktree) |
 | `p` | Dev-Server im Worktree auf dessen Port starten oder stoppen |
 | `w` | Shell im Worktree öffnen |
@@ -380,14 +382,14 @@ den Port, zeigt lazydev Prozessname und PID und vergibt den nächsten freien Por
 
 | Phase | Symbol | Bedeutung |
 |---|---|---|
-| geplant | `○` | PRD liegt in `main`, Status `geplant`, kein Worktree |
+| geplant | `○` | PRD liegt im Hauptordner, Status `geplant`, kein Worktree |
 | wartet | `◌` | Start angefordert, aber `maxParallel` ist erreicht |
 | Setup | `●` | Worktree, Abhängigkeiten, Datenbank werden vorbereitet |
 | Umsetzung | `●` | Umsetzungs-Prompt läuft |
 | Review | `●` | `/arewedone` läuft |
 | Merge-Queue | `◐` | Review fertig, wartet auf den Merge-Slot des Projekts |
 | Merge | `●` | Rebase, ggf. `/merge-prd`, Prüfungen, Fast-Forward |
-| gemergt | `✓` | In `main`, Worktree aufgeräumt |
+| gemergt | `✓` | Im Ziel-Branch, Worktree aufgeräumt |
 | abgebrochen | `■` | Vom Menschen gestoppt oder Prozess beendet. Worktree bleibt. |
 | Fehler | `✗` | Ein Schritt endete mit Fehler oder offener Frage. Worktree bleibt. |
 
@@ -451,10 +453,11 @@ Ohne Lauf-Zustand gilt die Statuszeile des PRDs: `geplant` → geplant, `umgeset
 
 1. **Prüfen:** Läuft für dieses PRD schon ein Worktree, lehnt lazydev ab. Ist `maxParallel` erreicht,
    setzt lazydev das PRD auf „wartet“ und startet es, sobald ein Platz frei wird.
-2. **Worktree anlegen:** `git worktree add -b feat/<prd-name> <worktree-pfad> main`.
-3. **PRD verschieben:** Ist das PRD in `main` ungetrackt, **verschiebt** lazydev die Datei in den Worktree
+2. **Worktree anlegen:** `git worktree add -b feat/<prd-name> <worktree-pfad> <ziel-branch>`. Der Lauf
+   merkt sich den Ziel-Branch im Feld `base`. Ändert sich `baseBranch` später, bleibt der Lauf dabei.
+3. **PRD verschieben:** Ist das PRD im Hauptordner ungetrackt, **verschiebt** lazydev die Datei in den Worktree
    und committet sie dort als erster Commit `docs(prd): add <prd-name>`. Der Hauptordner bleibt sauber,
-   und das PRD kommt mit dem Merge nach `main`. Ist das PRD in `main` schon getrackt, entfällt der Schritt.
+   und das PRD kommt mit dem Merge in den Ziel-Branch. Ist das PRD schon getrackt, entfällt der Schritt.
 4. **Setup:** siehe „Isolation pro Worktree“.
 5. **Umsetzung:** `claude -p "<prompt>"` im Worktree mit dem Umsetzungs-Prompt des Templates aus der
    Statuszeile und dem PRD-Pfad.
@@ -559,20 +562,26 @@ ihr Review fertig wurde. Bei `autoMerge: true` (Standard) startet der Merge auto
 `lazydev merge <projekt-id> <prd-name>`. Ohne Freigabe endet der Runner in Phase „Merge-Queue“, und der
 Zustand trägt `mergeApproved: true`, sobald du freigibst.
 
+Ziel-Branch: `baseBranch` des Projekts, Standard `main`. Von ihm zweigen Worktrees ab, in ihn geht der
+Fast-Forward. Mit `b` wählst du ihn aus den lokalen Branches, lazydev schreibt ihn in `config.yaml`. `main`
+steht dort nicht, weil es der Standard ist. Steht der Hauptordner nicht auf dem Ziel-Branch, zeigt der
+Titel der PRD-Box `(Ziel <branch>)`. Die Prompts von Review und Merge bekommen den Ziel-Branch über
+`$BASE`.
+
 Ablauf pro PRD:
 
-1. **Rebase im Worktree:** `git rebase main`.
+1. **Rebase im Worktree:** `git rebase <ziel-branch>`.
    - Ohne Konflikt weiter mit Schritt 2.
    - Mit Konflikt: `git rebase --abort`, dann Claude mit dem Prompt `/merge-prd feat/<prd-name>`. Scheitert der
      Schritt, geht das PRD auf „Fehler“, und die Queue arbeitet mit dem nächsten PRD weiter.
-2. **Datenbank nachziehen:** Hat der Rebase Migrationen aus `main` geholt, setzt lazydev die
+2. **Datenbank nachziehen:** Hat der Rebase Migrationen aus dem Ziel-Branch geholt, setzt lazydev die
    Worktree-Datenbanken zurück und migriert neu (Teil des Presets: `dropdb`, `createdb`, `pnpm db:migrate`).
 3. **Prüfen:** Prüfbefehle des Projekts im Worktree. Das Preset `nuxt-drizzle` führt `pnpm lint`,
    `pnpm typecheck` und `pnpm test:run` aus, `hooks.check` ersetzt sie durch ein Skript. Schlägt eine
    Prüfung fehl, startet lazydev `/merge-prd` mit dem Fehler als Kontext. Scheitert auch das, geht das PRD
-   auf „Fehler“. Nach jedem `/merge-prd` prüft lazydev selbst, dass der Branch auf `main` steht und der
+   auf „Fehler“. Nach jedem `/merge-prd` prüft lazydev selbst, dass der Branch auf dem Ziel-Branch steht und der
    Worktree sauber ist. Der Bericht allein reicht nicht.
-4. **Hauptordner prüfen:** Der Hauptordner muss auf `main` stehen und sauber sein. Ungetrackte Dateien
+4. **Hauptordner prüfen:** Der Hauptordner muss auf dem Ziel-Branch stehen und sauber sein. Ungetrackte Dateien
    unter `prd/` sind erlaubt, ebenso die vom Dev-Server geschriebenen `.mcp.json` und `.vscode/mcp.json`.
    Berührt der Merge diese Dateien, bricht der Fast-Forward ab. Sonst wartet das PRD in der Queue mit dem
    Hinweis „Hauptordner nicht sauber“ im Feld `note`, bis du aufräumst. lazydev prüft alle 5 Sekunden.
@@ -642,6 +651,9 @@ projects:
   - path: ~/development/nuxt/nuxt-drizzle
     preset: nuxt-drizzle     # Setup, Teardown, Prüfbefehle, Env-Dateien
     autoMerge: true
+  - path: ~/development/nuxt/phoenix
+    preset: nuxt-drizzle
+    baseBranch: next         # Ziel-Branch, Standard main
   - path: ~/development/nuxt/shop
     preset: nuxt-drizzle
     autoMerge: false
@@ -657,6 +669,7 @@ Lauf-Zustand (Beispiel):
 {
   "prd": "prd/auth/mobile-bearer-token-auth.md",
   "branch": "feat/mobile-bearer-token-auth",
+  "base": "main",
   "worktree": "/home/user/.local/share/lazydev/worktrees/nuxt-drizzle/mobile-bearer-token-auth",
   "port": 3101,
   "slug": "mobile_bearer_token_auth",

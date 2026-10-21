@@ -55,6 +55,8 @@ const (
 	modePRDView
 	// modeIssueView zeigt ein GitHub-Issue vollständig im Fenster.
 	modeIssueView
+	// modeBranch wählt den Ziel-Branch des gewählten Projekts.
+	modeBranch
 )
 
 // confirmation ist eine Rückfrage. yes läuft nach „j“.
@@ -81,6 +83,7 @@ type Model struct {
 	candidates []string
 	// template ist die Position des gewählten Templates in prdtemplate.All.
 	template int
+	branch   *branchPicker
 
 	message    string
 	messageErr bool
@@ -177,8 +180,10 @@ func (m Model) Init() tea.Cmd {
 // loadProjects liest alle Projekte parallel, weil jedes Projekt mehrere git-Aufrufe braucht.
 func (m Model) loadProjects(selectPath string) tea.Cmd {
 	paths := make([]string, len(m.cfg.Projects))
+	bases := make([]string, len(m.cfg.Projects))
 	for i, p := range m.cfg.Projects {
 		paths[i] = p.AbsPath()
+		bases[i] = p.Base()
 	}
 	return func() tea.Msg {
 		ids := project.AssignIDs(paths)
@@ -188,7 +193,7 @@ func (m Model) loadProjects(selectPath string) tea.Cmd {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				projects[i] = project.Load(ids[i], paths[i])
+				projects[i] = project.Load(ids[i], paths[i], bases[i])
 			}()
 		}
 		wg.Wait()

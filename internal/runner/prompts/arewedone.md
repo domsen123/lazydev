@@ -5,7 +5,7 @@ Du arbeitest ohne Mensch im Print-Modus, Rückfragen sind nicht möglich.
 ## 1. Strukturelles Review
 
 Starte den Agenten `structural-completeness-reviewer`. Er prüft die Änderungen dieses Branches
-gegenüber `main` (`git diff main...HEAD`) und alle noch nicht committeten Änderungen:
+gegenüber `$BASE` (`git diff $BASE...HEAD`) und alle noch nicht committeten Änderungen:
 
 - Die Änderungen sind vollständig integriert.
 - Alter Code ist vollständig entfernt.

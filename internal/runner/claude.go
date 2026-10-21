@@ -27,6 +27,7 @@ const (
 )
 
 // reviewPrompt ist der Prompt des Schritts review. Seine erste Zeile nennt ihn im Log /arewedone.
+// $BASE steht für den Ziel-Branch.
 //
 //go:embed prompts/arewedone.md
 var reviewPrompt string
@@ -35,7 +36,7 @@ func prompt(r *state.Run, step string) string {
 	if step == StepImplement {
 		return prdtemplate.Get(prdTemplate(r)).ImplementPrompt(r.PRD)
 	}
-	return reviewPrompt
+	return strings.ReplaceAll(reviewPrompt, "$BASE", r.Base)
 }
 
 // prdTemplate liest das Template aus der Statuszeile des PRDs im Worktree. Ist das PRD nicht

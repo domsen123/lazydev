@@ -6,8 +6,8 @@
 
 lazydev is a terminal UI for the PRD workflow with Claude Code. You see all projects and their PRDs, start
 the implementation with a single key, and follow the log live. Each PRD runs in its own Git worktree with
-its own database and port. After the review, lazydev fast-forward merges the branch into `main` and cleans
-up.
+its own database and port. After the review, lazydev fast-forward merges the branch into the project's
+target branch (`main` by default) and cleans up.
 
 The UI, the prompts, and [SPEC.md](SPEC.md), the full description of the behavior, are in German. This
 README gives the German UI labels in quotes, followed by a translation.
@@ -79,6 +79,7 @@ work, and `?` shows the full list.
 | `↑` `↓` / `j` `k` | Move the selection in the focused list |
 | `Tab` / `←` `→` | Move the focus: projects, PRDs, notifications, issues, log, or details. In the bottom area, `j` `k` scroll. |
 | `a` / `d` | Add a project / remove it from the list |
+| `b` | Choose the project's target branch. Worktrees branch off it, and merges go there. |
 | `n` | New PRD: choose a template (Nuxt-Feature or Einfach), then a chat window with Opus |
 | `N` | Open the oldest open question of a chat across all projects |
 | `Enter` / `X` | In "Benachrichtigungen": open the chat / end the chat, with confirmation |
@@ -131,6 +132,7 @@ claude:
 projects:
   - path: ~/development/nuxt/nuxt-drizzle
     preset: nuxt-drizzle
+    baseBranch: next         # target branch, default main. Release to main stays manual.
     autoMerge: true          # default. false: merge only after m
     allowedTools:            # extends the tools Claude may use
       - "Bash(pnpm test:e2e:*)"

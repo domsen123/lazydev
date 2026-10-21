@@ -146,12 +146,16 @@ func prepare(cfg *config.Config, t Target, prdName string) (*state.Run, error) {
 			return nil, fmt.Errorf("für %s ist nichts mehr auszuführen, Phase %s. Zum Verwerfen: lazydev teardown %s %s",
 				prdName, r.Phase.Label(), t.ID, prdName)
 		}
+		// Läufe ohne Base stammen aus der Zeit vor baseBranch.
+		if r.Base == "" {
+			r.Base = t.Config.Base()
+		}
 		return r, nil
 	} else if !errors.Is(err, fs.ErrNotExist) {
 		return nil, err
 	}
 
-	p := project.Load(t.ID, t.Dir())
+	p := project.Load(t.ID, t.Dir(), t.Config.Base())
 	if p.Err != nil {
 		return nil, p.Err
 	}
@@ -173,6 +177,7 @@ func prepare(cfg *config.Config, t Target, prdName string) (*state.Run, error) {
 	r := &state.Run{
 		PRD:       prd.Path,
 		Branch:    worktree.Branch(prdName),
+		Base:      t.Config.Base(),
 		Worktree:  worktree.Path(t.ID, prdName),
 		Port:      port,
 		Slug:      worktree.Slug(prdName),
@@ -245,8 +250,8 @@ func setup(t Target, r *state.Run, log *runlog.Logger) error {
 	if fileExists(r.Worktree) {
 		log.Printf("Worktree %s existiert schon", r.Worktree)
 	} else {
-		log.Printf("Worktree %s auf Branch %s", r.Worktree, r.Branch)
-		if err := worktree.Create(t.Dir(), r.Worktree, r.Branch); err != nil {
+		log.Printf("Worktree %s auf Branch %s von %s", r.Worktree, r.Branch, r.Base)
+		if err := worktree.Create(t.Dir(), r.Worktree, r.Branch, r.Base); err != nil {
 			return err
 		}
 	}
@@ -259,7 +264,7 @@ func setup(t Target, r *state.Run, log *runlog.Logger) error {
 }
 
 // movePRD verschiebt ein ungetracktes PRD aus dem Hauptordner in den Worktree und committet
-// es dort. So bleibt der Hauptordner sauber, und das PRD kommt mit dem Merge nach main.
+// es dort. So bleibt der Hauptordner sauber, und das PRD kommt mit dem Merge in den Ziel-Branch.
 func movePRD(mainDir, wt, rel string, log *runlog.Logger) error {
 	if err := moveFile(filepath.Join(mainDir, rel), filepath.Join(wt, rel)); err != nil {
 		return err

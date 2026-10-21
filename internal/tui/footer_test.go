@@ -16,7 +16,7 @@ func TestFooterFollowsFocusAndState(t *testing.T) {
 	m := setupRun(t)
 	help := func() string { return ansi.Strip(m.helpLine()) }
 
-	if got, want := help(), " ? Hilfe · q beenden · a Projekt · d entfernen · D Docker · n neues PRD"; got != want {
+	if got, want := help(), " ? Hilfe · q beenden · a Projekt · d entfernen · b Ziel-Branch · D Docker · n neues PRD"; got != want {
 		t.Errorf("Projekte:\n got %q\nwant %q", got, want)
 	}
 

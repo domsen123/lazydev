@@ -120,6 +120,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateEvent(msg)
 		case modeTemplate:
 			return m.updateTemplate(msg)
+		case modeBranch:
+			return m.updateBranch(msg)
 		case modeNewPRD:
 			return m.updateNewPRD(msg)
 		case modeChat:
@@ -235,6 +237,8 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if m.selectedProject() != nil {
 			m.mode = modeConfirmRemove
 		}
+	case "b":
+		return m.openBranchPicker()
 	case "s":
 		return m.startPRD()
 	case "m":

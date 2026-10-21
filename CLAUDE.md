@@ -5,7 +5,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Überblick
 
 lazydev ist eine Go-TUI (Bubble Tea) für den PRD-Workflow mit Claude Code. Jedes PRD läuft in einem eigenen
-Git-Worktree mit eigener Datenbank und eigenem Port und wird per Fast-Forward nach `main` gemergt.
+Git-Worktree mit eigener Datenbank und eigenem Port und wird per Fast-Forward in den
+Ziel-Branch des Projekts gemergt (`baseBranch`, Standard `main`).
 `SPEC.md` ist die verbindliche Beschreibung des Verhaltens. Um Verhalten zu ändern, passe `SPEC.md`,
 `README.md` und `README.de.md` mit an.
 
@@ -56,7 +57,7 @@ gescheiterten Schritt fort, deshalb muss jeder Schritt wiederholbar sein.
   Fehler meldet und die Nachprüfung passt. Nach `/implement-prd` prüft der Runner `## Ergebnis` und die
   Statuszeile des PRDs. Nach `/arewedone` prüft er, ob der Worktree sauber ist.
 - Der Runner ergänzt jede stream-json-Zeile um `ts`. Eigene Log-Zeilen schreibt `internal/runlog`.
-- Merge (`merge.go`): eine `flock`-Sperre pro Projekt. Ablauf: `git rebase main`, bei Konflikt
+- Merge (`merge.go`): eine `flock`-Sperre pro Projekt. Ablauf: `git rebase <ziel-branch>`, bei Konflikt
   `rebase --abort` und `/merge-prd`, danach Prüfbefehle, Hauptordner prüfen und `git merge --ff-only`.
 
 ### Projekte, Presets, Hooks

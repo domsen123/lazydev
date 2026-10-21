@@ -67,10 +67,10 @@ func TestCreateRemove(t *testing.T) {
 	runGit(t, repo, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "--allow-empty", "-m", "init")
 
 	wt := filepath.Join(t.TempDir(), "proj", "feature")
-	if err := Create(repo, wt, "feat/feature"); err != nil {
+	if err := Create(repo, wt, "feat/feature", "main"); err != nil {
 		t.Fatal(err)
 	}
-	if err := Create(repo, wt, "feat/feature"); err == nil {
+	if err := Create(repo, wt, "feat/feature", "main"); err == nil {
 		t.Error("zweites Create ohne Fehler")
 	}
 	if out := runGit(t, wt, "branch", "--show-current"); out != "feat/feature" {

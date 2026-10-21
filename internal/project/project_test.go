@@ -34,7 +34,7 @@ func TestLoad(t *testing.T) {
 	run(t, dir, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "init")
 	run(t, dir, "branch", "feat/export")
 
-	p := Load("x", dir)
+	p := Load("x", dir, "main")
 	if p.Err != nil {
 		t.Fatal(p.Err)
 	}
@@ -75,20 +75,20 @@ func TestAddedTimes(t *testing.T) {
 	if got := addedTimes(dir, PRDDir)["prd/a/x.md"]; !got.Equal(want) {
 		t.Errorf("addedTimes = %v, erwartet %v", got, want)
 	}
-	if got := Load("x", dir).PRDs[0].Created; !got.Equal(want) {
+	if got := Load("x", dir, "main").PRDs[0].Created; !got.Equal(want) {
 		t.Errorf("Created = %v, erwartet %v", got, want)
 	}
 }
 
 func TestLoadWithoutGitOrPRDs(t *testing.T) {
-	p := Load("x", t.TempDir())
+	p := Load("x", t.TempDir(), "main")
 	if p.Err == nil {
 		t.Error("Fehler für fehlendes Git-Repo erwartet")
 	}
 	if len(p.PRDs) != 0 {
 		t.Errorf("PRDs = %+v", p.PRDs)
 	}
-	if p := Load("x", filepath.Join(t.TempDir(), "fehlt")); p.Err == nil {
+	if p := Load("x", filepath.Join(t.TempDir(), "fehlt"), "main"); p.Err == nil {
 		t.Error("Fehler für fehlenden Ordner erwartet")
 	}
 }

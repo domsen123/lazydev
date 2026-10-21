@@ -162,6 +162,8 @@ func (m Model) View() string {
 		fg = m.viewLimits(time.Now())
 	case m.mode == modeTemplate:
 		fg = m.viewTemplatePicker()
+	case m.mode == modeBranch && m.branch != nil:
+		fg = m.viewBranchPicker()
 	case m.mode == modeNewPRD:
 		fg = m.viewNewPRD()
 	case m.mode == modePRDView && m.prdView != nil:
@@ -223,6 +225,10 @@ func (m Model) viewPRDs(l layout) string {
 	title := p.Name()
 	if p.Branch != "" {
 		title += " · " + p.Branch
+	}
+	// Steht der Hauptordner nicht auf dem Ziel-Branch, wartet jeder Merge.
+	if p.Base != "" && p.Base != p.Branch {
+		title += " (Ziel " + p.Base + ")"
 	}
 	total := 0.0
 	for k, r := range m.runs {
@@ -405,6 +411,8 @@ func (m Model) helpLine() string {
 		keys = [][2]string{{"j", "ja"}, {"n", "nein"}}
 	case modeTemplate:
 		keys = [][2]string{{"↑ ↓", "Template wählen"}, {"Enter", "weiter"}, {"Esc", "abbrechen"}}
+	case modeBranch:
+		keys = [][2]string{{"↑ ↓", "Branch wählen"}, {"Enter", "übernehmen"}, {"Esc", "abbrechen"}}
 	case modeNewPRD:
 		keys = [][2]string{{"Enter", "Chat mit Claude öffnen"}, {"Esc", "abbrechen"}}
 	case modeChat:
@@ -443,7 +451,7 @@ func (m Model) normalKeys() [][2]string {
 	default:
 		keys = append(keys, [2]string{"a", "Projekt"})
 		if m.selectedProject() != nil {
-			keys = append(keys, [][2]string{{"d", "entfernen"}, {"D", "Docker"}, {"n", "neues PRD"}}...)
+			keys = append(keys, [][2]string{{"d", "entfernen"}, {"b", "Ziel-Branch"}, {"D", "Docker"}, {"n", "neues PRD"}}...)
 		}
 	}
 	if m.hasNotifications() {
@@ -635,6 +643,7 @@ var helpSections = []struct {
 	{"Projekte", [][2]string{
 		{"a", "Projekt hinzufügen, Tab vervollständigt den Pfad"},
 		{"d", "Projekt aus der Liste entfernen, die Dateien bleiben"},
+		{"b", "Ziel-Branch wählen: Worktrees zweigen davon ab, der Merge geht dorthin"},
 		{"D", "Docker-Ansicht: U compose up, S compose stop, L Logs"},
 	}},
 	{"PRDs", [][2]string{

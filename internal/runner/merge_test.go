@@ -177,19 +177,55 @@ func TestMergeWaitsForCleanMain(t *testing.T) {
 func TestMainDirProblem(t *testing.T) {
 	_, target := setupProject(t)
 	dir := target.Dir()
-	if p, err := mainDirProblem(dir, nil); err != nil || p != "" {
+	if p, err := mainDirProblem(dir, "main", nil); err != nil || p != "" {
 		t.Errorf("ungetracktes PRD blockiert: %q, %v", p, err)
 	}
 	write(t, dir, "setup.sh", "x")
-	if p, _ := mainDirProblem(dir, []string{"setup.sh"}); p != "" {
+	if p, _ := mainDirProblem(dir, "main", []string{"setup.sh"}); p != "" {
 		t.Errorf("ignorierte Datei blockiert: %q", p)
 	}
 	write(t, dir, "neu.txt", "x")
-	if p, _ := mainDirProblem(dir, []string{"setup.sh"}); !strings.Contains(p, "neu.txt") {
+	if p, _ := mainDirProblem(dir, "main", []string{"setup.sh"}); !strings.Contains(p, "neu.txt") {
 		t.Errorf("ungetrackte Datei: %q", p)
 	}
 	runGit(t, dir, "switch", "-q", "-c", "other")
-	if p, _ := mainDirProblem(dir, []string{"setup.sh"}); !strings.Contains(p, "Branch other") {
+	if p, _ := mainDirProblem(dir, "main", []string{"setup.sh"}); !strings.Contains(p, "Branch other") {
 		t.Errorf("anderer Branch: %q", p)
+	}
+}
+
+// TestMergeIntoBaseBranch prüft einen Ziel-Branch außer main: Der Worktree zweigt von next ab,
+// der Fast-Forward geht nach next, main bleibt unverändert.
+func TestMergeIntoBaseBranch(t *testing.T) {
+	cfg, _ := setupProject(t)
+	main := cfg.Projects[0].AbsPath()
+	runGit(t, main, "switch", "-q", "-c", "next")
+	write(t, main, "next.txt", "nur auf next\n")
+	runGit(t, main, "add", "next.txt")
+	runGit(t, main, "commit", "-q", "-m", "next only")
+	mainHead := runGit(t, main, "rev-parse", "main")
+	cfg.Projects[0].BaseBranch = "next"
+	target := enableAutoMerge(t, cfg)
+
+	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	r, _ := state.Load("app", "new-token")
+	if r.Phase != project.PhaseMerged || r.Base != "next" {
+		t.Errorf("Zustand nach Merge: %+v", r)
+	}
+	if got := runGit(t, main, "log", "--format=%s", "-4", "next"); got != "feat: review\ndocs(prd): add new-token\nnext only\ninit" {
+		t.Errorf("next: %q", got)
+	}
+	if got := runGit(t, main, "rev-parse", "main"); got != mainHead {
+		t.Error("main hat sich verändert")
+	}
+}
+
+func TestMainDirProblemUsesBase(t *testing.T) {
+	cfg, _ := setupProject(t)
+	dir := cfg.Projects[0].AbsPath()
+	if p, _ := mainDirProblem(dir, "next", nil); !strings.Contains(p, "Branch main statt next") {
+		t.Errorf("Problem: %q", p)
 	}
 }

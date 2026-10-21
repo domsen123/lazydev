@@ -7,7 +7,7 @@
 lazydev ist eine Terminal-Oberfläche für den PRD-Workflow mit Claude Code. Du siehst alle Projekte und
 ihre PRDs, startest die Umsetzung mit einer Taste und verfolgst das Log live. Jedes PRD läuft in einem
 eigenen Git-Worktree mit eigener Datenbank und eigenem Port. Nach dem Review mergt lazydev den Branch per
-Fast-Forward in `main` und räumt auf.
+Fast-Forward in den Ziel-Branch des Projekts (Standard `main`) und räumt auf.
 
 Die vollständige Beschreibung des Verhaltens steht in [SPEC.md](SPEC.md).
 
@@ -77,6 +77,7 @@ anderen Tasten funktionieren trotzdem, `?` zeigt die vollständige Liste.
 | `↑` `↓` / `j` `k` | Auswahl in der aktiven Liste |
 | `Tab` / `←` `→` | Fokus wechseln: Projekte, PRDs, Benachrichtigungen, Issues, Log oder Details. Im unteren Bereich scrollen `j` `k`. |
 | `a` / `d` | Projekt hinzufügen / aus der Liste entfernen |
+| `b` | Ziel-Branch des Projekts wählen. Worktrees zweigen davon ab, der Merge geht dorthin. |
 | `n` | Neues PRD: Template wählen (Nuxt-Feature oder Einfach), dann Chat-Fenster mit Opus |
 | `N` | Älteste Rückfrage eines Chats über alle Projekte öffnen |
 | `Enter` / `X` | In „Benachrichtigungen“: Chat öffnen / Chat beenden, mit Rückfrage |
@@ -129,6 +130,7 @@ claude:
 projects:
   - path: ~/development/nuxt/nuxt-drizzle
     preset: nuxt-drizzle
+    baseBranch: next         # Ziel-Branch, Standard main. Der Release nach main bleibt Handarbeit.
     autoMerge: true          # Standard. false: Merge erst nach m
     allowedTools:            # ergänzt die Freigaben für Claude
       - "Bash(pnpm test:e2e:*)"

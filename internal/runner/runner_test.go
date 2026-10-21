@@ -405,3 +405,10 @@ func TestEmbeddedPrompts(t *testing.T) {
 		t.Errorf("Merge-Prompt: %q", claude.FirstLine(mergePrompt))
 	}
 }
+
+func TestReviewPromptUsesBase(t *testing.T) {
+	got := prompt(&state.Run{Base: "next"}, StepReview)
+	if !strings.Contains(got, "git diff next...HEAD") || strings.Contains(got, "$BASE") {
+		t.Errorf("Review-Prompt ohne Ziel-Branch:\n%s", got)
+	}
+}
