@@ -53,7 +53,8 @@ Runners keep the code they started with. After `make install`, restart lazydev.
 | `alt+shift+←/→` | tab within the pane |
 | `alt+j/k`, `alt+1…9` | project, center tab |
 | `alt+t` / `alt+w` | new shell tab / close tab |
-| `alt+m` / `alt+q` | menu (color theme) / quit |
+| `alt+g` | git cockpit: fetch, pull, push, commit |
+| `alt+m` / `alt+q` | menu (color theme, git) / quit |
 | `j/k`, `l`/`enter`, `h` | move, open, back (lists, tree) |
 | `a` / `d` / `i` | add / remove project / `.lazydev/` wizard (Projects) |
 | `n` | new PRD with Claude Code (PRDs) |
@@ -104,6 +105,24 @@ hooks:                       # scripts, relative to the main folder
 - The merge waits while the main folder is not on the base branch or has changes outside `prd/` and
   `.lazydev/`.
 - PRD status values stay German (`geplant`, `umgesetzt (date)`, `verworfen (date)`), like the prompts.
+
+## Git cockpit
+
+`alt+g` shows branch, upstream, changes and the last 5 commits of the selected project's main folder. Each
+action runs as a center tab, so passphrase and credential prompts work like in a shell.
+
+| Key | Action | Git |
+|---|---|---|
+| `f` | Fetch | `git fetch` |
+| `p` | Pull | `git pull --ff-only` |
+| `P` | Push | `git push`, without upstream `git push -u origin <branch>` |
+| `c` | Commit | `git add -A` and `git commit -m <message>` |
+
+- On success the tab closes and the footer shows `git <action>: done`. On failure the tab stays open until
+  you press `enter`.
+- Pull and push do not wait for a running merge of a PRD. They end with an error, try again once the merge
+  is done.
+- Commit takes all changes, untracked files, `.lazydev/` and `prd/` included.
 
 ## CLI
 

@@ -38,6 +38,7 @@ older versions do not build against the newer `x/ansi`.
 | `prompts` | Prompt = header + knowledge + `.lazydev/<step>.md` + built-in contract (`contract/`) |
 | `claude` | `claude -p` stream-json, summary, log descriptions, built-in agents (`agents/`) |
 | `config` | `projects.json`, `settings.json`, project IDs, path helpers |
+| `gitcmd` | Actions of the git cockpit (fetch, pull, push, commit) behind `lazydev git`, pull and push under the merge lock |
 | `docker`, `devserver`, `usage`, `git`, `fsutil` | Containers, detached dev servers, Claude limits, git binary, atomic writes |
 
 ### Process model
@@ -52,6 +53,8 @@ older versions do not build against the newer `x/ansi`.
 - `x` signals the runner only. It cancels its context first, then signals its process group, so the step
   records an abort instead of a killed Claude.
 - `create` is no runner step: `n` opens an interactive Claude Code tab with the create prompt.
+- The git cockpit (`alt+g`) runs its actions as `lazydev git <id> <dir> <action> [<message>]` in a center
+  tab, so git prompts work in the PTY.
 
 ### Runner (`internal/runner`)
 

@@ -7,7 +7,7 @@ Binding description of lazydev's behavior. Code, README.md and README.de.md foll
 One terminal UI for the PRD workflow with Claude Code: write a PRD with Claude, implement and review it
 without a human in an isolated worktree, merge it by fast-forward, and see everything live.
 
-Not goals: remote runs, pushing, pull requests, issue trackers, editing PRDs inside lazydev.
+Not goals: remote runs, pull requests, issue trackers, editing PRDs inside lazydev.
 
 ## Projects
 
@@ -47,7 +47,8 @@ Folder in the main folder of a project, versioned with it. Nothing can be overri
   deleted `.lazydev/` comes back.
 - The workflow reads prompts from `.lazydev/<step>.md` only. A missing prompt fails the step with
   `.lazydev/<step>.md is missing, press i to add it`.
-- lazydev commits nothing under `.lazydev/`.
+- lazydev commits nothing under `.lazydev/` by itself. The commit of the git cockpit takes all changes,
+  `.lazydev/` included.
 
 ### Prompt
 
@@ -184,6 +185,56 @@ without `alt` unless the tab uses the key.
 Every second the tab reads what the runner appended to each step log since the last read, up to the last
 complete line. A file shorter than the read offset gets read again from the start.
 
+### Git cockpit (`alt+g`)
+
+`alt+g` opens the modal `Git · <name>` for the main folder of the selected project, everywhere, inside a
+terminal and the log tab too. The menu (`alt+m`) has the entry `Git` between `Color theme` and `Quit`. Plain
+`g` never opens it, `g` stays "to the top" in lists. While the menu, a question, the status picker, the
+wizard, the project input, the PRD input or the remove question is open, `alt+g` opens nothing. Without a
+project the error is `Add a folder first: a in the left column`, in a folder without git
+`<name> is no git repository.` and no modal opens.
+
+The modal is `min(width − 4, 64)` wide. lazydev reads its content once when it opens, it does not refresh:
+
+- `Branch    <branch> → <upstream> ↑n ↓n`, without upstream `<branch> · no upstream`, with a detached HEAD
+  `detached at <7 chars>`. `↑n` and `↓n` only show above 0.
+- `Changes   clean` or `Changes   <n> files`, `<n>` counts the lines of `git status --porcelain`, untracked
+  files included.
+- The actions `Fetch     f`, `Pull      p`, `Push      P`, `Commit    c`. The selected one shows `> ` and is
+  bold in the selection colors.
+- `Recent commits` with up to 5 lines of `git log --oneline -5`, without commits `no commits`.
+
+Keys: `j`/`down` and `k`/`up` move, `enter` runs the selected action, `f`, `p`, `P`, `c` run theirs, `esc`,
+`q`, `ctrl+c` and `alt+g` close. Commit opens the input `Message: ` in place of the actions. Every printable
+key goes into it, `f`, `p` and `q` too. `enter` commits, `esc` goes back to the actions. An empty message or
+one of spaces only starts nothing and shows the error `Enter a commit message.`. The footer shows
+` j/k move · enter run · f fetch · p pull · P push · c commit · esc close`, in the input
+` enter commit · esc back`. Errors and notes come first.
+
+An action closes the modal and opens a center tab in the main folder with the fixed label `git fetch`,
+`git pull`, `git push` or `git commit`. The tab runs `lazydev git <id> <dir> <action> [<message>]`, which
+prints `$ git <args>` before each git call. Git reads from the PTY, so passphrase and credential prompts work
+like in a shell. All actions act on the branch checked out in the main folder.
+
+| Action | Git |
+|---|---|
+| Fetch | `git fetch` |
+| Pull | `git pull --ff-only`. A divergence is an error of git |
+| Push | `git push` with upstream, otherwise `git push -u origin <branch>`. Upstream means `git rev-parse --abbrev-ref --symbolic-full-name @{upstream}` succeeds. A missing remote `origin` is an error of git |
+| Commit | `git add -A`, then `git commit -m <message>`. All changes, untracked files, `.lazydev/` and `prd/` included. The message goes to git unchanged, without trailer |
+
+- Pull and push with a detached HEAD print `HEAD is detached, check out a branch first.` and end with 1.
+  Fetch and commit run.
+- Pull and push take `locks/<id>.merge` before git starts and free it after git, without waiting. While a
+  runner holds it, they print `A PRD of <id> merges right now. Try again once the merge is done.` and end
+  with 1.
+- Nothing to commit gets no own check, git reports it as an error.
+- Success: exit code 0, the tab closes, the footer note is `git <action>: done`.
+- Failure: a blank line and `failed (exit <n>), press enter to close`. After `enter` the tab closes with
+  `<n>` and the footer error is `git <action> failed (exit <n>)`.
+- `alt+w` ends the tab with SIGHUP, the footer error is `git <action> stopped`.
+- When a git tab ends, lazydev reads the git info of all projects right away.
+
 ### Limits
 
 Runners save every `rate_limit_event` to `$XDG_STATE_HOME/lazydev/usage.json`. The footer shows
@@ -259,6 +310,8 @@ stop it.
 - A run counts as running while its PID lives and `/proc/<pid>/cmdline` is `lazydev run …`. An active phase
   without a living runner shows as aborted.
 - Locks are `flock` files in `locks/`: `start` while counting and spawning runners, `<id>.merge` per project.
+- `lazydev git <id> <dir> <action> [<message>]` runs in the terminal tab of the git cockpit. Pull and push
+  take `locks/<id>.merge` without waiting.
 - On SIGTERM a runner ends its context first, so the step records an abort, then signals its process group.
 
 ## Data
@@ -276,4 +329,4 @@ State files are written atomically. Merged runs keep their state until discarded
 ## CLI
 
 `lazydev` starts the TUI. `start`, `stop`, `discard [--yes]`, `trust` take a project ID or path from the list;
-`run` is internal. See `lazydev help`.
+`run` and `git` are internal. See `lazydev help`.

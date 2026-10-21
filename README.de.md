@@ -54,7 +54,8 @@ Runner behalten den Code, mit dem sie gestartet sind. Nach `make install` lazyde
 | `alt+shift+←/→` | Tab im Pane |
 | `alt+j/k`, `alt+1…9` | Projekt, Tab in der Mitte |
 | `alt+t` / `alt+w` | neuer Shell-Tab / Tab schließen |
-| `alt+m` / `alt+q` | Menü (Farbschema) / beenden |
+| `alt+g` | Git-Cockpit: Fetch, Pull, Push, Commit |
+| `alt+m` / `alt+q` | Menü (Farbschema, Git) / beenden |
 | `j/k`, `l`/`enter`, `h` | bewegen, öffnen, zurück (Listen, Baum) |
 | `a` / `d` / `i` | Projekt hinzufügen / entfernen / Wizard für `.lazydev/` (Projects) |
 | `n` | neues PRD mit Claude Code (PRDs) |
@@ -107,6 +108,25 @@ hooks:                       # Skripte, relativ zum Hauptordner
   `prd/` und `.lazydev/` hat.
 - Die Statuswerte im PRD bleiben deutsch (`geplant`, `umgesetzt (Datum)`, `verworfen (Datum)`), wie die
   Prompts.
+
+## Git-Cockpit
+
+`alt+g` zeigt Branch, Upstream, Änderungen und die letzten 5 Commits im Hauptordner des ausgewählten
+Projekts. Jede Aktion läuft als Tab in der Mitte, Abfragen von Passphrase und Zugangsdaten funktionieren
+deshalb wie in einer Shell.
+
+| Taste | Aktion | Git |
+|---|---|---|
+| `f` | Fetch | `git fetch` |
+| `p` | Pull | `git pull --ff-only` |
+| `P` | Push | `git push`, ohne Upstream `git push -u origin <branch>` |
+| `c` | Commit | `git add -A` und `git commit -m <nachricht>` |
+
+- Bei Erfolg schließt sich der Tab, und die Fußzeile zeigt `git <action>: done`. Bei einem Fehler bleibt der
+  Tab offen, bis du `enter` drückst.
+- Pull und Push warten nicht auf einen laufenden Merge eines PRDs. Sie enden mit einem Fehler, versuche es
+  nach dem Merge erneut.
+- Commit nimmt alle Änderungen auf, auch ungetrackte Dateien, `.lazydev/` und `prd/`.
 
 ## CLI
 
