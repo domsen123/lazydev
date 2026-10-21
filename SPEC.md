@@ -125,9 +125,10 @@ the center has the focus and a tab.
   containers of the project (label `com.docker.compose.project.working_dir`), with state, status, ports,
   image, age; `l` follows `docker logs -f --tail 200` in a tab. Docker refreshes on `docker events` and
   every 10 s.
-- **Explorer,** tab `Files`: file tree without `.git`, `l` opens folders or files in `$VISUAL`/`$EDITOR`/`vi`
-  as a tab. Tab `PRDs`: two lines per PRD (phase symbol and `<area>/<name>`, then phase and branch), open
-  PRDs by label, then `▸ n done · x.xx USD` which `l` unfolds. PRDs refresh every 5 s, runs every second.
+- **Explorer,** tab `PRDs` (default): two lines per PRD (phase symbol and `<area>/<name>`, then phase and
+  branch), open PRDs by label, then `▸ n done · x.xx USD` which `l` unfolds. PRDs refresh every 5 s, runs
+  every second. Tab `Files`: file tree without `.git`, `l` opens folders or files in `$VISUAL`/`$EDITOR`/`vi`
+  as a tab.
 
 Phase symbols: `○` planned, `◌` waiting, `●` setup/implement/review/merge, `◐` merge-queue, `✓` merged,
 `■` aborted, `✗` error/discarded.

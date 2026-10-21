@@ -239,12 +239,20 @@ func TestViewSmoke(t *testing.T) {
 	m := model{width: 160, height: 40, focus: colLeft, projects: []*projectEntry{p}}
 	view := m.View()
 	plain := ansi.Strip(view)
-	for _, want := range []string{"Projects", "Explorer", "Details", "Docker", "Files", "PRDs", "shop", "main", "README.md", "src"} {
+	for _, want := range []string{"Projects", "Explorer", "Details", "Docker", "Files", "PRDs", "shop", "main", "No PRDs under prd/."} {
 		if !strings.Contains(plain, want) {
 			t.Errorf("view lacks %q:\n%s", want, plain)
 		}
 	}
 	checkSize(t, view, 160, 40)
+
+	m.rightTab = rightFiles
+	plain = ansi.Strip(m.View())
+	for _, want := range []string{"README.md", "src"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("files tab lacks %q:\n%s", want, plain)
+		}
+	}
 
 	m.bottomTab = bottomDocker
 	plain = ansi.Strip(m.View())
@@ -264,6 +272,15 @@ func TestViewSmoke(t *testing.T) {
 
 	m.bottomZoom, m.focus, m.rightTab = true, colRight, rightPRDs
 	checkSize(t, m.View(), 160, 40)
+}
+
+func TestRightTabDefault(t *testing.T) {
+	if got := (model{}).rightTab; got != rightPRDs {
+		t.Errorf("default right tab = %d, want rightPRDs", got)
+	}
+	if rightTabs[rightPRDs] != "PRDs" || rightTabs[rightFiles] != "Files" {
+		t.Errorf("rightTabs = %q", rightTabs)
+	}
 }
 
 func TestViewWithoutProjects(t *testing.T) {

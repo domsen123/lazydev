@@ -41,7 +41,7 @@ Runner behalten den Code, mit dem sie gestartet sind. Nach `make install` lazyde
 | Projects (links) | Projekte mit Branch und Commits vor/hinter dem Upstream |
 | Mitte | Terminal-Tabs des Projekts. In einem Projekt ohne Tab startet Claude Code |
 | Unter der Mitte | `Details`: Einrichtung von `.lazydev/` oder das gewählte PRD mit Lauf und Live-Log. `Docker`: Compose-Services und Container |
-| Explorer (rechts) | `Files`: Dateibaum. `PRDs`: PRDs mit Phase, erledigte eingeklappt |
+| Explorer (rechts) | `PRDs`: PRDs mit Phase, erledigte eingeklappt. `Files`: Dateibaum |
 
 ## Tasten
 

@@ -13,12 +13,12 @@ import (
 )
 
 const (
-	rightFiles = iota
-	rightPRDs
+	rightPRDs = iota
+	rightFiles
 )
 
 // rightTabs are the tabs of the right column.
-var rightTabs = []string{"Files", "PRDs"}
+var rightTabs = []string{"PRDs", "Files"}
 
 // hiddenEntries never show up in the file tree.
 var hiddenEntries = []string{".git"}

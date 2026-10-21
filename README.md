@@ -40,7 +40,7 @@ Runners keep the code they started with. After `make install`, restart lazydev.
 | Projects (left) | Projects with branch and commits ahead/behind upstream |
 | Center | Terminal tabs of the project. Claude Code starts in a project without a tab |
 | Below center | `Details`: `.lazydev/` setup, or the selected PRD with its run and live log. `Docker`: compose services and containers |
-| Explorer (right) | `Files`: file tree. `PRDs`: PRDs with phase, done ones folded |
+| Explorer (right) | `PRDs`: PRDs with phase, done ones folded. `Files`: file tree |
 
 ## Keys
 
