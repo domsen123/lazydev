@@ -38,6 +38,7 @@ older versions do not build against the newer `x/ansi`.
 | `prompts` | Prompt = header + knowledge + `.lazydev/<step>.md` + built-in contract (`contract/`) |
 | `claude` | `claude -p` stream-json, summary, log descriptions, built-in agents (`agents/`) |
 | `config` | `projects.json`, `settings.json`, project IDs, path helpers |
+| `notify` | Discord webhook: payload and delivery with retry |
 | `gitcmd` | Actions of the git cockpit (fetch, pull, push, commit) behind `lazydev git`, pull and push under the merge lock |
 | `docker`, `devserver`, `usage`, `git`, `fsutil` | Containers, detached dev servers, Claude limits, git binary, atomic writes |
 

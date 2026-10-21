@@ -25,6 +25,16 @@ Not goals: remote runs, pull requests, issue trackers, editing PRDs inside lazyd
     `acceptEdits`. Any other value fails the Claude step before Claude starts with
     `settings.json: unknown permissionMode "<value>", allowed: acceptEdits, auto`. `s` continues at that
     step after a fix.
+  - `discord`: the webhook of the runner's notifications (see Discord notifications),
+    `{"enabled": bool, "url": string, "projects": {"<absolute project path>": {"enabled": bool, "url": string}}}`.
+    Projects stand under their path like in `projects.json`, not under their ID. `enabled` is the global
+    switch, missing or `false` means no project posts. A project without entry or without `enabled` is on,
+    `false` mutes this project only. The URL is the project URL if not empty, otherwise the global URL.
+    `.lazydev/config.yaml` has no Discord field, no URL lands in a repository. Removing a project with `d`
+    keeps its entry.
+
+  lazydev writes `settings.json` with the rights `0600`, also when it saves the theme. An existing file with
+  other rights gets `0600` with the next save.
 
   lazydev writes no defaults into `settings.json`. A broken file gives the defaults: `acceptEdits` and no
   extra rights. Every Claude step reads the file at its start, so a change applies from the next step on,
@@ -188,7 +198,7 @@ complete line. A file shorter than the read offset gets read again from the star
 ### Git cockpit (`alt+g`)
 
 `alt+g` opens the modal `Git · <name>` for the main folder of the selected project, everywhere, inside a
-terminal and the log tab too. The menu (`alt+m`) has the entry `Git` between `Color theme` and `Quit`. Plain
+terminal and the log tab too. The tab `Git` of the menu (`alt+m`) opens it too. Plain
 `g` never opens it, `g` stays "to the top" in lists. While the menu, a question, the status picker, the
 wizard, the project input, the PRD input or the remove question is open, `alt+g` opens nothing. Without a
 project the error is `Add a folder first: a in the left column`, in a folder without git
@@ -235,6 +245,51 @@ like in a shell. All actions act on the branch checked out in the main folder.
 - `alt+w` ends the tab with SIGHUP, the footer error is `git <action> stopped`.
 - When a git tab ends, lazydev reads the git info of all projects right away.
 
+### Menu (`alt+m`)
+
+The menu is a box `Menu` of `min(width − 4, 72)` columns with two columns like the options of btop. The left
+column is 14 characters wide inside and holds the tabs `General`, `Discord`, `Git`, then a blank line and
+`Quit`. After a `│` the right column holds the entries of the tab or its description. Below both stands a
+hint line.
+
+| Tab | Right column |
+|---|---|
+| `General` | Entry `Color theme  ‹ <name> ›`, below it `Colors of borders, focus and selection. lazydev saves the choice in settings.json.` |
+| `Discord` | Entries `Notifications  ‹ on/off ›` (global), `Global URL  <url>`, `<project name>  ‹ on/off ›`, `URL for <project name>  <url>`, `Send test`. Without a selected project the two project entries drop out. Below them the description of the selected entry |
+| `Git` | `Fetch, pull, push and commit the main folder of the selected project. Each action runs in a center tab. Also alt+g.` |
+| `Quit` | `Ends lazydev and its terminal tabs. Runners keep working in the background.` |
+
+Descriptions of the Discord entries:
+
+- Notifications: `Runners post to Discord when a PRD is merged, fails, gets aborted or waits for the main folder.`
+- Global URL: `Webhook URL for all projects. Stored in settings.json, never in a repository.`
+- Project switch: `Off mutes this project only.`
+- Project URL: `Replaces the global URL for this project. Empty uses the global URL.`
+- Send test: `Posts a test message to the URL of this project now, also while off.`
+
+URLs show shortened to `…/<last 4 characters>`. Without URL the global URL shows `not set`, the project URL
+`global`.
+
+Keys in the left column: `↑/↓`, `j/k` and `tab` move and wrap around. `enter`, `→` and `l` open: `General`
+and `Discord` go to the right column, `Git` closes the menu and opens the git cockpit, `Quit` ends lazydev.
+`esc`, `q` and `alt+m` close the menu. Hint: `↑/↓ select · enter open · esc close`.
+
+Keys in the right column: `↑/↓`, `j/k` and `tab` move and wrap around. `←/→` change switches and the theme.
+`enter` and `space` flip switches, go to the next theme, open the URL input or send the test. `esc` and `h`
+go back to the left column, `q` and `alt+m` close the menu. Hint: `↑/↓ select · ←/→ change · enter edit · esc back`.
+
+- The theme applies right away and goes into `settings.json`.
+- Every change in the tab `Discord` reads `settings.json`, changes the field and writes it right away. An error
+  while writing goes into the footer.
+- `enter` on a URL opens the empty input `Webhook URL: ` in place of the entries, hint `enter save · esc
+  cancel`. `enter` saves, `esc` cancels. An empty input removes the URL. An input that does not start with
+  `https://` after trimming spaces saves nothing and shows the error `Enter an https URL.`.
+- `Send test` posts the embed `Test from lazydev` (color `0x3498db`, field `Project` with the project name,
+  `–` without project) to the URL of the selected project, without project to the global URL. One attempt,
+  no retry, 10 s timeout, also while the switches are off. It runs in the background. Without URL the error
+  is `No webhook URL set.`. Success shows the note `discord: test sent`, failure the error
+  `discord: <error>`.
+
 ### Limits
 
 Runners save every `rate_limit_event` to `$XDG_STATE_HOME/lazydev/usage.json`. The footer shows
@@ -279,6 +334,34 @@ check. Merges always run automatically.
 - `x` stops a runner (phase aborted) or aborts a waiting PRD.
 - `X` asks, then stops the dev server, runs the teardown hook, puts a moved PRD back into the main folder with
   status `geplant`, removes worktree and branch with force and deletes the run state and logs.
+
+### Discord notifications
+
+The runner posts to the Discord webhook of the project (see `discord` in `settings.json`), the TUI does
+not. Notifications come without a running TUI too. The runner reads `settings.json` at every event, so a
+change in the menu applies to running runners too.
+
+| Event | When | Title | Color | Log |
+|---|---|---|---|---|
+| `merged` | the PRD is merged | `✓ Merged: <area>/<name>` | `0x2ecc71` | merge |
+| `failed` | a step fails (phase error) | `✗ Failed: <area>/<name>` | `0xe74c3c` | the failed step |
+| `aborted` | `x` ends a running runner (phase aborted) | `■ Aborted: <area>/<name>` | `0x95a5a6` | the aborted step |
+| `main folder` | the merge starts to wait for the main folder | `◐ Waiting for main folder: <area>/<name>` | `0xf1c40f` | merge |
+
+- One notification per waiting phase for the main folder, when the waiting starts. A change of the reason
+  posts nothing.
+- A waiting PRD that `x` aborts without runner posts nothing, nor do errors before the first step (claude
+  missing, trust, preparing the run).
+- The payload is `{"username":"lazydev","embeds":[{"title":…,"color":…,"fields":[…],"timestamp":<RFC 3339>}]}`.
+  The fields are all `inline: true`, in this order: `Project` (project ID), `Branch` (`<branch> → <base>`),
+  `Cost` (`x.xx USD`), `Duration` (since the start of the run, `1h 2m 3s` without leading zero parts, e.g.
+  `4m 5s`), `Model` (implement model, `–` without). The embed holds no error text.
+- HTTP `POST` with `Content-Type: application/json`, 10 s timeout per attempt, success is a 2xx status. One
+  attempt plus 3 retries 5 s apart, every error retries, 4xx too. The delivery runs in the runner and delays
+  it by about 55 s at most. An abort posts with its own context.
+- Without URL or with a switch off nothing posts and the log gets nothing. Success logs
+  `Discord notification sent: <event>`, failure after the last attempt `Discord notification failed: <error>`.
+  Phase, error and note of the run stay, the step does not fail.
 
 ### Claude call
 

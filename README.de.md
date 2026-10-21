@@ -55,7 +55,7 @@ Runner behalten den Code, mit dem sie gestartet sind. Nach `make install` lazyde
 | `alt+j/k`, `alt+1…9` | Projekt, Tab in der Mitte |
 | `alt+t` / `alt+w` | neuer Shell-Tab / Tab schließen |
 | `alt+g` | Git-Cockpit: Fetch, Pull, Push, Commit |
-| `alt+m` / `alt+q` | Menü (Farbschema, Git) / beenden |
+| `alt+m` / `alt+q` | Menü (Farbschema, Discord, Git) / beenden |
 | `j/k`, `l`/`enter`, `h` | bewegen, öffnen, zurück (Listen, Baum) |
 | `a` / `d` / `i` | Projekt hinzufügen / entfernen / Wizard für `.lazydev/` (Projects) |
 | `n` | neues PRD mit Claude Code (PRDs) |
@@ -128,6 +128,36 @@ deshalb wie in einer Shell.
   nach dem Merge erneut.
 - Commit nimmt alle Änderungen auf, auch ungetrackte Dateien, `.lazydev/` und `prd/`.
 
+## Discord
+
+Runner schreiben an einen Discord-Webhook, wenn ein PRD gemergt ist, ein Schritt scheitert, `x` einen
+Runner abbricht oder der Merge auf den Hauptordner zu warten beginnt. Das klappt auch ohne laufende TUI.
+
+1. Lege in Discord einen Webhook für einen Kanal an und kopiere seine URL.
+2. `alt+m`, Tab `Discord`, `enter`. Wähle `Global URL`, drücke `enter`, füge die URL ein und drücke `enter`.
+3. Schalte `Notifications` ein. `Send test` schickt sofort eine Testnachricht.
+
+Ein Projekt lässt sich stummschalten oder bekommt eine eigene URL. Die URL landet nur in
+`~/.config/lazydev/settings.json`, nie in einem Repository. Das Menü zeigt sie gekürzt auf
+`…/<letzte 4 Zeichen>`.
+
+```json
+{
+  "discord": {
+    "enabled": true,
+    "url": "https://discord.com/api/webhooks/…",
+    "projects": {
+      "/home/me/code/shop": {"enabled": false},
+      "/home/me/code/blog": {"url": "https://discord.com/api/webhooks/…"}
+    }
+  }
+}
+```
+
+Jede Nachricht ist ein Embed mit Projekt, Branch, Kosten, Dauer und Modell, ohne Fehlertext. Scheitert der
+Versand, wiederholt der Runner ihn 3-mal im Abstand von 5 s. Danach bekommt das Step-Log
+`Discord notification failed: <fehler>`. Der Lauf geht unverändert weiter.
+
 ## CLI
 
 ```sh
@@ -144,7 +174,7 @@ lazydev trust <projekt>
 
 | Pfad | Inhalt |
 |---|---|
-| `~/.config/lazydev/` | `projects.json`, `settings.json` (`theme`, `allowedTools`, `permissionMode`) |
+| `~/.config/lazydev/` | `projects.json`, `settings.json` (`theme`, `allowedTools`, `permissionMode`, `discord`), Rechte `0600` |
 | `~/.local/state/lazydev/` | `runs/<id>/<prd>.json` und Logs der Schritte, `trust/`, `locks/`, `usage.json`, `bin/` |
 | `~/.local/share/lazydev/worktrees/<id>/<prd>/` | Worktrees |
 

@@ -54,7 +54,7 @@ Runners keep the code they started with. After `make install`, restart lazydev.
 | `alt+j/k`, `alt+1…9` | project, center tab |
 | `alt+t` / `alt+w` | new shell tab / close tab |
 | `alt+g` | git cockpit: fetch, pull, push, commit |
-| `alt+m` / `alt+q` | menu (color theme, git) / quit |
+| `alt+m` / `alt+q` | menu (theme, Discord, git) / quit |
 | `j/k`, `l`/`enter`, `h` | move, open, back (lists, tree) |
 | `a` / `d` / `i` | add / remove project / `.lazydev/` wizard (Projects) |
 | `n` | new PRD with Claude Code (PRDs) |
@@ -124,6 +124,35 @@ action runs as a center tab, so passphrase and credential prompts work like in a
   is done.
 - Commit takes all changes, untracked files, `.lazydev/` and `prd/` included.
 
+## Discord
+
+Runners post to a Discord webhook when a PRD is merged, a step fails, `x` aborts a runner or the merge
+starts to wait for the main folder. They post without a running TUI too.
+
+1. In Discord, create a webhook for a channel and copy its URL.
+2. `alt+m`, tab `Discord`, `enter`. Select `Global URL`, press `enter`, paste the URL and press `enter`.
+3. Switch on `Notifications`. `Send test` posts a test message right away.
+
+A project can mute itself or use its own URL. The URL lands in `~/.config/lazydev/settings.json` only, never
+in a repository. The menu shows it shortened to `…/<last 4 characters>`.
+
+```json
+{
+  "discord": {
+    "enabled": true,
+    "url": "https://discord.com/api/webhooks/…",
+    "projects": {
+      "/home/me/code/shop": {"enabled": false},
+      "/home/me/code/blog": {"url": "https://discord.com/api/webhooks/…"}
+    }
+  }
+}
+```
+
+Each message is an embed with project, branch, cost, duration and model, without error text. A failed
+delivery retries 3 times 5 s apart, then the step log gets `Discord notification failed: <error>`. The run
+goes on unchanged.
+
 ## CLI
 
 ```sh
@@ -139,7 +168,7 @@ lazydev trust <project>
 
 | Path | Content |
 |---|---|
-| `~/.config/lazydev/` | `projects.json`, `settings.json` (`theme`, `allowedTools`, `permissionMode`) |
+| `~/.config/lazydev/` | `projects.json`, `settings.json` (`theme`, `allowedTools`, `permissionMode`, `discord`), rights `0600` |
 | `~/.local/state/lazydev/` | `runs/<id>/<prd>.json` and step logs, `trust/`, `locks/`, `usage.json`, `bin/` |
 | `~/.local/share/lazydev/worktrees/<id>/<prd>/` | Worktrees |
 
