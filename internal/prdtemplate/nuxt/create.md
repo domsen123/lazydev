@@ -32,8 +32,8 @@ Bevor du irgendetwas fragst, verschaffe dir echtes Kontextwissen. Verlasse dich 
 
 1. Verschaffe dir einen Überblick: bestehende PRDs unter `prd/`, Feature-Slices unter `app/features/`
    und `server/features/`, `git log --oneline -5`.
-2. Lies die Architektur-Doku `_ARCHITECTURE.md` vollständig. Präge dir besonders die
-   **Feature-Checkliste** und die **Anti-Patterns to Avoid** ein. Beide werden im PRD referenziert.
+2. Lies die Architektur-Doku `_ARCHITECTURE.md` (in manchen Projekten `ARCHITECTURE.md`) vollständig.
+   Präge dir besonders die **Feature-Checkliste** und die **Anti-Patterns to Avoid** ein. Beide werden im PRD referenziert.
 3. Lies die relevanten Konventionen aus `CLAUDE.md` (Aliase `~/`, `~~server/`, `~~shared/`;
    Arrow Functions; Zod v4 mit `.trim()`; Drizzle-Workflow `pnpm db:generate` → `pnpm db:migrate`).
 4. Lies **ein** bestehendes PRD als Stil- und Strukturvorlage, bevorzugt ein thematisch nahes.
