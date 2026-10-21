@@ -185,6 +185,12 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, fetchGitInfo(m.projects)
 	case quitMsg:
 		return m, tea.Quit
+	case discordTestMsg:
+		if msg.err != nil {
+			m.err = "discord: " + msg.err.Error()
+		} else {
+			m.note = "discord: test sent"
+		}
 	case gitInfoMsg:
 		for _, p := range m.projects {
 			if p.path == msg.path {

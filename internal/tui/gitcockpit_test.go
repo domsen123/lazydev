@@ -185,7 +185,8 @@ func TestMenuOpensCockpit(t *testing.T) {
 	if plain := ansi.Strip(m.View()); !strings.Contains(plain, "Git") {
 		t.Errorf("menu lacks Git:\n%s", plain)
 	}
-	m = press(t, m, keyRunes("j"), keyEnter)
+	// General, Discord, Git.
+	m = press(t, m, keyRunes("j"), keyRunes("j"), keyEnter)
 	if m.menu != nil || m.cockpit == nil {
 		t.Errorf("menu %v, cockpit %v, err %q", m.menu, m.cockpit, m.err)
 	}
