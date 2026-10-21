@@ -16,7 +16,9 @@ import (
 type Step struct {
 	Name      string `json:"name"`
 	SessionID string `json:"sessionId,omitempty"`
-	ExitCode  *int   `json:"exitCode"`
+	// Model stammt aus dem ersten init-Ereignis von claude im Schritt.
+	Model    string `json:"model,omitempty"`
+	ExitCode *int   `json:"exitCode"`
 	// OK ist false, wenn der Schritt trotz Exit-Code 0 scheiterte, etwa an einer offenen Frage.
 	OK        bool     `json:"ok"`
 	CostUSD   *float64 `json:"costUsd,omitempty"`
@@ -214,4 +216,14 @@ func (r *Run) Cost() float64 {
 		}
 	}
 	return total
+}
+
+// ImplementModel liefert das Modell des letzten erfolgreichen Schritts implement, sonst "".
+func (r *Run) ImplementModel() string {
+	for i := len(r.Steps) - 1; i >= 0; i-- {
+		if s := r.Steps[i]; s.Name == "implement" && s.OK {
+			return s.Model
+		}
+	}
+	return ""
 }

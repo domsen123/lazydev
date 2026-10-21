@@ -1,6 +1,6 @@
 # PRD: Kosten und Modell im PRD festhalten
 
-> Status: geplant · Template: einfach · Scope: Vor dem Fast-Forward schreibt lazydev die Gesamtkosten des Laufs und das Modell der Umsetzung in die Statuszeile des PRDs und committet das im Worktree. Die TUI zeigt Kosten und Modell aus der Statuszeile, wenn es keinen Lauf-Zustand gibt, und eine neue Spalte „Modell“.
+> Status: umgesetzt (2026-10-21) · Template: einfach · Scope: Vor dem Fast-Forward schreibt lazydev die Gesamtkosten des Laufs und das Modell der Umsetzung in die Statuszeile des PRDs und committet das im Worktree. Die TUI zeigt Kosten und Modell aus der Statuszeile, wenn es keinen Lauf-Zustand gibt, und eine neue Spalte „Modell“.
 
 ## Context
 

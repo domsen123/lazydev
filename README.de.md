@@ -7,7 +7,10 @@
 lazydev ist eine Terminal-Oberfläche für den PRD-Workflow mit Claude Code. Du siehst alle Projekte und
 ihre PRDs, startest die Umsetzung mit einer Taste und verfolgst das Log live. Jedes PRD läuft in einem
 eigenen Git-Worktree mit eigener Datenbank und eigenem Port. Nach dem Review mergt lazydev den Branch per
-Fast-Forward in den Ziel-Branch des Projekts (Standard `main`) und räumt auf.
+Fast-Forward in den Ziel-Branch des Projekts (Standard `main`) und räumt auf. Vor dem Fast-Forward
+vermerkt lazydev die Gesamtkosten des Laufs und das Modell der Umsetzung in der Statuszeile des PRDs
+(`Kosten: 4.12 USD · Modell: claude-opus-5-5`), so sieht jeder Rechner und jedes Teammitglied sie in der
+PRD-Liste.
 
 Die vollständige Beschreibung des Verhaltens steht in [SPEC.md](SPEC.md).
 

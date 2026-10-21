@@ -3,7 +3,10 @@ package project
 import (
 	"bufio"
 	"io"
+	"math"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -77,6 +80,80 @@ func ResetStatus(content string) string {
 			reset += " ·" + rest
 		}
 		lines[i] = reset + newline
+		break
+	}
+	return strings.Join(lines, "")
+}
+
+// Felder, die der Runner vor dem Merge in den Freitext der Statuszeile schreibt.
+const (
+	costField  = "Kosten:"
+	modelField = "Modell:"
+)
+
+// RunInfo liest Kosten und Modell aus dem Freitext, z. B.
+// "Kosten: 4.12 USD · Modell: claude-opus-5-5 · Scope: …". Die Felder stehen immer in der ersten
+// Zeile. Ein Betrag, der sich nicht als Zahl lesen lässt, gilt als nicht vorhanden.
+func RunInfo(s Status) (cost float64, hasCost bool, model string) {
+	first, _, _ := strings.Cut(s.Detail, "\n")
+	for part := range strings.SplitSeq(first, "·") {
+		part = strings.TrimSpace(part)
+		if v, ok := strings.CutPrefix(part, costField); ok {
+			v = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(v), "USD"))
+			if c, err := strconv.ParseFloat(v, 64); err == nil && !math.IsNaN(c) && !math.IsInf(c, 0) {
+				cost, hasCost = c, true
+			}
+		} else if v, ok := strings.CutPrefix(part, modelField); ok {
+			model = strings.TrimSpace(v)
+		}
+	}
+	return cost, hasCost, model
+}
+
+// SetRunInfo setzt Kosten und Modell in der ersten Statuszeile direkt nach dem Statuswert. Stehen
+// die Felder schon im Freitext, ersetzt SetRunInfo die Werte an ihrer Stelle. Ohne model entfällt
+// das Feld „Modell:“. Ohne Statuszeile liefert SetRunInfo den Inhalt unverändert.
+func SetRunInfo(content string, cost float64, model string) string {
+	costPart := costField + " " + strconv.FormatFloat(cost, 'f', 2, 64) + " USD"
+	modelPart := ""
+	if model != "" {
+		modelPart = modelField + " " + model
+	}
+	lines := strings.SplitAfter(content, "\n")
+	for i, line := range lines {
+		if i >= headerScanLines {
+			break
+		}
+		s, ok := ParseStatusLine(line)
+		if !ok {
+			continue
+		}
+		body := strings.TrimRight(line, "\r\n")
+		_, rest, _ := strings.Cut(body, "·")
+		var parts []string
+		costAt, hasModel := -1, false
+		for part := range strings.SplitSeq(rest, "·") {
+			part = strings.TrimSpace(part)
+			switch {
+			case part == "":
+				continue
+			case strings.HasPrefix(part, costField):
+				part, costAt = costPart, len(parts)
+			case strings.HasPrefix(part, modelField):
+				if modelPart == "" {
+					continue
+				}
+				part, hasModel = modelPart, true
+			}
+			parts = append(parts, part)
+		}
+		if modelPart != "" && !hasModel {
+			parts = slices.Insert(parts, costAt+1, modelPart)
+		}
+		if costAt < 0 {
+			parts = slices.Insert(parts, 0, costPart)
+		}
+		lines[i] = "> Status: " + s.Value + " · " + strings.Join(parts, " · ") + line[len(body):]
 		break
 	}
 	return strings.Join(lines, "")

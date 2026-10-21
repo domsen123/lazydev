@@ -54,8 +54,8 @@ func (m Model) prdList(p *project.Project) []prdRow {
 	if len(done) > 0 {
 		group := prdRow{done: len(done)}
 		for _, d := range done {
-			if r := m.runs.get(p, d); r != nil {
-				group.cost += r.Cost()
+			if c, ok := prdCost(d, m.runs.get(p, d)); ok {
+				group.cost += c
 			}
 		}
 		rows = append(rows, group)

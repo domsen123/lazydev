@@ -20,7 +20,13 @@ const (
 	colPort   = 5
 	colCost   = 7
 	colBranch = 22
+	colModel  = 9
 )
+
+// prdColWidth ist die Breite der Spalte PRD bei inner Zellen in der Box.
+func prdColWidth(inner int) int {
+	return max(10, inner-2-colPhase-colPort-colCost-colBranch-colModel-5)
+}
 
 type layout struct {
 	width, leftWidth, rightWidth int
@@ -73,10 +79,10 @@ func (m Model) prdHeader(p *project.Project, l layout) []string {
 	if p.Err != nil {
 		lines = append(lines, styleError.Render(" "+firstLine(p.Err.Error())))
 	}
-	inner := l.rightWidth - 2
-	colPRD := max(10, inner-2-colPhase-colPort-colCost-colBranch-4)
+	colPRD := prdColWidth(l.rightWidth - 2)
 	lines = append(lines, styleMuted.Render("  "+padRight("PRD · "+m.prdSort.label(), colPRD)+" "+
-		padRight("Phase", colPhase)+" "+padLeft("Port", colPort)+" "+padRight("Branch", colBranch)+" "+padLeft("Kosten", colCost)))
+		padRight("Phase", colPhase)+" "+padLeft("Port", colPort)+" "+padRight("Branch", colBranch)+" "+
+		padRight("Modell", colModel)+" "+padLeft("Kosten", colCost)))
 	return lines
 }
 
@@ -230,18 +236,11 @@ func (m Model) viewPRDs(l layout) string {
 	if p.Base != "" && p.Base != p.Branch {
 		title += " (Ziel " + p.Base + ")"
 	}
-	total := 0.0
-	for k, r := range m.runs {
-		if k.projectID == p.ID {
-			total += r.Cost()
-		}
-	}
-	if total > 0 {
+	if total := m.runs.projectCost(p); total > 0 {
 		title += fmt.Sprintf(" · %.2f USD", total)
 	}
 
-	inner := l.rightWidth - 2
-	colPRD := max(10, inner-2-colPhase-colPort-colCost-colBranch-4)
+	colPRD := prdColWidth(l.rightWidth - 2)
 	lines := m.prdHeader(p, l)
 
 	if len(p.PRDs) == 0 {
@@ -257,7 +256,7 @@ func (m Model) viewPRDs(l layout) string {
 				cost = fmt.Sprintf("%.2f $", rows[i].cost)
 			}
 			// Die Summe steht in der Kostenspalte, wie bei den einzelnen PRDs.
-			group := padRight(m.groupLine(rows[i].done), colPRD+1+colPhase+1+colPort+1+colBranch) + " " + padLeft(cost, colCost)
+			group := padRight(m.groupLine(rows[i].done), colPRD+1+colPhase+1+colPort+1+colBranch+1+colModel) + " " + padLeft(cost, colCost)
 			lines = append(lines, cursorLine(i == m.prdCursor, focused, styleMuted.Render(group)))
 			continue
 		}
@@ -267,8 +266,8 @@ func (m Model) viewPRDs(l layout) string {
 		if r != nil && phase != project.PhaseMerged {
 			branch, port = r.Branch, fmt.Sprint(r.Port)
 		}
-		if r != nil && r.Cost() > 0 {
-			cost = fmt.Sprintf("%.2f $", r.Cost())
+		if c, ok := prdCost(d, r); ok {
+			cost = fmt.Sprintf("%.2f $", c)
 		}
 		if branch == "" {
 			branch = "–"
@@ -277,6 +276,7 @@ func (m Model) viewPRDs(l layout) string {
 			padRight(phaseCell(phase), colPhase) + " " +
 			padLeft(port, colPort) + " " +
 			padRight(branch, colBranch) + " " +
+			padRight(shortModel(prdModel(d, r)), colModel) + " " +
 			padLeft(cost, colCost)
 		lines = append(lines, cursorLine(i == m.prdCursor, focused, row))
 	}
@@ -314,9 +314,25 @@ func (m Model) detailHeader(d *project.PRD) []string {
 	return []string{" " + styleSelected.Render(d.Title)}
 }
 
-// detailMeta liefert Status, Datei, Git-Zustand und Erstellzeit untereinander. Die Zeilen scrollen
-// mit dem Detail-Text.
-func detailMeta(d *project.PRD) []string {
+// shortModel kürzt eine Modell-ID für die Spalte „Modell“: "claude-opus-5-5" wird "Opus 5.5". Eine
+// ID ohne "claude-" bleibt unverändert, die Spalte kürzt sie.
+func shortModel(id string) string {
+	rest, ok := strings.CutPrefix(id, "claude-")
+	parts := strings.Split(rest, "-")
+	if !ok || parts[0] == "" {
+		return id
+	}
+	name := strings.ToUpper(parts[0][:1]) + parts[0][1:]
+	if len(parts) == 1 {
+		return name
+	}
+	return name + " " + strings.Join(parts[1:], ".")
+}
+
+// detailMeta liefert Status, Datei, Git-Zustand, Erstellzeit, Kosten und Modell untereinander. Kosten
+// und Modell kommen aus dem Lauf r, sonst aus der Statuszeile. Die Zeilen scrollen mit dem
+// Detail-Text.
+func detailMeta(d *project.PRD, r *state.Run) []string {
 	status := d.Status.Value
 	if status == "" {
 		status = styleError.Render("keine Statuszeile gefunden")
@@ -332,6 +348,12 @@ func detailMeta(d *project.PRD) []string {
 	}
 	if !d.Created.IsZero() {
 		lines = append(lines, metaLabel("Erstellt")+d.Created.Local().Format("2006-01-02 15:04"))
+	}
+	if cost, ok := prdCost(d, r); ok {
+		lines = append(lines, metaLabel("Kosten")+fmt.Sprintf("%.2f USD", cost))
+	}
+	if model := prdModel(d, r); model != "" {
+		lines = append(lines, metaLabel("Modell")+model)
 	}
 	return lines
 }

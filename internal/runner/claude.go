@@ -73,7 +73,7 @@ func claudeStep(ctx context.Context, cfg *config.Config, t Target, prdName strin
 	return 0, checkReviewed(t, r, log)
 }
 
-// runClaude setzt erzeugte Dateien zurück und startet claude im Worktree. Sitzung und Kosten
+// runClaude setzt erzeugte Dateien zurück und startet claude im Worktree. Sitzung, Modell und Kosten
 // schreibt runClaude laufend in den letzten Schritt. Mehrere Aufrufe in einem Schritt addieren
 // ihre Kosten.
 func runClaude(ctx context.Context, cfg *config.Config, t Target, prdName string, r *state.Run, prompt string, log *runlog.Logger) (claude.Summary, int, error) {
@@ -93,6 +93,9 @@ func runClaude(ctx context.Context, cfg *config.Config, t Target, prdName string
 		OnChange: func(s claude.Summary) {
 			last := r.LastStep()
 			last.SessionID = s.SessionID
+			if s.Model != "" {
+				last.Model = s.Model
+			}
 			if s.HasResult {
 				cost := baseCost + s.CostUSD
 				last.CostUSD = &cost

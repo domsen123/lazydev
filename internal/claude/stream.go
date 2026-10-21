@@ -9,12 +9,14 @@ import (
 
 // Event enthält die Felder eines stream-json-Ereignisses, die lazydev auswertet.
 type Event struct {
-	Type      string  `json:"type"`
-	Subtype   string  `json:"subtype"`
-	SessionID string  `json:"session_id"`
-	IsError   bool    `json:"is_error"`
-	Result    string  `json:"result"`
-	CostUSD   float64 `json:"total_cost_usd"`
+	Type      string `json:"type"`
+	Subtype   string `json:"subtype"`
+	SessionID string `json:"session_id"`
+	// Model steht im Ereignis system/init, z. B. "claude-opus-5-5".
+	Model   string  `json:"model"`
+	IsError bool    `json:"is_error"`
+	Result  string  `json:"result"`
+	CostUSD float64 `json:"total_cost_usd"`
 }
 
 // ParseEvent liefert ok=false für Zeilen, die kein JSON-Objekt mit Typ sind.
@@ -29,6 +31,8 @@ func ParseEvent(line []byte) (e Event, ok bool) {
 // mehrere result-Ereignisse. Es zählt das letzte.
 type Summary struct {
 	SessionID string
+	// Model stammt aus dem ersten init-Ereignis.
+	Model string
 	// HasResult ist false, wenn der Stream ohne result-Ereignis endet.
 	HasResult bool
 	IsError   bool
@@ -36,12 +40,19 @@ type Summary struct {
 	CostUSD   float64
 }
 
-// Add übernimmt ein Ereignis und meldet, ob sich SessionID oder Ergebnis geändert haben.
+// Add übernimmt ein Ereignis und meldet, ob sich SessionID, Modell oder Ergebnis geändert haben.
 func (s *Summary) Add(e Event) (changed bool) {
 	switch {
-	case e.Type == "system" && e.Subtype == "init" && e.SessionID != "" && s.SessionID == "":
-		s.SessionID = e.SessionID
-		return true
+	case e.Type == "system" && e.Subtype == "init":
+		if e.SessionID != "" && s.SessionID == "" {
+			s.SessionID = e.SessionID
+			changed = true
+		}
+		if e.Model != "" && s.Model == "" {
+			s.Model = e.Model
+			changed = true
+		}
+		return changed
 	case e.Type == "result":
 		s.HasResult = true
 		s.IsError = e.IsError

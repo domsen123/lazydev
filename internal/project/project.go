@@ -48,6 +48,11 @@ type PRD struct {
 	Branch string
 	// Created ist der frühere Zeitpunkt aus Erstellzeit der Datei und erstem Commit.
 	Created time.Time
+	// CostUSD und Model stehen nach dem Merge in der Statuszeile. HasCost ist false ohne Feld
+	// „Kosten:“.
+	CostUSD float64
+	HasCost bool
+	Model   string
 }
 
 // Label ist "<bereich>/<name>", wie die PRD-Liste es zeigt.
@@ -148,6 +153,7 @@ func ReadPRD(root, path string) (PRD, error) {
 	if area == "." {
 		area = ""
 	}
+	cost, hasCost, model := RunInfo(status)
 	return PRD{
 		Path:    rel,
 		Name:    strings.TrimSuffix(filepath.Base(path), ".md"),
@@ -155,6 +161,9 @@ func ReadPRD(root, path string) (PRD, error) {
 		Title:   title,
 		Status:  status,
 		Created: fileCreated(path),
+		CostUSD: cost,
+		HasCost: hasCost,
+		Model:   model,
 	}, nil
 }
 

@@ -50,6 +50,20 @@ func TestSummaryTakesLastResult(t *testing.T) {
 	}
 }
 
+func TestSummaryTakesFirstModel(t *testing.T) {
+	var s Summary
+	if e, _ := ParseEvent([]byte(`{"type":"system","subtype":"init","session_id":"a","model":"claude-opus-5-5"}`)); !s.Add(e) {
+		t.Error("init mit Modell meldet keine Änderung")
+	}
+	// Ein späteres init, etwa eines Subagenten, ändert das Modell nicht.
+	if e, _ := ParseEvent([]byte(`{"type":"system","subtype":"init","session_id":"b","model":"claude-haiku-5-5"}`)); s.Add(e) {
+		t.Error("zweites init meldet eine Änderung")
+	}
+	if s.SessionID != "a" || s.Model != "claude-opus-5-5" {
+		t.Errorf("Summary = %+v", s)
+	}
+}
+
 func TestDescribe(t *testing.T) {
 	cases := map[string]string{
 		`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Bash","input":{"command":"pnpm typecheck"}}]}}`: "Bash pnpm typecheck",

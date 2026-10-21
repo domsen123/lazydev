@@ -5,7 +5,10 @@ import (
 	_ "embed"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -120,6 +123,9 @@ func (m merger) run() error {
 		}
 	}
 
+	if err := m.recordRunInfo(); err != nil {
+		return err
+	}
 	if err := m.waitMainClean(); err != nil {
 		return err
 	}
@@ -173,6 +179,52 @@ func (m merger) mergePRD(context string) error {
 		return err
 	}
 	return requireClean(wt, "Worktree nach /merge-prd")
+}
+
+// recordRunInfo schreibt Kosten und Modell des Laufs in die Statuszeile des PRDs im Worktree und
+// committet sie ohne Claude. Die Prüfung läuft danach nicht erneut, der Commit ändert nur das PRD.
+// Ändern sich die Werte nicht, entsteht kein Commit.
+func (m merger) recordRunInfo() error {
+	path := filepath.Join(m.r.Worktree, m.r.PRD)
+	cost, model := m.r.Cost(), m.r.ImplementModel()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("Kosten nicht im PRD vermerkt: %w", err)
+	}
+	updated := project.SetRunInfo(string(data), cost, model)
+	// Ohne Statuszeile liefert SetRunInfo den Inhalt unverändert. Erst das Feld „Kosten:“ im
+	// Ergebnis zeigt, dass die Statuszeile da ist.
+	_, status, err := project.ParseHeader(strings.NewReader(updated))
+	if _, ok, _ := project.RunInfo(status); err == nil && !ok {
+		err = fmt.Errorf("keine Statuszeile in %s", m.r.PRD)
+	}
+	if err != nil {
+		return fmt.Errorf("Kosten nicht im PRD vermerkt: %w", err)
+	}
+	info := strconv.FormatFloat(cost, 'f', 2, 64) + " USD"
+	if model != "" {
+		info += " · " + model
+	}
+	changed := updated != string(data)
+	if changed {
+		if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
+			return fmt.Errorf("Kosten nicht im PRD vermerkt: %w", err)
+		}
+	}
+	m.log.Printf("Kosten im PRD vermerkt: %s", info)
+	if !changed {
+		return nil
+	}
+	msg := "docs(prd): record cost of " + m.prdName
+	if _, err := git.Run(m.r.Worktree, "commit", "-m", msg, "--", m.r.PRD); err != nil {
+		// Ohne den alten Inhalt bliebe der Worktree schmutzig und der nächste Versuch scheiterte daran.
+		if werr := os.WriteFile(path, data, 0o644); werr != nil {
+			m.log.Printf("PRD nicht zurückgesetzt: %v", werr)
+		}
+		return err
+	}
+	m.log.Printf("Commit: %s", msg)
+	return nil
 }
 
 // resetDatabaseIfMigrated legt die Worktree-Datenbanken neu an, wenn sich Migrationen zwischen

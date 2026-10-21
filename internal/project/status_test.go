@@ -81,6 +81,93 @@ func TestResetStatus(t *testing.T) {
 	}
 }
 
+func TestRunInfo(t *testing.T) {
+	tests := []struct {
+		detail  string
+		cost    float64
+		hasCost bool
+		model   string
+	}{
+		{"Kosten: 4.12 USD · Modell: claude-opus-5-5 · Template: einfach · Scope: x", 4.12, true, "claude-opus-5-5"},
+		{"Kosten: 0.80 USD · Scope: x", 0.8, true, ""},
+		{"Kosten: viel USD · Modell: claude-haiku-5-5", 0, false, "claude-haiku-5-5"},
+		{"Scope: x\n> Kosten: 1.00 USD", 0, false, ""},
+		{"Scope: Kosten: 1.00 USD", 0, false, ""},
+		{"", 0, false, ""},
+	}
+	for _, tt := range tests {
+		cost, hasCost, model := RunInfo(Status{Detail: tt.detail})
+		if cost != tt.cost || hasCost != tt.hasCost || model != tt.model {
+			t.Errorf("RunInfo(%q) = %v, %v, %q", tt.detail, cost, hasCost, model)
+		}
+	}
+	_, s, _ := ParseHeader(strings.NewReader("# PRD: X\n> Status: umgesetzt (2026-10-21) · Kosten: 2.50 USD · Modell: m · Scope: a\n> b\n"))
+	if cost, ok, model := RunInfo(s); cost != 2.5 || !ok || model != "m" {
+		t.Errorf("mit Folgezeile: %v, %v, %q", cost, ok, model)
+	}
+}
+
+func TestSetRunInfo(t *testing.T) {
+	tests := []struct {
+		name, in   string
+		cost       float64
+		model, out string
+	}{
+		{
+			name:  "Freitext ohne Felder",
+			in:    "# PRD: X\n\n> Status: umgesetzt (2026-10-21) · Scope: a\n> b\n",
+			cost:  4.123,
+			model: "claude-opus-5-5",
+			out:   "# PRD: X\n\n> Status: umgesetzt (2026-10-21) · Kosten: 4.12 USD · Modell: claude-opus-5-5 · Scope: a\n> b\n",
+		},
+		{
+			name:  "mit Feldern",
+			in:    "# PRD: X\n> Status: umgesetzt (2026-10-21) · Kosten: 1.00 USD · Modell: claude-haiku-5-5 · Scope: a\n",
+			cost:  2,
+			model: "claude-opus-5-5",
+			out:   "# PRD: X\n> Status: umgesetzt (2026-10-21) · Kosten: 2.00 USD · Modell: claude-opus-5-5 · Scope: a\n",
+		},
+		{
+			name:  "mit Template und Scope",
+			in:    "# PRD: X\n> Status: umgesetzt (2026-10-21) · Template: einfach · Scope: a\n",
+			cost:  0.8,
+			model: "claude-opus-5-5",
+			out:   "# PRD: X\n> Status: umgesetzt (2026-10-21) · Kosten: 0.80 USD · Modell: claude-opus-5-5 · Template: einfach · Scope: a\n",
+		},
+		{
+			name:  "ohne Freitext",
+			in:    "# PRD: X\n> Status: umgesetzt (2026-10-21)\r\n\nText\n",
+			cost:  1,
+			model: "claude-opus-5-5",
+			out:   "# PRD: X\n> Status: umgesetzt (2026-10-21) · Kosten: 1.00 USD · Modell: claude-opus-5-5\r\n\nText\n",
+		},
+		{
+			name: "ohne Modell",
+			in:   "# PRD: X\n> Status: umgesetzt (2026-10-21) · Scope: a",
+			cost: 1.5,
+			out:  "# PRD: X\n> Status: umgesetzt (2026-10-21) · Kosten: 1.50 USD · Scope: a",
+		},
+		{
+			name: "ohne Statuszeile",
+			in:   "# PRD: X\n\nText\n",
+			cost: 1,
+			out:  "# PRD: X\n\nText\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := SetRunInfo(tt.in, tt.cost, tt.model)
+			if got != tt.out {
+				t.Errorf("SetRunInfo = %q, erwartet %q", got, tt.out)
+			}
+			// Ein zweiter Aufruf mit gleichen Werten ändert nichts.
+			if again := SetRunInfo(got, tt.cost, tt.model); again != got {
+				t.Errorf("zweiter Aufruf = %q", again)
+			}
+		})
+	}
+}
+
 func TestPhaseFromStatus(t *testing.T) {
 	if got := PhaseFromStatus(Status{Kind: StatusPlanned}); got != PhasePlanned {
 		t.Errorf("geplant: %s", got)

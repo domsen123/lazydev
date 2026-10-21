@@ -277,7 +277,7 @@ func (m *Model) syncDetail() {
 	l := m.layout()
 	m.detail.Width = max(1, l.width-4)
 	m.detail.Height = max(1, l.detailHeight-2-len(m.detailHeader(d)))
-	content := strings.Join(detailMeta(d), "\n")
+	content := strings.Join(detailMeta(d, m.selectedRun()), "\n")
 	if d.Status.Detail != "" {
 		content += "\n\n" + m.md.render(d.Status.Detail, m.detail.Width)
 	}

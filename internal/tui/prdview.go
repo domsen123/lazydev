@@ -58,7 +58,7 @@ func (m Model) openPRDView() (Model, tea.Cmd) {
 		return m, nil
 	}
 	d := m.selectedPRD()
-	m.prdView = &prdView{label: d.Label(), meta: detailMeta(d), path: path, dir: dir, text: string(data), md: &markdown{}}
+	m.prdView = &prdView{label: d.Label(), meta: detailMeta(d, m.selectedRun()), path: path, dir: dir, text: string(data), md: &markdown{}}
 	m.mode = modePRDView
 	m.syncPRDView()
 	m.prdView.viewport.GotoTop()

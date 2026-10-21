@@ -77,8 +77,11 @@ func TestRunMovesUntrackedPRD(t *testing.T) {
 			t.Errorf("Schritt %d: %+v", i, s)
 		}
 	}
-	if s := r.Steps[1]; s.SessionID != "sess-1" || s.CostUSD == nil || *s.CostUSD != 0.5 {
-		t.Errorf("Sitzung oder Kosten fehlen: %+v", s)
+	if s := r.Steps[1]; s.SessionID != "sess-1" || s.Model != "claude-opus-5-5" || s.CostUSD == nil || *s.CostUSD != 0.5 {
+		t.Errorf("Sitzung, Modell oder Kosten fehlen: %+v", s)
+	}
+	if got := r.ImplementModel(); got != "claude-opus-5-5" {
+		t.Errorf("ImplementModel = %q", got)
 	}
 
 	if _, err := os.Stat(filepath.Join(target.Dir(), "prd/auth/new-token.md")); err == nil {
@@ -309,7 +312,7 @@ func fakeClaude(t *testing.T) string {
 	script := `#!/bin/sh
 # printf statt echo, weil echo in dash "\n" als Zeilenumbruch ausgibt.
 { printf '%s\n' "$@"; echo "GIT_EDITOR=$GIT_EDITOR"; } >> .fake-args
-echo '{"type":"system","subtype":"init","session_id":"sess-1"}'
+echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"claude-opus-5-5"}'
 echo 'eine Warnung' >&2
 mode="$FAKE_CLAUDE_MODE"
 case "$2" in

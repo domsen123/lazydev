@@ -37,8 +37,20 @@ func TestMergeFastForward(t *testing.T) {
 		t.Errorf("Zustand nach Merge: %+v", r)
 	}
 	main := target.Dir()
-	if got := runGit(t, main, "log", "--format=%s", "-3"); got != "feat: review\ndocs(prd): add new-token\ninit" {
+	if got := runGit(t, main, "log", "--format=%s", "-4"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token\ninit" {
 		t.Errorf("main: %q", got)
+	}
+	if body := runGit(t, main, "log", "-1", "--format=%B"); body != "docs(prd): record cost of new-token" {
+		t.Errorf("Commit mit Trailer: %q", body)
+	}
+	prd, _ := os.ReadFile(filepath.Join(main, "prd/auth/new-token.md"))
+	if !strings.Contains(string(prd), "> Status: umgesetzt (2026-10-20) · Kosten: 0.80 USD · Modell: claude-opus-5-5 · Scope: B\n") {
+		t.Errorf("PRD auf main:\n%s", prd)
+	}
+	log, _ := os.ReadFile(state.LogPath("app", "new-token", StepMerge))
+	if !strings.Contains(string(log), "Kosten im PRD vermerkt: 0.80 USD · claude-opus-5-5") ||
+		!strings.Contains(string(log), "Commit: docs(prd): record cost of new-token") {
+		t.Errorf("Log:\n%s", log)
 	}
 	if runGit(t, main, "rev-list", "--merges", "--count", "HEAD") != "0" {
 		t.Error("Merge-Commit entstanden")
@@ -98,12 +110,40 @@ func TestMergeConflictUsesMergePRD(t *testing.T) {
 		t.Fatal(err)
 	}
 	main := target.Dir()
-	if got := runGit(t, main, "log", "--format=%s", "-4"); got != "feat: review\ndocs(prd): add new-token\nmain: review.txt\ninit" {
+	if got := runGit(t, main, "log", "--format=%s", "-5"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token\nmain: review.txt\ninit" {
 		t.Errorf("main: %q", got)
 	}
 	r, _ := state.Load("app", "new-token")
 	if s := r.Steps[3]; s.SessionID != "sess-1" || s.CostUSD == nil {
 		t.Errorf("Sitzung von /merge-prd fehlt: %+v", s)
+	}
+	// Die Kosten von /merge-prd zählen mit.
+	prd, _ := os.ReadFile(filepath.Join(main, "prd/auth/new-token.md"))
+	if !strings.Contains(string(prd), "· Kosten: 0.90 USD · Modell: claude-opus-5-5 ·") {
+		t.Errorf("PRD auf main:\n%s", prd)
+	}
+}
+
+// TestMergeRetryKeepsRunInfoCommit lässt den Fast-Forward an einer Sperre im Hauptordner scheitern.
+// Der zweite Versuch schreibt dieselben Werte und erzeugt keinen zweiten Commit.
+func TestMergeRetryKeepsRunInfoCommit(t *testing.T) {
+	cfg, target := setupProject(t)
+	target = enableAutoMerge(t, cfg)
+	main := target.Dir()
+	lock := filepath.Join(main, ".git", "index.lock")
+	write(t, main, ".git/index.lock", "")
+	if err := Run(cfg, target, "new-token", io.Discard); err == nil {
+		t.Fatal("Fast-Forward trotz Sperre")
+	}
+	if got := runGit(t, worktree.Path("app", "new-token"), "log", "--format=%s", "-1"); got != "docs(prd): record cost of new-token" {
+		t.Errorf("Worktree nach dem ersten Versuch: %q", got)
+	}
+	os.Remove(lock)
+	if err := Run(cfg, target, "new-token", io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if got := runGit(t, main, "log", "--format=%s", "-5"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token\ninit" {
+		t.Errorf("main: %q", got)
 	}
 }
 
@@ -214,7 +254,7 @@ func TestMergeIntoBaseBranch(t *testing.T) {
 	if r.Phase != project.PhaseMerged || r.Base != "next" {
 		t.Errorf("Zustand nach Merge: %+v", r)
 	}
-	if got := runGit(t, main, "log", "--format=%s", "-4", "next"); got != "feat: review\ndocs(prd): add new-token\nnext only\ninit" {
+	if got := runGit(t, main, "log", "--format=%s", "-5", "next"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token\nnext only\ninit" {
 		t.Errorf("next: %q", got)
 	}
 	if got := runGit(t, main, "rev-parse", "main"); got != mainHead {

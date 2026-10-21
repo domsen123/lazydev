@@ -43,7 +43,7 @@ type Options struct {
 	// Log bekommt jede stdout-Zeile unverändert und jede stderr-Zeile als Ereignis vom Typ
 	// "stderr".
 	Log io.Writer
-	// OnChange läuft, sobald SessionID oder Ergebnis feststehen, etwa um den Zustand zu sichern.
+	// OnChange läuft, sobald SessionID, Modell oder Ergebnis feststehen, etwa um den Zustand zu sichern.
 	OnChange func(Summary)
 }
 

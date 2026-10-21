@@ -63,6 +63,22 @@ Ein PRD liegt unter `prd/<bereich>/<name>.md`. Die zweite Zeile trägt den Statu
 
 Bekannte Statuswerte: `geplant`, `umgesetzt (YYYY-MM-DD)`. Der Teil nach `·` ist Freitext.
 
+Vor dem Fast-Forward schreibt lazydev die Felder `Kosten:` und `Modell:` in den Freitext, direkt nach
+dem Statuswert und vor allen anderen Teilen, getrennt mit ` · `:
+
+```
+> Status: umgesetzt (2026-10-21) · Kosten: 4.12 USD · Modell: claude-opus-5-5 · Template: einfach · Scope: …
+```
+
+- **`Kosten:`** Summe aller Schritte des Laufs zum Zeitpunkt des Schreibens, inklusive gescheiterter
+  Versuche und eines `/merge-prd`. Zwei Nachkommastellen mit Punkt. Die Kosten des Chats, in dem das
+  PRD entstand, zählen nicht mit.
+- **`Modell:`** volle ID aus dem ersten `system`/`init`-Ereignis des letzten erfolgreichen Schritts
+  `implement`. Fehlt sie, entfällt das Feld.
+
+Die Felder stehen immer in der ersten Zeile der Statuszeile. Ein Betrag, der sich nicht als Zahl lesen
+lässt, gilt als nicht vorhanden.
+
 ### PRD-Templates
 
 Ein Template legt fest, wie lazydev ein PRD im Chat erstellt und wie der Runner es umsetzt. Review und
@@ -143,11 +159,11 @@ fehlgeschlagene Prüfung nach dem Rebase. Läuft im Worktree.
 
 ```
 ┌ Projekte ─────────────┐┌ nuxt-drizzle ──────────────────────────────────────────────┐
-│> nuxt-drizzle   ▲ 3● ││  PRD                         Phase          Port  Branch    │
-│  shop           ▲ 1● ││> auth/mobile-bearer-token    ● Umsetzung    3101  feat/mob… │
-│  blog           ▲    ││  profile/avatar-upload       ● Review       3102  feat/ava… │
-│  docs           △    ││  billing/invoice-export      ◐ Merge-Queue  3103  feat/inv… │
-│                       ││  auth/oauth-microsoft-entra  ○ geplant         –  –         │
+│> nuxt-drizzle   ▲ 3● ││  PRD               Phase          Port  Branch    Modell    │
+│  shop           ▲ 1● ││> auth/mobile-bear… ● Umsetzung    3101  feat/mob… Opus 5.5  │
+│  blog           ▲    ││  profile/avatar-u… ● Review       3102  feat/ava… Opus 5.5  │
+│  docs           △    ││  billing/invoice-… ◐ Merge-Queue  3103  feat/inv… Haiku 5.5 │
+│                       ││  auth/oauth-micro… ○ geplant         –  –                   │
 │                       ││────────────────────────────────────────────────────────────│
 │                       ││   Docker   Status                Ports        Image         │
 │                       ││ ● postgres Up 2 hours (healthy)  :5435        postgres:16   │
@@ -165,10 +181,17 @@ fehlgeschlagene Prüfung nach dem Rebase. Läuft im Worktree.
 - **Links:** Projekte. `▲` heißt: alle Container des Projekts laufen, `△`: einige oder keine laufen,
   kein Symbol: das Projekt hat kein Docker-Setup. Die Zahl mit `●` zeigt laufende PRDs.
 - **Rechts unten:** Docker-Block und Dev-Server-Zeile des gewählten Projekts (siehe „Docker-Status“).
-- **Rechts:** PRDs des gewählten Projekts mit Phase, Port des Worktrees, Branch und Kosten aller Schritte.
-  Der Titel nennt die Summe der Kosten des Projekts.
+- **Rechts:** PRDs des gewählten Projekts mit Phase, Port des Worktrees, Branch, Modell und Kosten aller
+  Schritte. Die Spalte `Modell` (Breite 9) steht zwischen `Branch` und `Kosten`. Sie zeigt das Modell
+  des letzten erfolgreichen `implement` aus dem Lauf-Zustand, sonst das Feld `Modell:` aus der
+  Statuszeile, sonst nichts. Die Kurzform lässt `claude-` am Anfang weg, schreibt den ersten Teil groß
+  und verbindet die restlichen Teile mit `.`: `claude-opus-5-5` wird `Opus 5.5`. Eine ID ohne `claude-`
+  erscheint unverändert, gekürzt auf die Spaltenbreite mit `…`. Die Kosten kommen aus dem Lauf-Zustand,
+  wenn er Kosten über 0 hat, sonst aus dem Feld `Kosten:` der Statuszeile (Format `4.12 $`).
+  Der Titel nennt die Summe der Kosten aller PRDs des Projekts nach derselben Regel, kein PRD zählt
+  doppelt.
   Oben stehen die offenen PRDs, darunter die Gruppenzeile `▸ <n> erledigt` mit allen gemergten PRDs.
-  In der Kostenspalte zeigt sie die Summe der Kosten aller erledigten PRDs.
+  In der Kostenspalte zeigt sie die Summe der Kosten aller erledigten PRDs nach derselben Regel.
   Die Gruppe ist beim Start zugeklappt. `e` oder `Enter` auf der Gruppenzeile klappt sie auf und zu.
   `S` sortiert beide Teile nach Name oder nach Erstellzeit, neueste zuerst. Die Spaltenüberschrift
   nennt die aktuelle Sortierung. Beide Einstellungen gelten bis zum Beenden der TUI.
@@ -464,8 +487,8 @@ Ohne Lauf-Zustand gilt die Statuszeile des PRDs: `geplant` → geplant, `umgeset
 6. **Review:** nur nach Erfolg: `claude -p "<prompt>"` mit dem Prompt `/arewedone` im Worktree.
 7. **Merge:** nach Erfolg in die Merge-Queue des Projekts (siehe „Merge“).
 
-Commits, die lazydev selbst erstellt (Schritt 3), schreibt es direkt mit `git commit`, ohne Claude und
-ohne Trailer.
+Commits, die lazydev selbst erstellt (Schritt 3 und „Kosten und Modell vermerken“ im Merge), schreibt es
+direkt mit `git commit`, ohne Claude und ohne Trailer.
 
 ### Aufruf von Claude
 
@@ -581,15 +604,24 @@ Ablauf pro PRD:
    Prüfung fehl, startet lazydev `/merge-prd` mit dem Fehler als Kontext. Scheitert auch das, geht das PRD
    auf „Fehler“. Nach jedem `/merge-prd` prüft lazydev selbst, dass der Branch auf dem Ziel-Branch steht und der
    Worktree sauber ist. Der Bericht allein reicht nicht.
-4. **Hauptordner prüfen:** Der Hauptordner muss auf dem Ziel-Branch stehen und sauber sein. Ungetrackte Dateien
+4. **Kosten und Modell vermerken:** lazydev schreibt `Kosten:` und `Modell:` in die Statuszeile des PRDs
+   im Worktree (siehe „PRD-Format“) und committet selbst mit
+   `git commit -m "docs(prd): record cost of <prd-name>" -- <prd-pfad>`, ohne Claude und ohne Trailer.
+   So zählt ein `/merge-prd` mit, und der Commit kommt mit dem Fast-Forward in den Ziel-Branch. Stehen
+   die Felder schon da, ersetzt lazydev die Werte an ihrer Stelle. Ändert sich nichts, entsteht kein
+   Commit. Die Prüfung läuft danach nicht erneut, der Commit ändert nur das PRD. Ist das PRD nicht lesbar
+   oder hat es keine Statuszeile, scheitert der Merge mit „Kosten nicht im PRD vermerkt: <fehler>“. Das
+   Log zeigt `Kosten im PRD vermerkt: 4.12 USD · claude-opus-5-5` und bei einem Commit
+   `Commit: docs(prd): record cost of <prd-name>`.
+5. **Hauptordner prüfen:** Der Hauptordner muss auf dem Ziel-Branch stehen und sauber sein. Ungetrackte Dateien
    unter `prd/` sind erlaubt, ebenso die vom Dev-Server geschriebenen `.mcp.json` und `.vscode/mcp.json`.
    Berührt der Merge diese Dateien, bricht der Fast-Forward ab. Sonst wartet das PRD in der Queue mit dem
    Hinweis „Hauptordner nicht sauber“ im Feld `note`, bis du aufräumst. lazydev prüft alle 5 Sekunden.
-5. **Fast-Forward:** im Hauptordner `git merge --ff-only feat/<prd-name>`. Durch den Rebase ist das
+6. **Fast-Forward:** im Hauptordner `git merge --ff-only feat/<prd-name>`. Durch den Rebase ist das
    immer ein Fast-Forward. Es entstehen keine Merge-Commits.
-6. **Datenbank im Hauptordner:** Brachte der Merge neue Migrationen, zeigt lazydev den Hinweis
+7. **Datenbank im Hauptordner:** Brachte der Merge neue Migrationen, zeigt lazydev den Hinweis
    „`pnpm db:migrate` im Hauptordner ausführen“. lazydev migriert die Haupt-Datenbank nicht selbst.
-7. **Aufräumen:** Teardown-Hook, `git worktree remove`, `git branch -d feat/<prd-name>`. Phase „gemergt“.
+8. **Aufräumen:** Teardown-Hook, `git worktree remove`, `git branch -d feat/<prd-name>`. Phase „gemergt“.
    Zustand und Logs bleiben, der Port ist wieder frei. Scheitert das Aufräumen, bleibt das PRD gemergt,
    und `note` nennt den Fehler.
 
@@ -678,16 +710,18 @@ Lauf-Zustand (Beispiel):
   "startedAt": "2026-10-20T14:02:11+02:00",
   "steps": [
     { "name": "setup", "exitCode": 0, "ok": true, "endedAt": "…" },
-    { "name": "implement", "sessionId": "…", "exitCode": 0, "ok": true, "costUsd": 1.42, "endedAt": "…" },
-    { "name": "review", "sessionId": "…", "exitCode": null, "ok": false }
+    { "name": "implement", "sessionId": "…", "model": "claude-opus-5-5", "exitCode": 0, "ok": true, "costUsd": 1.42, "endedAt": "…" },
+    { "name": "review", "sessionId": "…", "model": "claude-opus-5-5", "exitCode": null, "ok": false }
   ],
   "error": null
 }
 ```
 
-`ok` ist `false`, wenn ein Schritt trotz Exit-Code 0 scheiterte, etwa an einer offenen Frage. Ein Schritt
-taucht nach einer Wiederholung mehrfach auf. In `phase` stehen Schlüssel wie `review`, die TUI zeigt die
-deutschen Namen aus der Phasen-Tabelle. stderr von Claude steht im Log als `{"type":"stderr","text":…}`.
+`ok` ist `false`, wenn ein Schritt trotz Exit-Code 0 scheiterte, etwa an einer offenen Frage. `model` ist
+das Feld `model` aus dem ersten `system`/`init`-Ereignis von Claude im Schritt und fehlt bei Schritten
+ohne Claude. Ein Schritt taucht nach einer Wiederholung mehrfach auf. In `phase` stehen Schlüssel wie
+`review`, die TUI zeigt die deutschen Namen aus der Phasen-Tabelle. stderr von Claude steht im Log als
+`{"type":"stderr","text":…}`.
 
 Chat-Zustand (Beispiel). `prompt` und `shown` gehören zur laufenden oder letzten Runde, `shown` steht im
 Verlauf statt eines langen eingebetteten Prompts:
@@ -744,9 +778,11 @@ Aus dem stream-json zeigt lazydev eine kompakte Zeile pro Ereignis:
 - Über dem Log steht eine Zeile mit Phase, Port, Kosten aller Schritte, PID und dem Fehler oder Hinweis
   aus dem Zustand.
 - Ohne Lauf zeigt der untere Bereich die Details des PRDs. Unter dem Titel stehen Status, Datei,
-  Git-Zustand und Erstellzeit untereinander, darunter der Freitext der Statuszeile. Folgezeilen desselben Zitatblocks gehören zum Freitext. Die TUI rendert ihn mit Glamour
-  als Markdown. Ist der untere Bereich im Fokus, scrollen `j` `k`, Bild-Tasten und `G` den Text. Das
-  Mausrad scrollt ebenfalls. Passt der Text nicht in die Box, zeigt der Titel die Position in Prozent.
+  Git-Zustand, Erstellzeit, Kosten (`4.12 USD`) und Modell (volle ID) untereinander. Kosten und Modell
+  kommen aus dem Lauf-Zustand, sonst aus der Statuszeile, und entfallen ohne Wert. Darunter steht der
+  Freitext der Statuszeile unverändert, also auch mit den Feldern `Kosten:` und `Modell:`. Folgezeilen
+  desselben Zitatblocks gehören zum Freitext. Die TUI rendert ihn mit Glamour als Markdown. Ist der
+  untere Bereich im Fokus, scrollen `j` `k`, Bild-Tasten und `G` den Text. Das Mausrad scrollt ebenfalls. Passt der Text nicht in die Box, zeigt der Titel die Position in Prozent.
 - `v` zeigt das gewählte PRD vollständig in einem Fenster wie der Chat, Titel `PRD: <bereich>/<name>`.
   Oben stehen die Metazeilen der Detailansicht, darunter die komplette Datei als Markdown, gerendert mit
   Glamour. Hat ein Lauf das PRD in seinen Worktree verschoben und ist es nicht gemergt, liest lazydev die

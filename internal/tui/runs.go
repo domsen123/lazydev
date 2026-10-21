@@ -86,6 +86,37 @@ func prdPhase(d *project.PRD, r *state.Run) project.Phase {
 	return d.Phase()
 }
 
+// prdCost nimmt die Kosten aus dem Lauf, wenn er welche hat, sonst aus der Statuszeile.
+func prdCost(d *project.PRD, r *state.Run) (float64, bool) {
+	if r != nil && r.Cost() > 0 {
+		return r.Cost(), true
+	}
+	return d.CostUSD, d.HasCost
+}
+
+// prdModel nimmt das Modell des letzten erfolgreichen implement aus dem Lauf, sonst aus der
+// Statuszeile.
+func prdModel(d *project.PRD, r *state.Run) string {
+	if r != nil {
+		if m := r.ImplementModel(); m != "" {
+			return m
+		}
+	}
+	return d.Model
+}
+
+// projectCost summiert die Kosten aller PRDs eines Projekts nach prdCost.
+func (rs runs) projectCost(p *project.Project) float64 {
+	total := 0.0
+	for i := range p.PRDs {
+		d := &p.PRDs[i]
+		if c, ok := prdCost(d, rs.get(p, d)); ok {
+			total += c
+		}
+	}
+	return total
+}
+
 // activeRuns zählt die laufenden Runner eines Projekts.
 func (rs runs) activeRuns(projectID string) int {
 	n := 0
