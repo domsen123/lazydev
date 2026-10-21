@@ -60,10 +60,33 @@ func SaveProjects(paths []string) error {
 	return fsutil.WriteAtomic(projectsPath(), append(data, '\n'), 0o644)
 }
 
-// Settings are the settings of the TUI.
+// Settings are the settings of the TUI and of the Claude steps of the runner.
 type Settings struct {
 	// Theme is the name of the color theme.
 	Theme string `json:"theme,omitempty"`
+	// AllowedTools add to claude.DefaultAllowedTools in every Claude step of all projects. They
+	// belong to the user and need no trust.
+	AllowedTools []string `json:"allowedTools,omitempty"`
+	// PermissionMode is the --permission-mode of every Claude step, see Mode.
+	PermissionMode string `json:"permissionMode,omitempty"`
+}
+
+// Permission modes a Claude step may run with.
+const (
+	ModeAcceptEdits = "acceptEdits"
+	ModeAuto        = "auto"
+)
+
+// Mode is the permission mode of the Claude steps: acceptEdits for an empty value, the value for
+// acceptEdits and auto, an error otherwise.
+func (s Settings) Mode() (string, error) {
+	switch s.PermissionMode {
+	case "":
+		return ModeAcceptEdits, nil
+	case ModeAcceptEdits, ModeAuto:
+		return s.PermissionMode, nil
+	}
+	return "", fmt.Errorf("settings.json: unknown permissionMode %q, allowed: %s, %s", s.PermissionMode, ModeAcceptEdits, ModeAuto)
 }
 
 // LoadSettings reads settings.json. A missing or broken file gives the defaults.

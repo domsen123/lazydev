@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"lazydev/internal/claude"
+	"lazydev/internal/config"
 	"lazydev/internal/git"
 	"lazydev/internal/project"
 	"lazydev/internal/prompts"
@@ -61,6 +62,13 @@ func runClaude(ctx context.Context, t Target, prdName string, r *state.Run, step
 	if err != nil {
 		return claude.Summary{}, 1, err
 	}
+	// Every step reads settings.json anew, so a change applies from the next step on.
+	settings := config.LoadSettings()
+	mode, err := settings.Mode()
+	if err != nil {
+		return claude.Summary{}, 1, err
+	}
+	tools := allowedTools(claude.DefaultAllowedTools, settings.AllowedTools, cfg.AllowedTools)
 	prompt, err := prompts.Build(t.Dir, r.Worktree, cfg, step, prompts.Vars{Arguments: args, Base: r.Base, Branch: r.Branch})
 	if err != nil {
 		return claude.Summary{}, 1, err
@@ -70,10 +78,11 @@ func runClaude(ctx context.Context, t Target, prdName string, r *state.Run, step
 		baseCost = *c
 	}
 	o := claude.Options{
-		Dir:          r.Worktree,
-		Prompt:       prompt,
-		AllowedTools: append(slices.Clone(claude.DefaultAllowedTools), cfg.AllowedTools...),
-		Log:          log,
+		Dir:            r.Worktree,
+		Prompt:         prompt,
+		AllowedTools:   tools,
+		PermissionMode: mode,
+		Log:            log,
 		OnChange: func(s claude.Summary) {
 			last := r.LastStep()
 			last.SessionID = s.SessionID
@@ -89,12 +98,26 @@ func runClaude(ctx context.Context, t Target, prdName string, r *state.Run, step
 			}
 		},
 	}
+	log.printf("Permissions: %s, %d allowed tools", mode, len(tools))
 	log.printf("$ %s %s", claude.Command[0], claude.FirstLine(prompt))
 	s, exitCode, err := claude.Run(ctx, o)
 	if err != nil {
 		return s, exitCode, fmt.Errorf("%s: %w", claude.Command[0], err)
 	}
 	return s, exitCode, nil
+}
+
+// allowedTools joins the lists in their order without duplicates, the first entry stays.
+func allowedTools(lists ...[]string) []string {
+	var tools []string
+	for _, list := range lists {
+		for _, tool := range list {
+			if !slices.Contains(tools, tool) {
+				tools = append(tools, tool)
+			}
+		}
+	}
+	return tools
 }
 
 // checkSummary evaluates exit code and the last result event.

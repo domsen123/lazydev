@@ -17,7 +17,18 @@ Not goals: remote runs, pushing, pull requests, issue trackers, editing PRDs ins
 - Adding a project, also one already in the list, runs `.lazydev/` init (see below).
 - The project ID is the folder name. Projects that share a folder name get `-<first 6 hex of sha1(path)>`.
   IDs name state and worktree folders and are independent of the list order.
-- `settings.json` holds the color theme by name (`Default`, `Tokyo Night`).
+- `settings.json` holds:
+  - `theme`: the color theme by name (`Default`, `Tokyo Night`).
+  - `allowedTools`: rights for every Claude step of all projects, same syntax as in `config.yaml`, e.g.
+    `Bash(head:*)`. Without the field there are no extra rights.
+  - `permissionMode`: `acceptEdits` or `auto` for every Claude step of the runner. Empty or missing means
+    `acceptEdits`. Any other value fails the Claude step before Claude starts with
+    `settings.json: unknown permissionMode "<value>", allowed: acceptEdits, auto`. `s` continues at that
+    step after a fix.
+
+  lazydev writes no defaults into `settings.json`. A broken file gives the defaults: `acceptEdits` and no
+  extra rights. Every Claude step reads the file at its start, so a change applies from the next step on,
+  also in a running runner.
 
 ## `.lazydev/`
 
@@ -61,6 +72,9 @@ not change it. Without both sections there is nothing to trust. `s` on an untrus
 prints both sections and asks. Runners check trust before every start and again before every hook, so a
 hook changed during a run does not run. `D` needs trust too. `X` on an untrusted project cleans up without
 the teardown hook and reports `teardown hook not run`.
+
+`allowedTools` in `~/.config/lazydev/settings.json` belong to the user. They need no trust and are not part
+of the hash.
 
 ### Wizard (`i`)
 
@@ -217,11 +231,14 @@ check. Merges always run automatically.
 
 ### Claude call
 
-`claude -p <prompt> --output-format stream-json --verbose --permission-mode acceptEdits --allowedTools
-<built-in git and file tools + allowedTools> --agents <state>/agents.json` in the worktree, stdin
-`/dev/null`, `GIT_EDITOR=true`. Each stream line gets a `ts` field in the log, stderr lines become
-`{"type":"stderr"}`. Session, model and cost go into the step as they arrive. The agents `committer` and
-`structural-completeness-reviewer` are built in.
+`claude -p <prompt> --output-format stream-json --verbose --permission-mode <mode> --allowedTools <list>
+--agents <state>/agents.json` in the worktree, stdin `/dev/null`, `GIT_EDITOR=true`. `<mode>` is
+`permissionMode` from `settings.json`. `<list>` holds the built-in git and file tools, then `allowedTools`
+from `settings.json`, then `allowedTools` from `config.yaml`. Duplicates drop out, the first one stays. In
+mode `auto` the list goes to Claude unchanged. Before the line `$ claude …` the step log gets
+`Permissions: <mode>, <n> allowed tools`, `<n>` counts the list without duplicates. Each stream line gets a
+`ts` field in the log, stderr lines become `{"type":"stderr"}`. Session, model and cost go into the step as
+they arrive. The agents `committer` and `structural-completeness-reviewer` are built in.
 
 ### Hooks and dev server
 

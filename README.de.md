@@ -124,11 +124,25 @@ lazydev trust <projekt>
 
 | Pfad | Inhalt |
 |---|---|
-| `~/.config/lazydev/` | `projects.json`, `settings.json` (Farbschema) |
+| `~/.config/lazydev/` | `projects.json`, `settings.json` (`theme`, `allowedTools`, `permissionMode`) |
 | `~/.local/state/lazydev/` | `runs/<id>/<prd>.json` und Logs der Schritte, `trust/`, `locks/`, `usage.json`, `bin/` |
 | `~/.local/share/lazydev/worktrees/<id>/<prd>/` | Worktrees |
 
 `XDG_CONFIG_HOME`, `XDG_STATE_HOME` und `XDG_DATA_HOME` gelten.
+
+`allowedTools` in `settings.json` gelten für jeden Claude-Schritt aller Projekte, nach den eingebauten Tools
+und vor `allowedTools` aus `config.yaml`. Sie brauchen kein Vertrauen. `permissionMode` ist `acceptEdits`
+(Vorgabe) oder `auto`. Jeder andere Wert lässt den Claude-Schritt vor dem Start von Claude scheitern.
+
+```json
+{
+  "permissionMode": "auto",
+  "allowedTools": ["Bash(head:*)", "Bash(tail:*)", "Bash(sed -n:*)", "Bash(grep:*)"]
+}
+```
+
+Im Modus `auto` entscheidet ein Klassifikator von Claude Code über jeden Tool-Aufruf statt der Präfix-Liste.
+Das Ergebnis ist nicht deterministisch.
 
 ## Entwicklung
 

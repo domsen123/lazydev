@@ -19,9 +19,9 @@ import (
 // Command starts Claude Code. Tests replace it with a fake.
 var Command = []string{"claude"}
 
-// DefaultAllowedTools apply to every step, allowedTools of config.yaml add to them. Claude ignores
-// permissions.allow in folders without a confirmed trust dialog, like new worktrees, so every
-// permission comes through --allowedTools.
+// DefaultAllowedTools apply to every step, allowedTools of settings.json and then of config.yaml
+// add to them. Claude ignores permissions.allow in folders without a confirmed trust dialog, like
+// new worktrees, so every permission comes through --allowedTools.
 var DefaultAllowedTools = []string{
 	"Read", "Edit", "Write", "Glob", "Grep", "Task",
 	"Bash(git status:*)", "Bash(git diff:*)", "Bash(git log:*)", "Bash(git add:*)",
@@ -36,6 +36,8 @@ const StderrType = "stderr"
 type Options struct {
 	Dir, Prompt  string
 	AllowedTools []string
+	// PermissionMode is the value of --permission-mode, empty means acceptEdits.
+	PermissionMode string
 	// Log gets every stdout line with a timestamp and every stderr line as an event of type
 	// stderr.
 	Log io.Writer
@@ -93,9 +95,13 @@ func Run(ctx context.Context, o Options) (s Summary, exitCode int, err error) {
 	if err != nil {
 		return s, -1, err
 	}
+	mode := o.PermissionMode
+	if mode == "" {
+		mode = "acceptEdits"
+	}
 	args := append(slices.Clone(Command[1:]), "-p", o.Prompt,
 		"--output-format", "stream-json", "--verbose",
-		"--permission-mode", "acceptEdits",
+		"--permission-mode", mode,
 		"--allowedTools", strings.Join(o.AllowedTools, ","),
 		"--agents", agents)
 	cmd := exec.CommandContext(ctx, Command[0], args...)

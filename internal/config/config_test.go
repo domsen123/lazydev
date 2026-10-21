@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -139,7 +140,7 @@ func TestProjects(t *testing.T) {
 
 func TestSettings(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	if s := LoadSettings(); s != (Settings{}) {
+	if s := LoadSettings(); !reflect.DeepEqual(s, Settings{}) {
 		t.Errorf("missing file: %+v", s)
 	}
 	if err := SaveSettings(Settings{Theme: "Tokyo Night"}); err != nil {
@@ -148,9 +149,31 @@ func TestSettings(t *testing.T) {
 	if s := LoadSettings(); s.Theme != "Tokyo Night" {
 		t.Errorf("roundtrip: %+v", s)
 	}
+	full := Settings{Theme: "Nord", AllowedTools: []string{"Bash(head:*)", "Read"}, PermissionMode: "auto"}
+	if err := SaveSettings(full); err != nil {
+		t.Fatal(err)
+	}
+	if s := LoadSettings(); !reflect.DeepEqual(s, full) {
+		t.Errorf("roundtrip with permissions: %+v", s)
+	}
 	os.WriteFile(settingsPath(), []byte("not json"), 0o644)
-	if s := LoadSettings(); s != (Settings{}) {
+	if s := LoadSettings(); !reflect.DeepEqual(s, Settings{}) {
 		t.Errorf("broken file: %+v", s)
+	}
+}
+
+func TestSettingsMode(t *testing.T) {
+	for in, want := range map[string]string{"": "acceptEdits", "acceptEdits": "acceptEdits", "auto": "auto"} {
+		if got, err := (Settings{PermissionMode: in}).Mode(); got != want || err != nil {
+			t.Errorf("Mode(%q) = %q, %v, want %q", in, got, err, want)
+		}
+	}
+	for _, in := range []string{"bypassPermissions", "dontAsk", "manual", "plan", "Auto"} {
+		_, err := Settings{PermissionMode: in}.Mode()
+		want := `settings.json: unknown permissionMode "` + in + `", allowed: acceptEdits, auto`
+		if err == nil || err.Error() != want {
+			t.Errorf("Mode(%q): %v", in, err)
+		}
 	}
 }
 
