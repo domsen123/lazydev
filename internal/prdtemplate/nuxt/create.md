@@ -32,9 +32,8 @@ Bevor du irgendetwas fragst, verschaffe dir echtes Kontextwissen. Verlasse dich 
 
 1. Verschaffe dir einen Überblick: bestehende PRDs unter `prd/`, Feature-Slices unter `app/features/`
    und `server/features/`, `git log --oneline -5`.
-2. Lies die Architektur-Doku vollständig: `_ARCHITECTURE.md`, in manchen Projekten
-   `_SPEC_ARCHITECTURE.md`. Präge dir besonders die **Feature-Checkliste** und die
-   **Anti-Patterns to Avoid** ein. Beide werden im PRD referenziert.
+2. Lies die Architektur-Doku `_ARCHITECTURE.md` vollständig. Präge dir besonders die
+   **Feature-Checkliste** und die **Anti-Patterns to Avoid** ein. Beide werden im PRD referenziert.
 3. Lies die relevanten Konventionen aus `CLAUDE.md` (Aliase `~/`, `~~server/`, `~~shared/`;
    Arrow Functions; Zod v4 mit `.trim()`; Drizzle-Workflow `pnpm db:generate` → `pnpm db:migrate`).
 4. Lies **ein** bestehendes PRD als Stil- und Strukturvorlage, bevorzugt ein thematisch nahes.
@@ -174,8 +173,8 @@ Speichere das PRD als `prd/<bereich>/<feature-name>.md`:
 
 - `<bereich>`: bestehenden Themen-Ordner unter `prd/` wiederverwenden, falls er passt; sonst einen
   neuen, sprechenden Ordner anlegen.
-- `<feature-name>`: kebab-case, sprechend (Stil wie `vereine-shops-foundation`,
-  `follows-profiles-and-search`).
+- `<feature-name>`: kebab-case, sprechend (Stil wie `mobile-bearer-token-auth`,
+  `appearance-preferences`).
 - Kündige den finalen Zielpfad an.
 
 ### Phase 5: Abschluss (KEINE Umsetzung starten)

@@ -19,7 +19,7 @@ sind nicht möglich.
 
 ## Commit-Message
 
-- Conventional Commits: `<typ>(<scope>): <betreff>`, z. B. `feat(planning): …` oder `fix(auth): …`.
+- Conventional Commits: `<typ>(<scope>): <betreff>`, z. B. `feat(orders): …` oder `fix(auth): …`.
 - Sprache, Scope-Namen und Stil wie in `git log`.
 - Betreff im Imperativ, höchstens 72 Zeichen, ohne Punkt am Ende.
 - Der Body erklärt das Warum, nicht jede geänderte Datei.

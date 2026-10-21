@@ -16,8 +16,8 @@ Arbeite strikt in dieser Reihenfolge.
 ### Schritt 1: Lesen
 
 1. Lies das PRD vollständig. Fehlt die Datei, brich ab.
-2. Lies `CLAUDE.md` und die Architektur-Doku (`_ARCHITECTURE.md`, in manchen Projekten
-   `_SPEC_ARCHITECTURE.md`), besonders die Feature-Checkliste und die Anti-Patterns.
+2. Lies `CLAUDE.md` und die Architektur-Doku `_ARCHITECTURE.md`, besonders die Feature-Checkliste und
+   die Anti-Patterns.
 3. Lies die Prüfbefehle aus `CLAUDE.md`, z. B. `pnpm lint`, `pnpm typecheck`, `pnpm test:run`.
 4. Lies die Dateien, die das PRD unter `## Umsetzung (Feature-Anatomie)` und `## Technische Hinweise`
    nennt, und die bestehenden Slices, auf die es verweist, bevor du etwas änderst.
