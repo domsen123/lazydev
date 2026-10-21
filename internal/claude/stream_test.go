@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"slices"
 	"strings"
 	"testing"
 )
@@ -69,7 +70,11 @@ func TestDescribe(t *testing.T) {
 
 func TestArgsJoinAllowedTools(t *testing.T) {
 	args := Options{Prompt: "/x", AllowedTools: []string{"Read", "Bash(git status:*)"}}.Args()
-	if got := args[len(args)-1]; got != "Read,Bash(git status:*)" {
-		t.Errorf("allowedTools = %q", got)
+	i := slices.Index(args, "--allowedTools")
+	if i < 0 || args[i+1] != "Read,Bash(git status:*)" {
+		t.Errorf("allowedTools in %q", args)
+	}
+	if i := slices.Index(args, "--agents"); i < 0 || args[i+1] != AgentsPath() {
+		t.Errorf("--agents fehlt in %q", args)
 	}
 }

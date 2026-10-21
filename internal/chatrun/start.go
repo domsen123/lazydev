@@ -17,10 +17,12 @@ import (
 const Model = "opus"
 
 // AllowedTools erlaubt dem Chat das Lesen des Projekts und das Schreiben unter prd/.
-// Die Bash-Freigaben decken die eingebetteten Kontextbefehle des Commands ab.
+// Die Bash-Freigaben decken die Kontextbefehle der Prompts ab, die pencil-Freigaben das Lesen
+// von Pencil-Screens.
 var AllowedTools = []string{
 	"Read", "Glob", "Grep", "Task", "Edit(prd/**)",
 	"Bash(find:*)", "Bash(ls:*)", "Bash(git log:*)", "Bash(git status:*)",
+	"mcp__pencil__get_app_state", "mcp__pencil__read_skill", "mcp__pencil__execute",
 }
 
 // idFormat benennt einen Chat nach seiner Startzeit.

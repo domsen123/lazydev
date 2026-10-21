@@ -125,7 +125,7 @@ func (m Model) startChat(display, desc string) (Model, tea.Cmd) {
 	t := prdtemplate.All[m.template]
 	id, err := chatrun.Create(p.ID, "Neues PRD ("+t.Label+"): "+p.Name(), display, p.Path, time.Now())
 	if err == nil {
-		err = chatrun.Send(p.ID, id, t.CreateDisplay(desc), t.CreatePrompt(desc))
+		err = chatrun.Send(p.ID, id, desc, t.CreatePrompt(desc))
 	}
 	var c *chat
 	if err == nil {

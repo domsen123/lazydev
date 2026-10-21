@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"os"
@@ -25,11 +26,16 @@ const (
 	resultAborted     = "abgebrochen"
 )
 
+// reviewPrompt ist der Prompt des Schritts review. Seine erste Zeile nennt ihn im Log /arewedone.
+//
+//go:embed prompts/arewedone.md
+var reviewPrompt string
+
 func prompt(r *state.Run, step string) string {
 	if step == StepImplement {
 		return prdtemplate.Get(prdTemplate(r)).ImplementPrompt(r.PRD)
 	}
-	return "/arewedone"
+	return reviewPrompt
 }
 
 // prdTemplate liest das Template aus der Statuszeile des PRDs im Worktree. Ist das PRD nicht

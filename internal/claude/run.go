@@ -24,6 +24,7 @@ var DefaultAllowedTools = []string{
 	"Bash(git rm:*)", "Bash(git mv:*)", "Bash(git show:*)", "Bash(git branch:*)",
 	"Bash(pnpm lint:*)", "Bash(pnpm typecheck:*)", "Bash(pnpm test:run:*)",
 	"Bash(pnpm db:generate:*)", "Bash(pnpm db:migrate:*)",
+	"mcp__pencil__get_app_state", "mcp__pencil__read_skill", "mcp__pencil__execute",
 }
 
 // StderrType markiert Zeilen von stderr im Log, damit das Log durchgehend JSONL bleibt.
@@ -53,6 +54,7 @@ func (o Options) Args() []string {
 		"--output-format", "stream-json", "--verbose",
 		"--permission-mode", "acceptEdits",
 		"--allowedTools", strings.Join(o.AllowedTools, ","),
+		"--agents", AgentsPath(),
 	}
 	if o.Resume != "" {
 		args = append(args, "--resume", o.Resume)
@@ -66,6 +68,9 @@ func (o Options) Args() []string {
 // Run startet claude und wartet auf das Ende. exitCode ist -1, wenn claude nicht startet oder
 // durch ein Signal endet. Bricht ctx ab, bekommt claude SIGTERM.
 func Run(ctx context.Context, o Options) (s Summary, exitCode int, err error) {
+	if err := WriteAgents(); err != nil {
+		return s, -1, err
+	}
 	log := &syncWriter{w: o.Log}
 	cmd := exec.CommandContext(ctx, o.Binary, o.Args()...)
 	cmd.Dir = o.Dir

@@ -104,8 +104,9 @@ func TestRunMovesUntrackedPRD(t *testing.T) {
 		t.Errorf("Log von implement:\n%s", implLog)
 	}
 	args, _ := os.ReadFile(filepath.Join(wt, ".fake-args"))
-	if !strings.Contains(string(args), "/implement-prd prd/auth/new-token.md") ||
-		!strings.Contains(string(args), "Bash(git status:*),") || !strings.Contains(string(args), "GIT_EDITOR=true") {
+	if !strings.Contains(string(args), "# PRD umsetzen (Template „nuxt“): prd/auth/new-token.md") ||
+		!strings.Contains(string(args), "Bash(git status:*),") || !strings.Contains(string(args), "GIT_EDITOR=true") ||
+		!strings.Contains(string(args), "--agents\n"+claude.AgentsPath()) {
 		t.Errorf("Aufruf von claude:\n%s", args)
 	}
 
@@ -312,8 +313,8 @@ echo '{"type":"system","subtype":"init","session_id":"sess-1"}'
 echo 'eine Warnung' >&2
 mode="$FAKE_CLAUDE_MODE"
 case "$2" in
-/implement-prd*)
-	prd="${2#/implement-prd }"
+"# PRD umsetzen"*)
+	prd=$(printf '%s\n' "$2" | sed -n '1s/^.*): //p')
 	case "$mode" in
 	exit) echo '{"type":"result","is_error":true,"result":"kaputt"}'; exit 3 ;;
 	noresult) exit 0 ;;
@@ -324,7 +325,7 @@ case "$2" in
 	echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"x.ts"}}]}}'
 	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.5,"result":"## Ergebnis\numgesetzt\n\n## Offene Fragen\n- keine\n"}'
 	;;
-/merge-prd*)
+"# /merge-prd"*)
 	if [ "$FAKE_MERGE_MODE" = abort ]; then
 		printf '%s\n' '{"type":"result","is_error":false,"result":"## Ergebnis\nabgebrochen\n\n## Offene Punkte\n- review.txt: beide Seiten unklar\n"}'
 		exit 0
@@ -333,7 +334,7 @@ case "$2" in
 	touch .merge-fixed
 	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\nbereit für Fast-Forward\n"}'
 	;;
-/arewedone)
+"# /arewedone"*)
 	echo change > review.txt
 	if [ "$mode" != dirty ]; then
 		git add -A && git commit -q -m "feat: review"
@@ -372,11 +373,35 @@ func TestImplementPromptFollowsTemplate(t *testing.T) {
 	wt := t.TempDir()
 	os.MkdirAll(filepath.Join(wt, "prd", "a"), 0o755)
 	r := &state.Run{PRD: "prd/a/b.md", Worktree: wt}
-	if got := prompt(r, StepImplement); got != "/implement-prd prd/a/b.md" {
-		t.Errorf("ohne PRD: %q", got)
+	if got := prompt(r, StepImplement); !strings.HasPrefix(got, "# PRD umsetzen (Template „nuxt“): prd/a/b.md\n") {
+		t.Errorf("ohne PRD: %q", claude.FirstLine(got))
 	}
 	os.WriteFile(filepath.Join(wt, r.PRD), []byte("# PRD: B\n> Status: geplant · Template: einfach · Scope: x\n"), 0o644)
 	if got := prompt(r, StepImplement); !strings.HasPrefix(got, "# PRD umsetzen (Template „einfach“): prd/a/b.md") {
 		t.Errorf("Template einfach: %q", claude.FirstLine(got))
+	}
+}
+
+// TestEmbeddedPrompts prüft, dass Review und Merge eingebettet sind, die Agenten unter ihrem Namen
+// aufrufen und $ARGUMENTS ersetzen.
+func TestEmbeddedPrompts(t *testing.T) {
+	agents, err := claude.Agents()
+	if err != nil {
+		t.Fatal(err)
+	}
+	review := prompt(&state.Run{}, StepReview)
+	if claude.FirstLine(review) != "# /arewedone: Review und Commit" || strings.HasPrefix(review, "---") {
+		t.Errorf("Review-Prompt: %q", claude.FirstLine(review))
+	}
+	for _, name := range []string{"structural-completeness-reviewer", "committer"} {
+		if _, ok := agents[name]; !ok || !strings.Contains(review, "`"+name+"`") {
+			t.Errorf("Review ruft Agent %s nicht auf", name)
+		}
+	}
+	if _, ok := agents["committer"]; !ok || !strings.Contains(mergePrompt, "`committer`") {
+		t.Error("Merge ruft committer nicht auf")
+	}
+	if strings.HasPrefix(mergePrompt, "---") || !strings.Contains(mergePrompt, "$ARGUMENTS") {
+		t.Errorf("Merge-Prompt: %q", claude.FirstLine(mergePrompt))
 	}
 }

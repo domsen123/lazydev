@@ -16,8 +16,11 @@ Die vollständige Beschreibung des Verhaltens steht in [SPEC.md](SPEC.md).
 - Linux mit `/proc`. lazydev nutzt `setsid`, `flock` und `/proc` für Prozesse und Ports.
 - Go 1.27 oder neuer zum Bauen.
 - `git` und [Claude Code](https://claude.com/claude-code) (`claude`) im `PATH`.
-- Die globalen Commands `/create-prd`, `/implement-prd`, `/arewedone` und `/merge-prd` unter
-  `~/.claude/commands/` und der Agent `committer`.
+- Keine globalen Commands oder Agenten. lazydev bringt seine Prompts (Erstellen, Umsetzen, Review, Merge)
+  und die Agenten `committer` und `structural-completeness-reviewer` im Binary mit und übergibt die
+  Agenten mit `claude --agents`.
+- Optional für das Template „Nuxt-Feature“: der MCP-Server `pencil`. Damit liest Claude Pencil-Screens für
+  PRD und UI.
 - Für das Preset `nuxt-drizzle`: Docker, `pnpm` und die Compose-Container des Projekts.
 - Für die Box „Issues“: das [GitHub CLI](https://cli.github.com) (`gh`) im `PATH`, angemeldet mit
   `gh auth login`.
@@ -47,12 +50,11 @@ lazydev neu. Runner, die danach starten, nutzen die neue Version. Für die Entwi
    Jede Runde läuft im Hintergrund weiter, auch nach `Esc` oder `q`. Stellt Claude eine Rückfrage oder
    scheitert eine Runde, erscheint der Chat in der Box „Benachrichtigungen“ rechts neben den PRDs. Das
    Projekt zeigt dann ` <anzahl>✉`. Um den Chat wieder zu öffnen, drücke `N` oder `Enter` in der Box.
-   - **Nuxt-Feature** nutzt `/create-prd` und `/implement-prd`, mit Datenmodell und UI-Handoff.
-   - **Einfach** gilt für Projekte ohne Datenmodell, UI-Handoff und Architektur-Doku. Die Prompts bringt
-     lazydev selbst mit. Um Prüfbefehle wie `make test` freizugeben, trage sie unter `allowedTools` des
+   - **Nuxt-Feature** hat Datenmodell, Feature-Checkliste aus `_ARCHITECTURE.md` und UI-Handoff.
+   - **Einfach** gilt für Projekte ohne Datenmodell, UI-Handoff und Architektur-Doku. Um Prüfbefehle wie `make test` freizugeben, trage sie unter `allowedTools` des
      Projekts ein, z. B. `Bash(make test:*)`.
 4. Wähle das PRD und drücke `s`. lazydev legt den Worktree an, setzt die Datenbanken auf, führt
-   `/implement-prd` (bei „Einfach“ den eigenen Prompt) und `/arewedone` aus und mergt.
+   den Umsetzungs-Prompt des Templates und das Review (`/arewedone`) aus und mergt.
 5. Verfolge den Lauf im Log unten. Mit `l` siehst du es in voller Höhe.
 
 Am unteren Rand der PRD-Liste stehen die Docker-Services des Projekts mit Status, Ports und Image,

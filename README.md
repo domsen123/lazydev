@@ -17,8 +17,11 @@ README gives the German UI labels in quotes, followed by a translation.
 - Linux with `/proc`. lazydev uses `setsid`, `flock`, and `/proc` for processes and ports.
 - Go 1.27 or later to build.
 - `git` and [Claude Code](https://claude.com/claude-code) (`claude`) in your `PATH`.
-- The global commands `/create-prd`, `/implement-prd`, `/arewedone`, and `/merge-prd` in
-  `~/.claude/commands/`, and the `committer` agent.
+- No global commands or agents. lazydev ships its prompts (create, implement, review, merge) and the
+  `committer` and `structural-completeness-reviewer` agents in the binary and passes the agents with
+  `claude --agents`.
+- Optional for the "Nuxt-Feature" template: the `pencil` MCP server. With it, Claude reads Pencil screens
+  for the PRD and the UI.
 - For the `nuxt-drizzle` preset: Docker, `pnpm`, and the project's Compose containers.
 - For the "Issues" box: the [GitHub CLI](https://cli.github.com) (`gh`) in your `PATH`, signed in with
   `gh auth login`.
@@ -48,12 +51,11 @@ installing it.
    Each round keeps running in the background, even after `Esc` or `q`. When Claude asks a question or a
    round fails, the chat appears in the "Benachrichtigungen" (notifications) box to the right of the PRDs.
    The project then shows ` <count>✉`. To reopen the chat, press `N`, or `Enter` in the box.
-   - **Nuxt-Feature** uses `/create-prd` and `/implement-prd`, with a data model and a UI handoff.
-   - **Einfach** (simple) is for projects without a data model, UI handoff, or architecture docs. lazydev
-     ships its own prompts for it. To allow check commands such as `make test`, add them to the
+   - **Nuxt-Feature** has a data model, the feature checklist from `_ARCHITECTURE.md`, and a UI handoff.
+   - **Einfach** (simple) is for projects without a data model, UI handoff, or architecture docs. To allow check commands such as `make test`, add them to the
      project's `allowedTools`, for example `Bash(make test:*)`.
-4. Select the PRD and press `s`. lazydev creates the worktree, sets up the databases, runs `/implement-prd`
-   (its own prompt for "Einfach") and `/arewedone`, and merges.
+4. Select the PRD and press `s`. lazydev creates the worktree, sets up the databases, runs the
+   implement prompt of the template and the review (`/arewedone`), and merges.
 5. Follow the run in the log at the bottom. Press `l` to show it at full height.
 
 The bottom of the PRD list shows the project's Docker services with status, ports, and image, followed by

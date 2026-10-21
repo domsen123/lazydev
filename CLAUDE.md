@@ -66,8 +66,11 @@ gescheiterten Schritt fort, deshalb muss jeder Schritt wiederholbar sein.
 - `internal/hooks`: Setup, Teardown, Check und Dev pro Preset. Skripte in `hooks.*` der Konfiguration
   ersetzen einzelne Preset-Hooks. Hooks bekommen `LAZYDEV_PROJECT`, `LAZYDEV_WORKTREE`, `LAZYDEV_BRANCH`,
   `LAZYDEV_PORT` und `LAZYDEV_SLUG`.
-- `internal/prdtemplate`: Templates für neue PRDs. `nuxt` ruft die globalen Commands auf, `einfach` bettet
-  eigene Prompts aus `internal/prdtemplate/einfach/` ein. Der Runner liest das Template aus
+- Prompts und Agenten sind per `go:embed` eingebaut, nichts kommt aus `~/.claude`. Templates unter
+  `internal/prdtemplate/<template>/`, Review und Merge unter `internal/runner/prompts/`, Agenten unter
+  `internal/claude/agents/`. `claude.Run` schreibt die Agenten nach `agents.json` im Zustandsverzeichnis,
+  jeder Aufruf bekommt `--agents`. Die erste Zeile eines Prompts erscheint im Log, z. B. `# /arewedone …`.
+- `internal/prdtemplate`: Templates `nuxt` und `einfach` für neue PRDs. Der Runner liest das Template aus
   `Template: …` in der Statuszeile.
 - `internal/project`: PRDs unter `prd/<bereich>/<name>.md`, Statuszeile `> Status: …` und Phasen. Ein PRD,
   das ein Lauf in seinen Worktree verschoben hat, liest lazydev aus dem Worktree.

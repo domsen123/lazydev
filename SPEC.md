@@ -23,18 +23,28 @@ Projekt parallel laufen. lazydev ersetzt das Experiment mit OpenRig durch ein sc
   als „abgebrochen“ markiert und lässt sich neu starten. Der Worktree bleibt erhalten.
 - Kein `git push`, kein Pull Request. Gemergt wird nur lokal in `main`.
 
-## Ausgangslage: der bestehende Workflow
+## Ausgangslage: eingebettete Prompts und Agenten
 
-Diese Bausteine existieren bereits global und sind die Grundlage für lazydev. lazydev ruft sie auf,
-statt ihre Logik nachzubauen.
+lazydev bringt alle Prompts und Agenten per `go:embed` im Binary mit. Nichts kommt aus `~/.claude`, deshalb
+läuft lazydev auf jedem Rechner gleich, und Änderungen in `~/.claude` wirken nicht auf Chats und Runner.
 
-| Baustein | Pfad | Zweck |
+| Baustein | Pfad im Repo | Zweck |
 |---|---|---|
-| `/create-prd` | `~/.claude/commands/create-prd.md` | Interaktives Interview, schreibt `prd/<bereich>/<name>.md`. Liest Checkliste und Anti-Patterns aus der `_ARCHITECTURE.md` des Projekts. |
-| `/arewedone` | `~/.claude/commands/arewedone.md` | Startet den Agenten `structural-completeness-reviewer`, behebt Befunde, committet über `committer`. |
-| `/commit` | `~/.claude/commands/commit.md` | Manuelle Commits. |
-| `committer` | `~/.claude/agents/committer.md` | Conventional Commit mit `-m "<betreff>" -m "<body>"`, ohne `Co-Authored-By` und ohne jede Erwähnung von Claude oder KI. |
-| `structural-completeness-reviewer` | `~/.claude/agents/structural-completeness-reviewer.md` | Strukturelles Review nach einer Änderung. |
+| Erstellen (`nuxt`) | `internal/prdtemplate/nuxt/create.md` | Interaktives Interview, schreibt `prd/<bereich>/<name>.md`. Liest Checkliste und Anti-Patterns aus der `_ARCHITECTURE.md` des Projekts. |
+| Umsetzen (`nuxt`) | `internal/prdtemplate/nuxt/implement.md` | siehe „Umsetzen (`nuxt`)“ |
+| Erstellen, Umsetzen (`einfach`) | `internal/prdtemplate/einfach/` | siehe „PRD-Templates“ |
+| `/arewedone` | `internal/runner/prompts/arewedone.md` | Startet den Agenten `structural-completeness-reviewer`, behebt Befunde, committet über `committer`. |
+| `/merge-prd` | `internal/runner/prompts/merge.md` | siehe „Merge-Prompt“ |
+| `committer` | `internal/claude/agents/committer.md` | Conventional Commit mit `-m "<betreff>" -m "<body>"`, ohne `Co-Authored-By` und ohne jede Erwähnung von Claude oder KI. Sprache und Stil wie in `git log`. |
+| `structural-completeness-reviewer` | `internal/claude/agents/structural-completeness-reviewer.md` | Strukturelles Review nach einer Änderung. |
+
+Die Prompts haben keine Frontmatter und nutzen `$ARGUMENTS` als Platzhalter. Ihre erste Zeile erscheint im
+Log, z. B. `# /arewedone: Review und Commit` oder `# /merge-prd feat/<prd-name>`. Die Namen `/arewedone`
+und `/merge-prd` bezeichnen in dieser Spezifikation die Schritte, nicht globale Commands.
+
+Die Agenten schreibt lazydev vor jedem Aufruf von Claude als JSON nach `agents.json` im
+Zustandsverzeichnis (Frontmatter `description`, `tools`, `model`, Inhalt als `prompt`). Jeder Aufruf
+bekommt `--agents <datei>`, auch die Chats.
 
 Projekte folgen meist der Nuxt-4-Vertical-Slice-Architektur aus dem Boilerplate
 `~/development/nuxt/nuxt-drizzle`: PostgreSQL in Docker, Drizzle-Migrationen unter
@@ -59,39 +69,39 @@ Merge sind für alle Templates gleich: `/arewedone` und `/merge-prd`.
 
 | Template | Erstellen | Umsetzen | Für |
 |---|---|---|---|
-| Nuxt-Feature (`nuxt`) | `/create-prd` | `/implement-prd` | Features mit Datenmodell, Feature-Checkliste und UI-Handoff |
-| Einfach (`einfach`) | eingebetteter Prompt | eingebetteter Prompt | Projekte und Änderungen ohne Datenmodell, UI-Handoff und Architektur-Doku |
+| Nuxt-Feature (`nuxt`) | `nuxt/create.md` | `nuxt/implement.md` | Features mit Datenmodell, Feature-Checkliste und UI-Handoff |
+| Einfach (`einfach`) | `einfach/create.md` | `einfach/implement.md` | Projekte und Änderungen ohne Datenmodell, UI-Handoff und Architektur-Doku |
 
-Die Prompts von „Einfach“ liegen in lazydev unter `internal/prdtemplate/einfach/` und sind per `go:embed`
-eingebaut. Die globalen Commands bleiben unverändert. Die Prompts nutzen `$ARGUMENTS` als Platzhalter für
-die Beschreibung bzw. den PRD-Pfad.
+Die Prompts liegen unter `internal/prdtemplate/<template>/`. `$ARGUMENTS` steht für die Beschreibung bzw.
+den PRD-Pfad.
 
-Ein PRD aus „Einfach“ trägt das Template im Freitext der Statuszeile:
+Ein PRD trägt das Template im Freitext der Statuszeile:
 
 ```
 # PRD: <Titel>
 > Status: geplant · Template: einfach · Scope: <Kurzfassung>
 ```
 
-Seine Abschnitte: `## Context`, `## Produktentscheidungen (final)`, `## Scope`, `## Umsetzung`,
-`## Technische Hinweise` und `## Erfolgskriterien`. Ohne Angabe `Template:` gilt `nuxt`.
+Ein PRD aus „Einfach“ hat die Abschnitte `## Context`, `## Produktentscheidungen (final)`, `## Scope`,
+`## Umsetzung`, `## Technische Hinweise` und `## Erfolgskriterien`. Ohne Angabe `Template:` gilt `nuxt`.
+
+Pencil ist beim Template `nuxt` optional. Liegt eine `.pen`-Datei im Projekt und ist der MCP-Server
+`pencil` verfügbar, trägt das PRD die Screens unter `## Pencil-Screens` ein. Sonst beschreibt
+`## Frontend-Umsetzung (Handoff)` die UI als Text. Claude liest das Design nur und verändert es nie.
 
 Der Vertrag zum Runner gilt für jedes Template: die Statuszeile und beim Umsetzen ein Bericht mit
 `## Ergebnis` (`umgesetzt` oder `abgebrochen`) und `## Offene Fragen`.
 
-## Neue globale Commands
+## Umsetzen (`nuxt`) und Merge
 
-lazydev braucht zwei Commands, die es noch nicht gibt. Beide sind auch manuell nutzbar. Lege sie global
-unter `~/.claude/commands/` an.
-
-### `/implement-prd <prd-pfad>`
+### Umsetzen (`nuxt`)
 
 1. Liest das PRD vollständig, dazu `CLAUDE.md` und `_ARCHITECTURE.md` des Projekts.
-2. Arbeitet auf dem aktuellen Branch, wenn er `feat/<prd-name>` heißt (Fall Worktree). Sonst prüft er,
-   dass das Arbeitsverzeichnis sauber ist, und legt `feat/<prd-name>` von `main` an (Fall manuell).
+2. Arbeitet nur auf dem Branch `feat/<prd-name>`. Heißt der aktuelle Branch anders, bricht er ab.
    `<prd-name>` ist der Dateiname ohne `.md`.
 3. Setzt `## Datenmodell` und `## Umsetzung (Feature-Anatomie)` in der Reihenfolge der Checkliste um,
-   die UI erst nach dem Backend.
+   die UI erst nach dem Backend. Nennt das PRD Pencil-Screens, liest er sie über `pencil`. Fehlen
+   `pencil` oder ein Frame, bricht er ab.
 4. Trifft keine Entscheidung, die das PRD offenlässt. Fehlt eine Entscheidung, bricht er ab und nennt
    die Frage im Abschlussbericht.
 5. Führt die Prüfbefehle des Projekts aus (aus `CLAUDE.md`, z. B. `pnpm lint`, `pnpm typecheck`,
@@ -102,17 +112,15 @@ unter `~/.claude/commands/` an.
 8. Schreibt am Ende einen Bericht mit festen Abschnitten: `## Ergebnis` (`umgesetzt` oder
    `abgebrochen`), `## Geänderte Dateien`, `## Prüfungen`, `## Offene Fragen` und `## Nicht geprüft`.
    Offene Fragen blockieren und führen zu `abgebrochen`. Unter „Nicht geprüft“ stehen Kriterien, die
-   einen Dev-Server oder Browser brauchen. Sie blockieren nicht.
+   einen Dev-Server oder Browser brauchen, etwa der Abgleich mit Pencil. Sie blockieren nicht.
 
-Der Runner wertet bei `/implement-prd` den Abschnitt `## Ergebnis` aus. Steht dort `abgebrochen`, geht
-das PRD auf „Fehler“, auch bei Exit-Code 0.
+Der Runner wertet den Abschnitt `## Ergebnis` aus. Steht dort `abgebrochen`, geht das PRD auf „Fehler“,
+auch bei Exit-Code 0.
 
-Alle drei Commands tragen ihre Freigaben zusätzlich als `allowed-tools` in der Frontmatter. So fragen
-sie auch beim manuellen Aufruf nicht bei jedem Prüfbefehl nach.
+### Merge-Prompt (`/merge-prd <branch> [fehlerkontext]`)
 
-### `/merge-prd <branch>`
-
-Löst Konflikte, wenn `feat/<prd-name>` sich nicht konfliktfrei auf `main` bringen lässt. Läuft im Worktree.
+Löst Konflikte, wenn `feat/<prd-name>` sich nicht konfliktfrei auf `main` bringen lässt, oder behebt eine
+fehlgeschlagene Prüfung nach dem Rebase. Läuft im Worktree.
 
 1. Liest das PRD des Branches und `git log main..HEAD`, um die Absicht der Änderung zu verstehen.
 2. Führt `git rebase main` fort oder startet es und löst jeden Konflikt so, dass beide Seiten erhalten
@@ -125,6 +133,8 @@ Löst Konflikte, wenn `feat/<prd-name>` sich nicht konfliktfrei auf `main` bring
 5. Committet Korrekturen über `committer`. Kein Push.
 6. Kann er einen Konflikt nicht eindeutig lösen, bricht er ab: `git rebase --abort`, Bericht mit Datei
    und Frage.
+7. Bericht mit `## Ergebnis` (`bereit für Fast-Forward` oder `abgebrochen`), `## Konflikte`,
+   `## Prüfungen` und `## Offene Punkte`.
 
 ## Bedienung
 
@@ -373,7 +383,7 @@ den Port, zeigt lazydev Prozessname und PID und vergibt den nächsten freien Por
 | geplant | `○` | PRD liegt in `main`, Status `geplant`, kein Worktree |
 | wartet | `◌` | Start angefordert, aber `maxParallel` ist erreicht |
 | Setup | `●` | Worktree, Abhängigkeiten, Datenbank werden vorbereitet |
-| Umsetzung | `●` | `/implement-prd` läuft |
+| Umsetzung | `●` | Umsetzungs-Prompt läuft |
 | Review | `●` | `/arewedone` läuft |
 | Merge-Queue | `◐` | Review fertig, wartet auf den Merge-Slot des Projekts |
 | Merge | `●` | Rebase, ggf. `/merge-prd`, Prüfungen, Fast-Forward |
@@ -394,11 +404,10 @@ Ohne Lauf-Zustand gilt die Statuszeile des PRDs: `geplant` → geplant, `umgeset
    losgelöster Prozess `lazydev chat <projekt-id> <chat-id>` (`setsid`), zwischen zwei Runden läuft kein
    Prozess. Die Chat-ID ist die Startzeit im Format `2006-01-02-150405`. Gibt es die Zustandsdatei schon,
    hängt lazydev `-2`, `-3` usw. an. Die erste Runde ist
-   `claude -p "/create-prd <beschreibung>"` im Hauptordner des Projekts, bei „Einfach“ der eingebettete
-   Prompt mit der Beschreibung. Der Chat zeigt dann nur die Beschreibung als erste Nachricht. Jede Antwort
+   `claude -p "<prompt>"` im Hauptordner des Projekts mit dem Erstellen-Prompt des Templates und der
+   Beschreibung. Der Chat zeigt nur die Beschreibung als erste Nachricht. Jede Antwort
    im Fenster läuft als weitere Runde mit `--resume <sitzung>`. Claude stellt seine Klärungsfragen als Text.
-   Der Chat läuft immer mit Opus: lazydev übergibt `--model opus`, `/create-prd` trägt zusätzlich
-   `model: opus` in der Frontmatter. Geprüft: Die Frontmatter überschreibt auch `--model haiku`.
+   Der Chat läuft immer mit Opus: lazydev übergibt `--model opus`.
    Nach jeder Runde setzt lazydev den Status des Chats:
    - `läuft`: Die Runde ist aktiv. Lebt der Prozess nicht oder gehört nicht zu `lazydev chat`, gilt der
      Chat als `fehler` mit dem Text `Runde abgebrochen`.
@@ -425,9 +434,10 @@ Ohne Lauf-Zustand gilt die Statuszeile des PRDs: `geplant` → geplant, `umgeset
    an die Prozessgruppe einer laufenden Runde, löscht den Zustand, schließt das Fenster und meldet
    `Chat beendet. Fortsetzen: claude --resume <sitzung> · Log: <pfad>`. Nach `n` bleibt das Fenster offen.
    `X` in der Box wirkt genauso, nach `n` bleibt lazydev im Normalmodus.
-5. Freigaben im Chat: `Read`, `Glob`, `Grep`, `Task`, `Edit(prd/**)` und für die eingebetteten
-   Kontextbefehle `Bash(find:*)`, `Bash(ls:*)`, `Bash(git log:*)`, `Bash(git status:*)`. Claude schreibt
-   damit nur unter `prd/`. Mit Haiku geprüft: Beide Runden liefen ohne Ablehnung, auch die Kontextbefehle
+5. Freigaben im Chat: `Read`, `Glob`, `Grep`, `Task`, `Edit(prd/**)`, für die Kontextbefehle
+   `Bash(find:*)`, `Bash(ls:*)`, `Bash(git log:*)`, `Bash(git status:*)` und für Pencil
+   `mcp__pencil__get_app_state`, `mcp__pencil__read_skill`, `mcp__pencil__execute`. Claude schreibt
+   damit nur unter `prd/`. `execute` könnte das Design ändern, der Prompt verbietet das. Mit Haiku geprüft: Beide Runden liefen ohne Ablehnung, auch die Kontextbefehle
    mit Pipe.
 6. Das PRD entsteht ungetrackt unter `prd/` im Hauptordner und erscheint über die Dateiüberwachung.
 7. Jeder Chat schreibt seinen Zustand nach `~/.local/state/lazydev/chats/<projekt-id>/<chat-id>.json` und
@@ -446,9 +456,9 @@ Ohne Lauf-Zustand gilt die Statuszeile des PRDs: `geplant` → geplant, `umgeset
    und committet sie dort als erster Commit `docs(prd): add <prd-name>`. Der Hauptordner bleibt sauber,
    und das PRD kommt mit dem Merge nach `main`. Ist das PRD in `main` schon getrackt, entfällt der Schritt.
 4. **Setup:** siehe „Isolation pro Worktree“.
-5. **Umsetzung:** `claude -p "/implement-prd <prd-pfad>"` im Worktree. Steht in der Statuszeile des PRDs
-   `Template: einfach`, übergibt der Runner stattdessen den eingebetteten Prompt mit dem PRD-Pfad.
-6. **Review:** nur nach Erfolg: `claude -p "/arewedone"` im Worktree.
+5. **Umsetzung:** `claude -p "<prompt>"` im Worktree mit dem Umsetzungs-Prompt des Templates aus der
+   Statuszeile und dem PRD-Pfad.
+6. **Review:** nur nach Erfolg: `claude -p "<prompt>"` mit dem Prompt `/arewedone` im Worktree.
 7. **Merge:** nach Erfolg in die Merge-Queue des Projekts (siehe „Merge“).
 
 Commits, die lazydev selbst erstellt (Schritt 3), schreibt es direkt mit `git commit`, ohne Claude und
@@ -460,7 +470,8 @@ ohne Trailer.
 claude -p "<prompt>" \
   --output-format stream-json --verbose \
   --permission-mode acceptEdits \
-  --allowedTools "<allowlist>"
+  --allowedTools "<allowlist>" \
+  --agents <zustandsverzeichnis>/agents.json
 ```
 
 - `--output-format stream-json --verbose` liefert eine JSON-Zeile pro Ereignis. lazydev liest daraus
@@ -470,7 +481,8 @@ claude -p "<prompt>" \
   `Bash(git status:*)`, `Bash(git diff:*)`, `Bash(git log:*)`, `Bash(git add:*)`, `Bash(git commit:*)`,
   `Bash(git switch:*)`, `Bash(git rebase:*)`, `Bash(git checkout:*)`, `Bash(git rm:*)`, `Bash(git mv:*)`,
   `Bash(git show:*)`, `Bash(git branch:*)`, `Bash(pnpm lint:*)`,
-  `Bash(pnpm typecheck:*)`, `Bash(pnpm test:run:*)`, `Bash(pnpm db:generate:*)`, `Bash(pnpm db:migrate:*)`.
+  `Bash(pnpm typecheck:*)`, `Bash(pnpm test:run:*)`, `Bash(pnpm db:generate:*)`, `Bash(pnpm db:migrate:*)`,
+  `mcp__pencil__get_app_state`, `mcp__pencil__read_skill`, `mcp__pencil__execute`.
   Sie ist pro Projekt in der Konfiguration erweiterbar.
 - Alle Freigaben kommen über `--allowedTools`. Claude ignoriert `permissions.allow` aus
   `.claude/settings.json` in Ordnern ohne bestätigten Trust-Dialog, und jeder neue Worktree ist so ein
@@ -483,7 +495,7 @@ claude -p "<prompt>" \
 Erfolg eines Schritts: Exit-Code 0 und das **letzte** `result`-Ereignis meldet keinen Fehler. Dazu prüft
 der Runner:
 
-- nach `/implement-prd` oder dem Prompt von „Einfach“: `## Ergebnis` im Bericht ist `umgesetzt`, und die Statuszeile des PRDs im Worktree
+- nach dem Umsetzungs-Prompt: `## Ergebnis` im Bericht ist `umgesetzt`, und die Statuszeile des PRDs im Worktree
   steht auf `umgesetzt`. Bei `abgebrochen` steht die erste offene Frage im Fehler.
 - nach `/arewedone`: Der Worktree ist sauber, `committer` hat also alles committet.
 
@@ -551,7 +563,7 @@ Ablauf pro PRD:
 
 1. **Rebase im Worktree:** `git rebase main`.
    - Ohne Konflikt weiter mit Schritt 2.
-   - Mit Konflikt: `git rebase --abort`, dann `claude -p "/merge-prd feat/<prd-name>"`. Scheitert der
+   - Mit Konflikt: `git rebase --abort`, dann Claude mit dem Prompt `/merge-prd feat/<prd-name>`. Scheitert der
      Schritt, geht das PRD auf „Fehler“, und die Queue arbeitet mit dem nächsten PRD weiter.
 2. **Datenbank nachziehen:** Hat der Rebase Migrationen aus `main` geholt, setzt lazydev die
    Worktree-Datenbanken zurück und migriert neu (Teil des Presets: `dropdb`, `createdb`, `pnpm db:migrate`).
@@ -797,6 +809,7 @@ Claude-Tests liefen in einem Test-Repo mit `--model haiku`.
 | `acceptEdits` mit Allowlist läuft ohne Dialog | Ja. Was nicht freigegeben ist, lehnt Claude sofort ab, ohne zu warten: Ereignis `system/permission_denied` und Liste `permission_denials` im `result`. Lesende Befehle wie `ls` sind ohne Freigabe erlaubt. Befehle mit `$VAR`, Verkettungen wie `a; b` und `git -C <pfad> …` passen nicht auf `Bash(git log:*)` und werden abgelehnt. |
 | Worktree lädt `.claude/` des Projekts | Ja: Commands, Agenten und `env` aus `settings.json`. `env` aus `settings.local.json` des Hauptordners greift ebenfalls, obwohl die Datei im Worktree fehlt. `permissions.allow` aus `settings.json` ignoriert Claude ohne bestätigten Trust-Dialog. Ob ein Worktree den Trust des Hauptordners erbt, ist nicht getestet. |
 | `committer` committet ohne `Co-Authored-By` | Ja, im Worktree getestet. Ein Trailer entstand nicht. |
+| `--agents <datei>` mit `-p` lädt die eingebetteten Agenten | Ja, am 2026-10-21 mit `--model haiku` geprüft: `committer` und `structural-completeness-reviewer` stehen als Subagenten bereit. |
 | Drizzle-Migrationen nach Rebase | Beide Seiten mit `0003_*`: Konflikte in `meta/_journal.json`, `meta/0003_snapshot.json` und `schema/index.ts`. Das Verfahren aus `/merge-prd` Schritt 3 liefert eine saubere `0004_*` mit nur der Branch-Tabelle. Es braucht `git rm`. |
 | Nuxt übernimmt `PORT` aus `.env` | Ja (`@nuxt/cli` 4.0.1: `NUXT_PORT` vor `NITRO_PORT` vor `PORT`). Der Server lauscht nur auf `[::1]`. Die Port-Prüfung muss IPv4 und IPv6 abfragen. |
 | Herdr startet einen Befehl im neuen Pane | Ja, mit Herdr 0.9.5 ausgeführt. `herdr pane split --current --direction right --cwd <pfad>` liefert die Pane-ID unter `.result.pane.pane_id`. `herdr pane run <pane-id> <befehl>` tippt den Befehl in die Shell des Panes, die Shell bleibt danach offen. Argumente mit Sonderzeichen übergibt lazydev mit `--env LAZYDEV_ARG<n>=<wert>` und schreibt `"$LAZYDEV_ARG<n>"` in den Befehl. Das funktioniert in fish, bash und zsh gleich. Herdr erkennst du an `HERDR_ENV=1`, das Programm liegt unter `HERDR_BIN_PATH`. |

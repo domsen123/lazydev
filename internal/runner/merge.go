@@ -2,6 +2,7 @@ package runner
 
 import (
 	"context"
+	_ "embed"
 	"errors"
 	"fmt"
 	"slices"
@@ -17,6 +18,12 @@ import (
 	"lazydev/internal/state"
 	"lazydev/internal/worktree"
 )
+
+// mergePrompt löst Konflikte beim Rebase. $ARGUMENTS steht für Branch und Fehlerkontext, die erste
+// Zeile nennt den Schritt im Log /merge-prd.
+//
+//go:embed prompts/merge.md
+var mergePrompt string
 
 // resultMergeReady ist der Erfolgswert unter "## Ergebnis" im Bericht von /merge-prd.
 const resultMergeReady = "bereit für fast-forward"
@@ -142,10 +149,11 @@ func (m merger) run() error {
 
 // mergePRD lässt /merge-prd den Branch auf main bringen. context ist der Fehlerkontext.
 func (m merger) mergePRD(context string) error {
-	prompt := "/merge-prd " + m.r.Branch
+	args := m.r.Branch
 	if context != "" {
-		prompt += " " + context
+		args += " " + context
 	}
+	prompt := strings.ReplaceAll(mergePrompt, "$ARGUMENTS", args)
 	s, exitCode, err := runClaude(m.ctx, m.cfg, m.t, m.prdName, m.r, prompt, m.log)
 	if err == nil {
 		err = checkSummary(s, exitCode)

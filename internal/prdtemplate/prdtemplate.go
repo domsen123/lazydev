@@ -1,8 +1,8 @@
 // Package prdtemplate beschreibt die Templates für neue PRDs. Ein Template legt fest, wie lazydev
 // ein PRD im Chat erstellt und wie der Runner es umsetzt.
 //
-// Das Template "nuxt" ruft die globalen Commands /create-prd und /implement-prd auf. Das Template
-// "einfach" bringt seine Prompts selbst mit, die globalen Commands bleiben unverändert.
+// Jedes Template bringt seine Prompts eingebettet mit. Sie nutzen $ARGUMENTS als Platzhalter für
+// die Beschreibung bzw. den PRD-Pfad.
 package prdtemplate
 
 import (
@@ -18,6 +18,12 @@ const (
 	Simple = "einfach"
 )
 
+//go:embed nuxt/create.md
+var nuxtCreate string
+
+//go:embed nuxt/implement.md
+var nuxtImplement string
+
 //go:embed einfach/create.md
 var simpleCreate string
 
@@ -28,20 +34,18 @@ type Template struct {
 	Name        string
 	Label       string
 	Description string
-	// createCommand und implementCommand sind globale Slash-Commands. Ohne sie nutzt das Template
-	// seine eingebetteten Prompts.
-	createCommand, implementCommand string
-	createPrompt, implementPrompt   string
+
+	createPrompt, implementPrompt string
 }
 
 // All listet die Templates in der Reihenfolge des Pickers.
 var All = []Template{
 	{
-		Name:             Nuxt,
-		Label:            "Nuxt-Feature",
-		Description:      "/create-prd mit Datenmodell, Feature-Checkliste und UI-Handoff",
-		createCommand:    "/create-prd",
-		implementCommand: "/implement-prd",
+		Name:            Nuxt,
+		Label:           "Nuxt-Feature",
+		Description:     "mit Datenmodell, Feature-Checkliste und UI-Handoff",
+		createPrompt:    nuxtCreate,
+		implementPrompt: nuxtImplement,
 	},
 	{
 		Name:            Simple,
@@ -52,8 +56,8 @@ var All = []Template{
 	},
 }
 
-// Get liefert das Template name. Ein unbekannter oder leerer Name liefert "nuxt", weil PRDs aus
-// dem globalen /create-prd keine Template-Angabe tragen.
+// Get liefert das Template name. Ein unbekannter oder leerer Name liefert "nuxt", weil ältere PRDs
+// keine Template-Angabe tragen.
 func Get(name string) Template {
 	for _, t := range All {
 		if t.Name == name {
@@ -92,27 +96,13 @@ func Of(s project.Status) string {
 	return ""
 }
 
-// CreatePrompt liefert die erste Nachricht des Chats für die Beschreibung desc.
+// CreatePrompt liefert die erste Nachricht des Chats für die Beschreibung desc. Der Chat zeigt
+// statt des langen Prompts nur desc.
 func (t Template) CreatePrompt(desc string) string {
-	if t.createCommand != "" {
-		return t.createCommand + " " + desc
-	}
 	return strings.ReplaceAll(t.createPrompt, "$ARGUMENTS", desc)
-}
-
-// CreateDisplay liefert die erste Nachricht so, wie der Chat sie anzeigt. Ein eingebetteter Prompt
-// ist zu lang dafür, der Chat zeigt dann nur die Beschreibung.
-func (t Template) CreateDisplay(desc string) string {
-	if t.createCommand != "" {
-		return t.CreatePrompt(desc)
-	}
-	return desc
 }
 
 // ImplementPrompt liefert den Prompt für den Schritt implement mit dem PRD-Pfad prd.
 func (t Template) ImplementPrompt(prd string) string {
-	if t.implementCommand != "" {
-		return t.implementCommand + " " + prd
-	}
 	return strings.ReplaceAll(t.implementPrompt, "$ARGUMENTS", prd)
 }

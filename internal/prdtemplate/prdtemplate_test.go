@@ -22,22 +22,21 @@ func TestOf(t *testing.T) {
 }
 
 func TestPrompts(t *testing.T) {
-	if got := Get("").ImplementPrompt("prd/a/b.md"); got != "/implement-prd prd/a/b.md" {
+	if got := Get("").Name; got != Nuxt {
 		t.Errorf("Standard-Template: %q", got)
 	}
-	if got := Get(Nuxt).CreateDisplay("Avatar"); got != "/create-prd Avatar" {
-		t.Errorf("Anzeige Nuxt: %q", got)
-	}
-	simple := Get(Simple)
-	if got := simple.CreateDisplay("Avatar"); got != "Avatar" {
-		t.Errorf("Anzeige einfach: %q", got)
-	}
-	create := simple.CreatePrompt("Avatar")
-	impl := simple.ImplementPrompt("prd/a/b.md")
-	if !strings.Contains(create, "\nAvatar\n") || !strings.Contains(create, "Template: einfach") ||
-		!strings.HasPrefix(impl, "# PRD umsetzen (Template „einfach“): prd/a/b.md\n") ||
-		strings.Contains(create+impl, "$ARGUMENTS") {
-		t.Errorf("Prompts einfach:\n%s\n---\n%s", create, impl)
+	for _, tpl := range All {
+		create := tpl.CreatePrompt("Avatar")
+		impl := tpl.ImplementPrompt("prd/a/b.md")
+		if !strings.Contains(create, "\nAvatar\n") || !strings.Contains(create, "Template: "+tpl.Name) ||
+			!strings.HasPrefix(impl, "# PRD umsetzen (Template „"+tpl.Name+"“): prd/a/b.md\n") ||
+			strings.Contains(create+impl, "$ARGUMENTS") {
+			t.Errorf("Prompts %s:\n%s\n---\n%s", tpl.Name, create, impl)
+		}
+		// Eingebettete Prompts tragen keine Frontmatter eines Slash-Commands.
+		if strings.HasPrefix(create, "---") || strings.HasPrefix(impl, "---") {
+			t.Errorf("Prompts %s mit Frontmatter", tpl.Name)
+		}
 	}
 }
 

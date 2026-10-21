@@ -46,7 +46,7 @@ func fakeClaude(t *testing.T) (bin, args string) {
 	t.Helper()
 	dir := t.TempDir()
 	args = filepath.Join(dir, "args")
-	script := "#!/bin/sh\nprintf '%s|' \"$@\" >> " + args + "\necho >> " + args + "\n" +
+	script := "#!/bin/sh\nprintf '%s|' \"$@\" >> " + args + "\necho '#ENDE' >> " + args + "\n" +
 		`[ "$FAKE_CLAUDE_MODE" = exit ] && exit 3` + "\n" +
 		`echo '{"type":"system","subtype":"init","session_id":"chat-1"}'` + "\n" +
 		`case "$*" in *--resume*)` + "\n" +
@@ -143,7 +143,7 @@ func TestNewPRDChat(t *testing.T) {
 		t.Fatalf("Chat nach der ersten Runde: %+v", m.chat.state)
 	}
 	view := ansi.Strip(m.View())
-	for _, want := range []string{"Neues PRD (Nuxt-Feature): alpha", "Du: /create-prd Avatar-Upload", "· Read _ARCHITECTURE.md",
+	for _, want := range []string{"Neues PRD (Nuxt-Feature): alpha", "Du: Avatar-Upload", "· Read _ARCHITECTURE.md",
 		"Claude: Frage 1: Wie groß darf das Bild sein?", "0.05 USD", "Antwort"} {
 		if !strings.Contains(view, want) {
 			t.Errorf("Chat ohne %q:\n%s", want, view)
@@ -175,8 +175,9 @@ func TestNewPRDChat(t *testing.T) {
 		t.Errorf("Benachrichtigung nach der Antwort: %+v", m.notifications("alpha"))
 	}
 	got, _ := os.ReadFile(argsPath)
-	lines := strings.Split(strings.TrimSpace(string(got)), "\n")
-	if len(lines) != 2 || !strings.Contains(lines[0], "-p|/create-prd Avatar-Upload|") || strings.Contains(lines[0], "--resume") ||
+	lines := strings.Split(strings.TrimSuffix(string(got), "#ENDE\n"), "#ENDE\n")
+	if len(lines) != 2 || !strings.Contains(lines[0], "Template: nuxt") || !strings.Contains(lines[0], "\nAvatar-Upload\n") ||
+		strings.Contains(lines[0], "$ARGUMENTS") || strings.Contains(lines[0], "--resume") ||
 		!strings.Contains(lines[1], "-p|2 MB|") || !strings.Contains(lines[1], "--resume|chat-1|") ||
 		!strings.Contains(lines[1], "Edit(prd/**)") || !strings.Contains(lines[0], "--model|opus|") {
 		t.Errorf("Aufrufe von claude:\n%s", got)
