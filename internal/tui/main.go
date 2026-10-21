@@ -14,7 +14,6 @@ import (
 	"lazydev/internal/config"
 	"lazydev/internal/docker"
 	"lazydev/internal/fsutil"
-	"lazydev/internal/project"
 	"lazydev/internal/repo"
 	"lazydev/internal/terminal"
 	"lazydev/internal/usage"
@@ -98,16 +97,15 @@ type model struct {
 	status *statusPicker
 	// question is an open yes/no question in the footer, nil without one.
 	question *question
-	// waiting is the queue of waiting PRDs as "<id>/<prd>", log the log of the run the details
-	// tab shows, logKey names that run.
+	// waiting is the queue of waiting PRDs as "<id>/<prd>". last is the last log entry and devPIDs
+	// the dev server of each run of the selected project, by PRD name.
 	waiting []string
-	log     []claude.Entry
-	logKey  string
-	devPID  int
+	last    map[string]claude.Entry
+	devPIDs map[string]int
 	// usage is the last known state of the Claude limits, from the runners' stream-json.
 	usage    usage.Snapshot
 	hasUsage bool
-	// bottomZoom gives the pane below the terminals most of the height, e.g. for the live log.
+	// bottomZoom gives the pane below the terminals most of the height, e.g. for a long run list.
 	bottomZoom bool
 	// note is a message for the footer that is no error, cleared by the next key.
 	note string
@@ -203,14 +201,17 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(fetchPRDs(m.projects), m.fetchRuns())
 	case runTickMsg:
-		return m, tea.Batch(m.fetchRuns(), runTick())
+		return m, tea.Batch(m.fetchRuns(), m.readLogs(), runTick())
 	case runsMsg:
 		ids := projectIDs(m.projects)
 		for i, p := range m.projects {
 			p.runs = msg.byID[ids[i]]
+			p.closeEndedLogs()
 		}
-		m.waiting, m.log, m.logKey, m.devPID = msg.waiting, msg.log, msg.logKey, msg.devPID
+		m.waiting, m.last, m.devPIDs = msg.waiting, msg.last, msg.devPIDs
 		m.usage, m.hasUsage = msg.usage, msg.hasUsage
+	case logReadMsg:
+		m.applyLogs(msg)
 	case dockerLoadedMsg:
 		m.docker = msg.info
 	case dockerEventMsg:
@@ -311,7 +312,7 @@ func (m model) updateConfirmRemove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	// The project is gone from the list, so its exitMsgs find nothing. Release here instead.
-	for _, t := range p.terms {
+	for _, t := range p.terminals() {
 		t.Hangup()
 		go func() {
 			<-t.Done()
@@ -344,10 +345,10 @@ func (m *model) readLazydev() {
 	}
 }
 
-// ensureTerminal starts Claude in the selected project if it has no tab yet. Before the first
+// ensureTerminal starts Claude in the selected project if it has no terminal yet. Before the first
 // size message the terminal size is unknown, so it waits for that.
 func (m *model) ensureTerminal() {
-	if p := m.current(); p != nil && len(p.terms) == 0 && m.width > 0 {
+	if p := m.current(); p != nil && len(p.terminals()) == 0 && m.width > 0 {
 		focus := m.focus
 		m.openTerminal(startCommand)
 		m.focus = focus
@@ -368,23 +369,43 @@ func (m *model) openTerminal(args []string) {
 		m.err = err.Error()
 		return
 	}
-	p.terms = append(p.terms, t)
-	p.tab = len(p.terms) - 1
+	p.tabs = append(p.tabs, t)
+	p.tab = len(p.tabs) - 1
 	m.focus = colCenter
+}
+
+// openLog focuses the log tab of the run of prd in the selected project with ID id, or opens one.
+// The returned command reads the log right away instead of with the next tick.
+func (m *model) openLog(id, prd string) tea.Cmd {
+	p := m.current()
+	if p == nil {
+		return nil
+	}
+	m.focus = colCenter
+	for i, tab := range p.tabs {
+		if lv, ok := tab.(*logView); ok && lv.prd == prd {
+			p.tab = i
+			return nil
+		}
+	}
+	m.nextID++
+	lv := newLogView(m.nextID, id, prd)
+	lv.Resize(m.termSize())
+	p.tabs = append(p.tabs, lv)
+	p.tab = len(p.tabs) - 1
+	return m.readLogs()
 }
 
 // removeTerminal drops the tab of a terminal whose program has ended.
 func (m *model) removeTerminal(id int) {
 	for _, p := range m.projects {
-		for i, t := range p.terms {
-			if t.ID() != id {
+		for i, tab := range p.tabs {
+			t, ok := tab.(*terminal.Terminal)
+			if !ok || t.ID() != id {
 				continue
 			}
 			t.Release()
-			p.terms = slices.Delete(p.terms, i, i+1)
-			if p.tab >= i && p.tab > 0 {
-				p.tab--
-			}
+			p.removeTab(i)
 			// The wizard waits for its prompt editor and comes back when it ends.
 			if w := m.wizard; w != nil && w.editor == id {
 				w.editor = 0
@@ -397,8 +418,8 @@ func (m *model) removeTerminal(id int) {
 }
 
 func (m *model) selectTab(i int) {
-	if p := m.current(); p != nil && len(p.terms) > 0 {
-		n := len(p.terms)
+	if p := m.current(); p != nil && len(p.tabs) > 0 {
+		n := len(p.tabs)
 		p.tab = (i%n + n) % n
 		m.focus = colCenter
 	}
@@ -413,7 +434,7 @@ func (m model) quit() (tea.Model, tea.Cmd) {
 	m.stopDocker()
 	var terms []*terminal.Terminal
 	for _, p := range m.projects {
-		terms = append(terms, p.terms...)
+		terms = append(terms, p.terminals()...)
 	}
 	for _, t := range terms {
 		t.Hangup()
@@ -445,11 +466,11 @@ func (m model) rows(height int) (top, bottom int) {
 	return height - bottom, bottom
 }
 
-// resizeTerminals gives every terminal the current size of the terminal area.
+// resizeTerminals gives every center tab the current size of the terminal area.
 func (m model) resizeTerminals() {
 	w, h := m.termSize()
 	for _, p := range m.projects {
-		for _, t := range p.terms {
+		for _, t := range p.tabs {
 			t.Resize(w, h)
 		}
 	}
@@ -554,7 +575,7 @@ func (m model) leftBody(width, height int, t theme) (content string, activeLine 
 	for i := start; i < min(start+rows, len(m.projects)); i++ {
 		p := m.projects[i]
 		count := ""
-		if n := len(p.terms); n > 0 {
+		if n := len(p.tabs); n > 0 {
 			count = fmt.Sprint(n)
 		}
 		name := ansi.Truncate(p.name(), max(1, inner-2-len(count)), "…")
@@ -626,19 +647,17 @@ func (m model) rightBody(width, height int, t theme) string {
 	return bar + "\n" + separator + "\n" + content
 }
 
-// detailsPRD is the PRD the details tab shows: the selected one while the right column shows the
-// PRDs. It follows the tab, not the focus, so moving between panes keeps the details.
-func (m model) detailsPRD() *project.PRD {
-	if p := m.current(); p != nil && m.rightTab == rightPRDs {
-		return p.selectedPRD()
-	}
-	return nil
+// runListVisible is true while the details tab shows the run list: the right column shows the
+// PRDs and the project has runs. It follows the tab, not the focus.
+func (m model) runListVisible() bool {
+	p := m.current()
+	return p != nil && m.bottomTab == bottomDetails && m.rightTab == rightPRDs && len(p.runList()) > 0
 }
 
 // bottomTitle names what the details tab shows.
 func (m model) bottomTitle() string {
-	if m.bottomTab == bottomDetails && m.detailsPRD() != nil {
-		return "PRD"
+	if m.runListVisible() {
+		return "Runs"
 	}
 	return "Project"
 }
@@ -653,22 +672,18 @@ func (m model) bottomBody(width, height int, t theme) string {
 	switch p := m.current(); {
 	case p == nil:
 		content = text.Faint(true).Render("No project selected.")
+	case m.runListVisible():
+		content = m.runListView(p, width, max(1, height-2), m.focus == colBottom, t)
 	case m.bottomTab == bottomDetails:
-		if d := m.detailsPRD(); d != nil && p.runs[d.Name] != nil {
-			content = m.runDetailsView(d, p.runs[d.Name], width, max(1, height-2), t)
-		} else if d != nil {
-			content = prdDetailsView(d, width, max(1, height-2), t)
-		} else {
-			content = projectDetailsView(p.lazydev, width, max(1, height-2), t)
-		}
+		content = projectDetailsView(p.lazydev, width, max(1, height-2), t)
 	default:
 		content = dockerView(m.docker, p, width, max(1, height-2), m.focus == colBottom, t)
 	}
 	return bar + "\n" + separator + "\n" + content
 }
 
-// centerBody puts the tab bar and a separator above the active terminal. width is the inner width
-// of the column.
+// centerBody puts the tab bar and a separator above the active tab. width is the inner width of the
+// column.
 func (m model) centerBody(width int, t theme) string {
 	separator := lipgloss.NewStyle().Foreground(t.divider).Render(strings.Repeat("─", max(0, width)))
 	text := lipgloss.NewStyle().Foreground(t.text)
@@ -676,15 +691,18 @@ func (m model) centerBody(width int, t theme) string {
 	if p == nil {
 		return "\n" + separator + "\n" + text.Render("Add a folder in the left column, Claude Code then opens in it.")
 	}
-	if len(p.terms) == 0 {
+	if len(p.tabs) == 0 {
 		return "\n" + separator + "\n" + text.Render("No terminal open. Press alt+t for a shell, or select the project again for Claude Code.")
 	}
-	labels := make([]string, len(p.terms))
-	for i, term := range p.terms {
-		labels[i] = fmt.Sprintf("%d %s", i+1, term.TabTitle())
+	labels := make([]string, len(p.tabs))
+	for i, tab := range p.tabs {
+		labels[i] = fmt.Sprintf("%d %s", i+1, tab.TabTitle())
+	}
+	if lv := p.activeLog(); lv != nil {
+		lv.ctx = m.logContext(lv)
 	}
 	bar := renderTabs(labels, p.tab, width, tabStyle(p.tab, m.focus == colCenter, t), text)
-	return bar + "\n" + separator + "\n" + p.terms[p.tab].View(m.focus == colCenter && m.menu == nil && m.status == nil && !m.wizardVisible())
+	return bar + "\n" + separator + "\n" + p.tabs[p.tab].View(m.focus == colCenter && m.menu == nil && m.status == nil && !m.wizardVisible())
 }
 
 // box draws a box with rounded corners and the title in the top border. outline is the border

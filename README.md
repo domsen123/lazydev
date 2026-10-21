@@ -5,8 +5,8 @@
 </p>
 
 Terminal UI for the PRD workflow with Claude Code. Projects on the left, terminal tabs in the center,
-files and PRDs on the right. You write a PRD with Claude in a tab, start it with one key, and follow the
-live log. Each PRD runs in its own Git worktree with its own port, and lazydev fast-forwards it into the
+files and PRDs on the right. You write a PRD with Claude in a tab, start it with one key, and follow its
+log. Each PRD runs in its own Git worktree with its own port, and lazydev fast-forwards it into the
 project's base branch. [SPEC.md](SPEC.md) describes the behavior in full.
 
 ## Requirements
@@ -31,15 +31,16 @@ Runners keep the code they started with. After `make install`, restart lazydev.
 2. Right pane, tab `PRDs`: `n` and a sentence about the feature. Claude Code opens as a center tab and
    writes `prd/<area>/<name>.md` with you.
 3. Select the PRD, `s`. Setup, implement, review and merge run in the background.
-4. The details pane below the terminals shows steps and the live log. `z` enlarges it.
+4. The details pane below the terminals lists the runs of the project with phase, step, cost and the last
+   log line. `l` on a run opens its complete log as a center tab, `z` there folds the header.
 
 ## Layout
 
 | Pane | Content |
 |---|---|
 | Projects (left) | Projects with branch and commits ahead/behind upstream |
-| Center | Terminal tabs of the project. Claude Code starts in a project without a tab |
-| Below center | `Details`: `.lazydev/` setup, or the selected PRD with its run and live log. `Docker`: compose services and containers |
+| Center | Terminal tabs and log tabs of the project. Claude Code starts in a project without a tab |
+| Below center | `Details`: runs of the project, without runs the `.lazydev/` setup. `Docker`: compose services and containers |
 | Explorer (right) | `PRDs`: PRDs with phase, done ones folded. `Files`: file tree |
 
 ## Keys
@@ -56,10 +57,11 @@ Runners keep the code they started with. After `make install`, restart lazydev.
 | `j/k`, `l`/`enter`, `h` | move, open, back (lists, tree) |
 | `a` / `d` / `i` | add / remove project / `.lazydev/` wizard (Projects) |
 | `n` | new PRD with Claude Code (PRDs) |
-| `s` / `x` / `X` | start or continue / stop / discard run (PRDs) |
-| `D` | dev server of the PRD's worktree on/off (PRDs) |
+| `s` / `x` / `X` | start or continue / stop / discard run (PRDs, Runs) |
+| `D` | dev server of the PRD's worktree on/off (PRDs, Runs) |
+| `L` / `l` | log of the run as a tab (PRDs / Runs) |
 | `c` | status: planned, merged, discarded. Commits tracked PRDs (PRDs) |
-| `z` | zoom the details pane |
+| `z` | zoom the details pane, header in the log tab |
 | `l` | logs of the container as a tab (Docker) |
 
 ## `.lazydev/`

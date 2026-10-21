@@ -6,7 +6,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 )
 
 // initRepo creates a git repository on main without commits.
@@ -64,36 +63,36 @@ func TestRead(t *testing.T) {
 			name:    "status after blank line",
 			rel:     "prd/auth/token.md",
 			content: "# PRD: Token refresh\n\n> Status: geplant · Scope: backend\n\n## Goal\n",
-			want: PRD{Path: "prd/auth/token.md", Name: "token", Area: "auth", Title: "Token refresh",
+			want: PRD{Path: "prd/auth/token.md", Name: "token", Area: "auth",
 				Status: Status{Kind: StatusPlanned, Value: "geplant", Detail: "Scope: backend"}},
 		},
 		{
 			name:    "multi-line detail",
 			rel:     "prd/ui/theme.md",
 			content: "# PRD: Theme\n> Status: umgesetzt (2026-10-14) · Kosten: 1.50 USD · Modell: opus\n> second line\n>  third\n\n> other block\n",
-			want: PRD{Path: "prd/ui/theme.md", Name: "theme", Area: "ui", Title: "Theme",
+			want: PRD{Path: "prd/ui/theme.md", Name: "theme", Area: "ui",
 				Status: Status{Kind: StatusImplemented, Value: "umgesetzt (2026-10-14)", Date: "2026-10-14",
 					Detail: "Kosten: 1.50 USD · Modell: opus\nsecond line\n third"},
-				Cost: 1.5, HasCost: true, Model: "opus"},
+				Cost: 1.5},
 		},
 		{
-			name:    "no area, title without prefix",
+			name:    "no area, no status",
 			rel:     "prd/top.md",
 			content: "# Notes\n\nText\n",
-			want:    PRD{Path: "prd/top.md", Name: "top", Title: "Notes"},
+			want:    PRD{Path: "prd/top.md", Name: "top"},
 		},
 		{
 			name:    "nested area",
 			rel:     "prd/a/b/deep.md",
 			content: "# PRD: Deep\n> Status: verworfen (2026-10-21)\n",
-			want: PRD{Path: "prd/a/b/deep.md", Name: "deep", Area: "a/b", Title: "Deep",
+			want: PRD{Path: "prd/a/b/deep.md", Name: "deep", Area: "a/b",
 				Status: Status{Kind: StatusDiscarded, Value: "verworfen (2026-10-21)", Date: "2026-10-21"}},
 		},
 		{
 			name:    "status after the head",
 			rel:     "prd/x/late.md",
 			content: "# PRD: Late\n" + strings.Repeat("text\n", HeaderScanLines) + "> Status: geplant\n",
-			want:    PRD{Path: "prd/x/late.md", Name: "late", Area: "x", Title: "Late"},
+			want:    PRD{Path: "prd/x/late.md", Name: "late", Area: "x"},
 		},
 	}
 	for _, tt := range tests {
@@ -104,11 +103,7 @@ func TestRead(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if d.Created.IsZero() {
-				t.Error("Created is zero")
-			}
 			tt.want.Root = dir
-			d.Created = time.Time{}
 			if d != tt.want {
 				t.Errorf("Read =\n%+v\nwant\n%+v", d, tt.want)
 			}
@@ -191,13 +186,7 @@ func TestReadAll(t *testing.T) {
 	writeFile(t, dir, "prd/b/done.md", "# PRD: Done\n\n> Status: umgesetzt (2026-10-14)\n")
 	writeFile(t, dir, "prd/a/feature.md", "# PRD: Feature\n\n> Status: geplant\n")
 	writeFile(t, dir, "prd/a/notes.txt", "not a PRD\n")
-	gitRun(t, dir, "add", "-A")
-	old := "2020-01-02T03:04:05Z"
-	cmd := exec.Command("git", "-C", dir, "commit", "-q", "-m", "init")
-	cmd.Env = append(os.Environ(), "GIT_COMMITTER_DATE="+old, "GIT_AUTHOR_DATE="+old)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		t.Fatalf("commit: %v\n%s", err, out)
-	}
+	commitAll(t, dir, "init")
 	gitRun(t, dir, "branch", "feat/feature")
 	writeFile(t, dir, "prd/c/new.md", "# PRD: New\n\n> Status: geplant\n")
 
@@ -222,13 +211,6 @@ func TestReadAll(t *testing.T) {
 	if untracked.Tracked || untracked.Branch != "" {
 		t.Errorf("untracked: %+v", untracked)
 	}
-	want, _ := time.Parse(time.RFC3339, old)
-	if !feature.Created.Equal(want) || !done.Created.Equal(want) {
-		t.Errorf("Created = %v, %v; want %v", feature.Created, done.Created, want)
-	}
-	if untracked.Created.IsZero() || untracked.Created.Before(want.Add(time.Hour)) {
-		t.Errorf("untracked Created = %v", untracked.Created)
-	}
 
 	// The base branch name passes through for merged PRDs.
 	prds, _ = ReadAll(dir, "develop", nil)
@@ -250,12 +232,12 @@ func TestReadAllFeatureBranchWinsForMerged(t *testing.T) {
 
 func TestReadAllMoved(t *testing.T) {
 	dir := initRepo(t)
-	writeFile(t, dir, "prd/a/present.md", "# PRD: Present main\n> Status: geplant\n")
+	writeFile(t, dir, "prd/a/present.md", "# PRD: Present\n> Status: geplant · Scope: main\n")
 	commitAll(t, dir, "init")
 
 	wt := t.TempDir()
 	writeFile(t, wt, "prd/b/gone.md", "# PRD: Gone\n> Status: geplant · Scope: wt\n")
-	writeFile(t, wt, "prd/a/present.md", "# PRD: Present worktree\n> Status: geplant\n")
+	writeFile(t, wt, "prd/a/present.md", "# PRD: Present\n> Status: geplant · Scope: wt\n")
 	moved := []Moved{
 		{Name: "gone", Worktree: wt, Path: "prd/b/gone.md", Branch: "feat/gone"},
 		{Name: "present", Worktree: wt, Path: "prd/a/present.md", Branch: "feat/present"},
@@ -269,7 +251,7 @@ func TestReadAllMoved(t *testing.T) {
 		t.Fatalf("ReadAll = %+v", prds)
 	}
 	present, gone := prds[0], prds[1]
-	if present.Title != "Present main" || present.Root != dir || present.Branch != "" {
+	if present.Status.Detail != "Scope: main" || present.Root != dir || present.Branch != "" {
 		t.Errorf("present: %+v", present)
 	}
 	if gone.Path != "prd/b/gone.md" || gone.Root != wt || !gone.Tracked || gone.Branch != "feat/gone" ||

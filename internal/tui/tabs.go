@@ -8,6 +8,14 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
+// centerTab is a tab of the center column: a terminal or the log of a run.
+type centerTab interface {
+	ID() int
+	TabTitle() string
+	Resize(width, height int)
+	View(focused bool) string
+}
+
 const (
 	// tabMaxLabel caps the label of a single tab, number included.
 	tabMaxLabel = 24

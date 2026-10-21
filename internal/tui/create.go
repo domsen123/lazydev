@@ -66,9 +66,9 @@ func (m *model) createPRD(description string) {
 		m.err = err.Error()
 		return
 	}
-	n := len(p.terms)
+	n := len(p.tabs)
 	m.openTerminal(append(slices.Clone(claude.Command), prompt))
-	if len(p.terms) > n {
-		p.terms[p.tab].SetLabel("create")
+	if t := p.activeTerminal(); t != nil && len(p.tabs) > n {
+		t.SetLabel("create")
 	}
 }

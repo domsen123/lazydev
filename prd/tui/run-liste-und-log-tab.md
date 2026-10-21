@@ -1,6 +1,6 @@
 # PRD: Run-Liste im Details-Pane und Log als Center-Tab
 
-> Status: geplant · Scope: Das Details-Pane zeigt bei aktivem PRDs-Tab alle Runs des Projekts als Liste statt eines einzelnen Runs mit gekürztem Live-Log. `l` in der Liste oder `L` im PRDs-Tab öffnet das vollständige Log eines Runs als native, scrollbare Center-Tab-Ansicht mit ein-/ausklappbarem Kopf.
+> Status: umgesetzt (2026-10-21) · Scope: Das Details-Pane zeigt bei aktivem PRDs-Tab alle Runs des Projekts als Liste statt eines einzelnen Runs mit gekürztem Live-Log. `l` in der Liste oder `L` im PRDs-Tab öffnet das vollständige Log eines Runs als native, scrollbare Center-Tab-Ansicht mit ein-/ausklappbarem Kopf.
 
 ## Context
 

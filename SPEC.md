@@ -108,7 +108,7 @@ footer: input, question, error, note, or key help with the Claude limits at the 
 3. A key means the same in every pane: `j/k` move, `l`/`enter` open, `h` back.
 
 Focus order for `alt+←/→` and `tab`: Projects → center → details pane → Explorer. Keys go to the terminal while
-the center has the focus and a tab.
+the center has the focus and its active tab is a terminal.
 
 ### Panes
 
@@ -116,29 +116,59 @@ the center has the focus and a tab.
   or `no git`. Git info refreshes every 5 s. The selected project has a bar on the border.
 - **Center:** terminal tabs (PTY + x/vt emulator) per project, they keep running while another project is
   selected. A project without tab starts `claude`. `alt+t` opens `$SHELL`. Window titles become tab titles,
-  workflow tabs have fixed labels like `create`. Closing sends SIGHUP and kills after 2 s.
-- **Details pane,** tab `Details` (default): with the PRDs tab active and a PRD selected, the PRD: without run
-  its title, file, created date, status and branch, cost, model; with a run the run (phase, queue position,
-  branch → base, port, cost, dev server, error, note), its steps with mark, duration and cost, and the live
-  log of the current step. Otherwise the project: base branch, trust, prompts present/missing, hooks,
+  workflow tabs have fixed labels like `create`. Closing sends SIGHUP and kills after 2 s. Log tabs are the
+  second kind of tab: titled `log <prd>`, they show the log of a run without a process and count in the tab
+  number of the project. `alt+w` closes a log tab right away. A log tab closes by itself once its run is
+  merged or its run state is gone (`X`), it stays open after error or abort. Opening the log of a run whose
+  log tab is open focuses that tab.
+- **Details pane,** tab `Details` (default): with the PRDs tab active, the runs of the selected project
+  (title `Runs`), independent of the PRD selected in the Explorer. The list holds every run that is not
+  merged (waiting, setup, implement, review, merge, merge-queue, error, aborted), ordered by start time and
+  then by PRD name. A header row names the columns, each run has one row: phase symbol and PRD label, phase
+  (waiting with `· #n in queue`), current step with duration (`–` without step), cost (`x.xx USD`), port,
+  dev server (`● :<port>` while running, otherwise `–`), branch, and in the rest of the width the first line
+  of the last entry of the current step's log, faint. In phase error the first line of the error replaces it,
+  otherwise a note does, both in the warning color. Too narrow, the columns drop from the right: log line,
+  branch, dev, port, cost, step. PRD and phase stay. Keys: `j/k`, `g/G` move, `l`/`enter` open the log tab,
+  `s`, `x`, `X`, `D` act on the selected run like in the PRDs tab, `i` wizard, `z` zoom. Each project keeps
+  its own cursor, which clamps when its run disappears. Without runs, and with the Files tab active, the
+  pane shows the project (title `Project`): base branch, trust, prompts present/missing, hooks,
   knowledge (file → steps), allowed tools. Tab `Docker`: compose services in file order plus other
   containers of the project (label `com.docker.compose.project.working_dir`), with state, status, ports,
   image, age; `l` follows `docker logs -f --tail 200` in a tab. Docker refreshes on `docker events` and
   every 10 s.
 - **Explorer,** tab `PRDs` (default): two lines per PRD (phase symbol and `<area>/<name>`, then phase and
   branch), open PRDs by label, then `▸ n done · x.xx USD` which `l` unfolds. PRDs refresh every 5 s, runs
-  every second. Tab `Files`: file tree without `.git`, `l` opens folders or files in `$VISUAL`/`$EDITOR`/`vi`
+  every second. `L` opens the log tab of the selected PRD, without run the error `<label> has no run.`, on the
+  group row nothing. Tab `Files`: file tree without `.git`, `l` opens folders or files in `$VISUAL`/`$EDITOR`/`vi`
   as a tab.
 
 Phase symbols: `○` planned, `◌` waiting, `●` setup/implement/review/merge, `◐` merge-queue, `✓` merged,
 `■` aborted, `✗` error/discarded.
 
-### Live log
+### Log tab
 
-Step logs are JSONL. The view reads the last 256 KiB of the current step's log every second and shows one
-line per content: runner lines, the first line of Claude texts, tool calls with their main argument
-(`file_path`, `command`, `pattern`, `path`, `description`, `prompt`), tool errors, denied tools, subagents
-(indented), the result (`result ok · n turns · s · USD`) and stderr. Lines get cut at 160 characters.
+Step logs are JSONL. A log tab shows every step of `setup`, `implement`, `review`, `merge` whose log file
+exists, each after a separator `── <step> ──`. One entry per content: runner lines, Claude texts with all
+lines, tool calls with their complete main argument (`file_path`, `command`, `pattern`, `path`,
+`description`, `prompt`), tool errors with their first line, denied tools, the result
+(`result ok · n turns · s · USD`) and stderr. Tool results do not show. Each entry starts with `HH:MM:SS `
+and has the color of its kind: runner lines faint, errors in the warning color, the result in the OK color.
+Subagent entries indent by two spaces. Text wider than the tab wraps, words wider than the tab break hard.
+Following lines and wrapped parts indent to the text column.
+
+The header shows the run, unfolded when the tab opens: phase symbol and phase with queue position,
+`branch → base`, port, cost, dev server; then the steps with mark, duration and cost (`✓` done, `●` running,
+`✗` failed, `○` not started); then the error or note in the warning color, and a separator. `z` folds it to
+one line: phase, current step with duration, cost.
+
+`j/k` and `↓/↑` scroll one line, `ctrl+d/u` and `pgdown/pgup` half the height, `g`/`home` to the top,
+`G`/`end` to the end, counted in wrapped screen lines. At the end the view follows new lines. Scrolling up
+keeps the position, `G` or scrolling to the end follows again. Keys never go to a terminal, global keys work
+without `alt` unless the tab uses the key.
+
+Every second the tab reads what the runner appended to each step log since the last read, up to the last
+complete line. A file shorter than the read offset gets read again from the start.
 
 ### Limits
 

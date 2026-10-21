@@ -6,7 +6,7 @@
 
 Terminal-UI für den PRD-Workflow mit Claude Code. Links die Projekte, in der Mitte Terminal-Tabs, rechts
 Dateien und PRDs. Du schreibst ein PRD mit Claude in einem Tab, startest es mit einer Taste und verfolgst
-das Live-Log. Jedes PRD läuft in einem eigenen Git-Worktree mit eigenem Port, lazydev bringt es per
+sein Log. Jedes PRD läuft in einem eigenen Git-Worktree mit eigenem Port, lazydev bringt es per
 Fast-Forward in den Ziel-Branch des Projekts. [SPEC.md](SPEC.md) beschreibt das Verhalten vollständig
 (englisch).
 
@@ -32,15 +32,16 @@ Runner behalten den Code, mit dem sie gestartet sind. Nach `make install` lazyde
 2. Rechtes Pane, Tab `PRDs`: `n` und ein Satz zum Feature. Claude Code öffnet sich als Tab in der Mitte
    und schreibt mit dir `prd/<bereich>/<name>.md`.
 3. PRD wählen, `s`. Setup, implement, review und merge laufen im Hintergrund.
-4. Das Details-Pane unter den Terminals zeigt Schritte und Live-Log. `z` vergrößert es.
+4. Das Details-Pane unter den Terminals listet die Läufe des Projekts mit Phase, Schritt, Kosten und letzter
+   Logzeile. `l` auf einem Lauf öffnet sein vollständiges Log als Tab in der Mitte, `z` klappt dort den Kopf ein.
 
 ## Aufbau
 
 | Pane | Inhalt |
 |---|---|
 | Projects (links) | Projekte mit Branch und Commits vor/hinter dem Upstream |
-| Mitte | Terminal-Tabs des Projekts. In einem Projekt ohne Tab startet Claude Code |
-| Unter der Mitte | `Details`: Einrichtung von `.lazydev/` oder das gewählte PRD mit Lauf und Live-Log. `Docker`: Compose-Services und Container |
+| Mitte | Terminal-Tabs und Log-Tabs des Projekts. In einem Projekt ohne Tab startet Claude Code |
+| Unter der Mitte | `Details`: Läufe des Projekts, ohne Läufe die Einrichtung von `.lazydev/`. `Docker`: Compose-Services und Container |
 | Explorer (rechts) | `PRDs`: PRDs mit Phase, erledigte eingeklappt. `Files`: Dateibaum |
 
 ## Tasten
@@ -57,10 +58,11 @@ Runner behalten den Code, mit dem sie gestartet sind. Nach `make install` lazyde
 | `j/k`, `l`/`enter`, `h` | bewegen, öffnen, zurück (Listen, Baum) |
 | `a` / `d` / `i` | Projekt hinzufügen / entfernen / Wizard für `.lazydev/` (Projects) |
 | `n` | neues PRD mit Claude Code (PRDs) |
-| `s` / `x` / `X` | starten oder fortsetzen / stoppen / Lauf verwerfen (PRDs) |
-| `D` | Dev-Server im Worktree des PRDs an/aus (PRDs) |
+| `s` / `x` / `X` | starten oder fortsetzen / stoppen / Lauf verwerfen (PRDs, Runs) |
+| `D` | Dev-Server im Worktree des PRDs an/aus (PRDs, Runs) |
+| `L` / `l` | Log des Laufs als Tab (PRDs / Runs) |
 | `c` | Status: planned, merged, discarded. Committet getrackte PRDs (PRDs) |
-| `z` | Details-Pane vergrößern |
+| `z` | Details-Pane vergrößern, Kopf im Log-Tab |
 | `l` | Logs des Containers als Tab (Docker) |
 
 ## `.lazydev/`

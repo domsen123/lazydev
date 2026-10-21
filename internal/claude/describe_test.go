@@ -37,9 +37,9 @@ func TestDescribeAssistant(t *testing.T) {
 	]}}`
 	got := Describe([]byte(line))
 	want := []struct{ kind, text string }{
-		{KindText, "First line"},
+		{KindText, "First line  \nsecond line"},
 		{KindTool, "Read /a/b.go"},
-		{KindTool, "Bash go test ./..."},
+		{KindTool, "Bash go test ./...\necho done"},
 		{KindTool, "TodoWrite"},
 	}
 	if len(got) != len(want) {
@@ -117,18 +117,34 @@ func TestDescribeIgnores(t *testing.T) {
 	}
 }
 
-func TestDescribeTruncates(t *testing.T) {
-	long := strings.Repeat("ä", 200)
+func TestDescribeKeepsLongText(t *testing.T) {
+	long := strings.Repeat("ä", 300)
 	got := Describe([]byte(`{"type":"lazydev","text":"` + long + `"}`))
-	if len(got) != 1 {
+	if len(got) != 1 || got[0].Text != long {
 		t.Fatalf("entries: %+v", got)
 	}
-	text := got[0].Text
-	if n := utf8.RuneCountInString(text); n != maxDescribeLen || !strings.HasSuffix(text, "…") {
-		t.Errorf("length %d: %q", n, text)
+	if n := utf8.RuneCountInString(got[0].Text); n != 300 {
+		t.Errorf("length %d", n)
 	}
-	exact := strings.Repeat("x", maxDescribeLen)
-	if got := Describe([]byte(`{"type":"lazydev","text":"` + exact + `"}`)); got[0].Text != exact {
-		t.Errorf("text of exactly %d runes was cut: %q", maxDescribeLen, got[0].Text)
+}
+
+func TestDescribeKeepsAllLines(t *testing.T) {
+	line := `{"type":"assistant","message":{"content":[
+		{"type":"text","text":"one\ntwo\nthree"},
+		{"type":"tool_use","name":"Bash","input":{"command":"cd a\nmake test\nmake build"}}
+	]}}`
+	got := Describe([]byte(line))
+	if len(got) != 2 {
+		t.Fatalf("entries: %+v", got)
+	}
+	if got[0].Kind != KindText || got[0].Text != "one\ntwo\nthree" {
+		t.Errorf("text: %+v", got[0])
+	}
+	if got[1].Kind != KindTool || got[1].Text != "Bash cd a\nmake test\nmake build" {
+		t.Errorf("command: %+v", got[1])
+	}
+	got = Describe([]byte(`{"type":"user","message":{"content":[{"type":"tool_result","is_error":true,"content":"first\nsecond"}]}}`))
+	if len(got) != 1 || got[0].Text != "error: first" {
+		t.Errorf("tool error: %+v", got)
 	}
 }

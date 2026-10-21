@@ -32,7 +32,7 @@ const (
 	modelField = "Modell:"
 )
 
-// HeaderScanLines limits the search for title and status line to the head of a file.
+// HeaderScanLines limits the search for the status line to the head of a file.
 const HeaderScanLines = 20
 
 // Status is the parsed line "> Status: <value> · <detail>".

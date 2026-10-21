@@ -10,9 +10,6 @@ import (
 // RunnerType marks the runner's own lines in a step log, next to Claude's stream-json.
 const RunnerType = "lazydev"
 
-// maxDescribeLen cuts text and arguments in the log view.
-const maxDescribeLen = 160
-
 // toolArgs names per tool call the argument the log view shows.
 var toolArgs = []string{"file_path", "command", "pattern", "path", "description", "prompt"}
 
@@ -25,10 +22,11 @@ const (
 	KindResult = "result"
 )
 
-// Entry is one line of the log view.
+// Entry is one entry of the log view.
 type Entry struct {
 	At   time.Time
 	Kind string
+	// Text is complete and may span several lines.
 	Text string
 	// Sub is true for lines of a subagent.
 	Sub bool
@@ -72,7 +70,7 @@ func Describe(line []byte) []Entry {
 	}
 	at, _ := time.Parse(time.RFC3339, ts)
 	entry := func(kind, text string) Entry {
-		return Entry{At: at, Kind: kind, Text: truncate(text), Sub: e.ParentToolUseID != ""}
+		return Entry{At: at, Kind: kind, Text: text, Sub: e.ParentToolUseID != ""}
 	}
 	var out []Entry
 	switch e.Type {
@@ -82,7 +80,7 @@ func Describe(line []byte) []Entry {
 		for _, c := range e.Message.Content {
 			switch c.Type {
 			case "text":
-				if l := FirstLine(c.Text); l != "" {
+				if l := strings.TrimSpace(c.Text); l != "" {
 					out = append(out, entry(KindText, l))
 				}
 			case "tool_use":
@@ -118,7 +116,7 @@ func Describe(line []byte) []Entry {
 func toolArg(input map[string]any) string {
 	for _, k := range toolArgs {
 		if v, ok := input[k].(string); ok && v != "" {
-			return FirstLine(v)
+			return strings.TrimSpace(v)
 		}
 	}
 	return ""
@@ -139,12 +137,4 @@ func resultText(raw json.RawMessage) string {
 		b.WriteString(p.Text + "\n")
 	}
 	return b.String()
-}
-
-func truncate(s string) string {
-	r := []rune(s)
-	if len(r) <= maxDescribeLen {
-		return s
-	}
-	return string(r[:maxDescribeLen-1]) + "…"
 }

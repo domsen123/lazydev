@@ -2,9 +2,11 @@ package tui
 
 import (
 	"bytes"
+	"cmp"
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -18,30 +20,30 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 )
 
 // The TUI controls no runner directly. It reads the state files of all runs every second,
-// because an ending runner causes no event, and the log of the run the details tab shows. Starting,
-// stopping and discarding run as commands in the background.
+// because an ending runner causes no event, the last log entry of each run of the selected project
+// and what the open log tabs have not read yet. Starting, stopping and discarding run as commands
+// in the background.
 
 const (
-	// runInterval is how often runs and the shown log refresh.
+	// runInterval is how often runs and logs refresh.
 	runInterval = time.Second
-	// logTailBytes is how much of the end of a step log the details tab reads.
-	logTailBytes = 256 << 10
-	// logEntries is how many described lines of a log the details tab keeps.
-	logEntries = 500
+	// lastTailBytes is how much of the end of a step log the run list reads for the last entry.
+	lastTailBytes = 16 << 10
 )
 
 // runsMsg carries the runs of all projects by project ID and PRD name, the waiting queue in start
-// order as "<id>/<prd>", and the log of the run the details tab shows.
+// order as "<id>/<prd>", and the last log entry and dev server of each run of the selected project.
 type runsMsg struct {
 	byID    map[string]map[string]*state.Run
 	waiting []string
-	logKey  string
-	log     []claude.Entry
-	// devPID is the dev server of the run the details tab shows, 0 without one.
-	devPID   int
+	// last and devPIDs map PRD names of the selected project to the last log entry of the current
+	// step and the PID of the dev server.
+	last     map[string]claude.Entry
+	devPIDs  map[string]int
 	usage    usage.Snapshot
 	hasUsage bool
 }
@@ -52,14 +54,15 @@ func runTick() tea.Cmd {
 	return tea.Tick(runInterval, func(time.Time) tea.Msg { return runTickMsg{} })
 }
 
-// fetchRuns reads all runs and the log of the run the details tab shows.
+// fetchRuns reads all runs and, for the runs of the selected project, the last log entry and the
+// dev server.
 func (m model) fetchRuns() tea.Cmd {
-	var id, name string
-	if d := m.detailsPRD(); d != nil {
-		id, name = projectIDs(m.projects)[m.selected], d.Name
+	id := ""
+	if m.current() != nil {
+		id = projectIDs(m.projects)[m.selected]
 	}
 	return func() tea.Msg {
-		msg := runsMsg{byID: map[string]map[string]*state.Run{}}
+		msg := runsMsg{byID: map[string]map[string]*state.Run{}, last: map[string]claude.Entry{}, devPIDs: map[string]int{}}
 		msg.usage, msg.hasUsage, _ = usage.Load()
 		for _, e := range state.All() {
 			if msg.byID[e.ID] == nil {
@@ -70,25 +73,31 @@ func (m model) fetchRuns() tea.Cmd {
 				msg.waiting = append(msg.waiting, e.ID+"/"+e.PRDName)
 			}
 		}
-		if r := msg.byID[id][name]; r != nil && r.LastStep() != nil {
-			msg.logKey = id + "/" + name
-			msg.log = readLog(state.LogPath(id, name, r.LastStep().Name))
-			msg.devPID = devserver.PID(id, name)
+		for name, r := range msg.byID[id] {
+			if r.Effective() == project.PhaseMerged {
+				continue
+			}
+			if s := r.LastStep(); s != nil {
+				if entries := readLog(state.LogPath(id, name, s.Name), lastTailBytes); len(entries) > 0 {
+					msg.last[name] = entries[len(entries)-1]
+				}
+			}
+			msg.devPIDs[name] = devserver.PID(id, name)
 		}
 		return msg
 	}
 }
 
-// readLog describes the end of a step log.
-func readLog(path string) []claude.Entry {
+// readLog describes the last tail bytes of a step log.
+func readLog(path string, tail int64) []claude.Entry {
 	f, err := os.Open(path)
 	if err != nil {
 		return nil
 	}
 	defer f.Close()
 	offset := int64(0)
-	if info, err := f.Stat(); err == nil && info.Size() > logTailBytes {
-		offset = info.Size() - logTailBytes
+	if info, err := f.Stat(); err == nil && info.Size() > tail {
+		offset = info.Size() - tail
 	}
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
 		return nil
@@ -103,7 +112,49 @@ func readLog(path string) []claude.Entry {
 	for _, l := range lines {
 		out = append(out, claude.Describe(l)...)
 	}
-	return out[max(0, len(out)-logEntries):]
+	return out
+}
+
+// runList names the PRDs of the run list: all runs of the project that are not merged, by start
+// and then by name.
+func (p *projectEntry) runList() []string {
+	var names []string
+	for name, r := range p.runs {
+		if r.Effective() != project.PhaseMerged {
+			names = append(names, name)
+		}
+	}
+	slices.SortFunc(names, func(a, b string) int {
+		return cmp.Or(strings.Compare(p.runs[a].StartedAt, p.runs[b].StartedAt), strings.Compare(a, b))
+	})
+	return names
+}
+
+// selectedRun is the PRD name under the cursor of the run list, empty without runs.
+func (p *projectEntry) selectedRun() string {
+	names := p.runList()
+	if len(names) == 0 {
+		return ""
+	}
+	return names[clamp(p.runCursor, len(names))]
+}
+
+// prdNamed is the PRD called name, nil if the list does not have it.
+func (p *projectEntry) prdNamed(name string) *project.PRD {
+	for i := range p.prds {
+		if p.prds[i].Name == name {
+			return &p.prds[i]
+		}
+	}
+	return nil
+}
+
+// labelOf is the label of the PRD called name, the name itself if the list does not have it.
+func (p *projectEntry) labelOf(name string) string {
+	if d := p.prdNamed(name); d != nil {
+		return d.Label()
+	}
+	return name
 }
 
 // question is a yes/no question in the footer. yes runs on y.
@@ -126,25 +177,27 @@ func (m model) selectedTarget() runner.Target {
 	return runner.Target{ID: projectIDs(m.projects)[m.selected], Dir: m.current().path}
 }
 
-// startPRD starts or continues the selected PRD. Untrusted hooks or allowed tools need a yes first.
-func (m *model) startPRD() tea.Cmd {
-	p, d := m.current(), m.current().selectedPRD()
-	if d == nil {
+// startPRD starts or continues the PRD called name. Untrusted hooks or allowed tools need a yes
+// first.
+func (m *model) startPRD(name string) tea.Cmd {
+	p := m.current()
+	d, r := p.prdNamed(name), p.runs[name]
+	if name == "" || (d == nil && r == nil) {
 		return nil
 	}
-	r := p.runs[d.Name]
+	label := p.labelOf(name)
 	switch {
 	case r != nil && (r.Running() || r.Phase == project.PhaseWaiting):
-		m.err = d.Label() + " runs already."
+		m.err = label + " runs already."
 		return nil
 	case r == nil && d.Phase().Done():
-		m.err = d.Label() + " is " + string(d.Phase()) + "."
+		m.err = label + " is " + string(d.Phase()) + "."
 		return nil
 	case r != nil && r.NextStep() == "":
-		m.err = "Nothing left to do for " + d.Label() + "."
+		m.err = "Nothing left to do for " + label + "."
 		return nil
 	}
-	t, name := m.selectedTarget(), d.Name
+	t := m.selectedTarget()
 	start := func(*model) tea.Cmd {
 		return func() tea.Msg {
 			started, err := runner.Start(t, name)
@@ -163,11 +216,11 @@ func (m *model) startPRD() tea.Cmd {
 	}
 	info := repo.Read(t.Dir, t.ID)
 	if info.Trust != repo.TrustPending {
-		m.question = &question{text: fmt.Sprintf("%s %s? (y/n)", verb, d.Label()), yes: start}
+		m.question = &question{text: fmt.Sprintf("%s %s? (y/n)", verb, label), yes: start}
 		return nil
 	}
 	m.question = &question{
-		text: fmt.Sprintf("%s/config.yaml sets %s. Trust it and %s %s? (y/n)", repo.Dir, trustSummary(info.Config), strings.ToLower(verb), d.Label()),
+		text: fmt.Sprintf("%s/config.yaml sets %s. Trust it and %s %s? (y/n)", repo.Dir, trustSummary(info.Config), strings.ToLower(verb), label),
 		yes: func(m *model) tea.Cmd {
 			if err := state.Trust(t.ID, info.Config.TrustHash()); err != nil {
 				m.err = err.Error()
@@ -194,13 +247,12 @@ func trustSummary(r repo.Config) string {
 	return strings.Join(parts, ", ")
 }
 
-// stopPRD stops the runner of the selected PRD, a waiting PRD becomes aborted.
-func (m *model) stopPRD() tea.Cmd {
-	p, d := m.current(), m.current().selectedPRD()
-	if d == nil || p.runs[d.Name] == nil {
+// stopPRD stops the runner of the PRD called name, a waiting PRD becomes aborted.
+func (m *model) stopPRD(name string) tea.Cmd {
+	if name == "" || m.current().runs[name] == nil {
 		return nil
 	}
-	id, name := m.selectedTarget().ID, d.Name
+	id := m.selectedTarget().ID
 	return func() tea.Msg {
 		if err := runner.Stop(id, name); err != nil {
 			return actionMsg{err: err}
@@ -209,15 +261,15 @@ func (m *model) stopPRD() tea.Cmd {
 	}
 }
 
-// discardPRD asks to throw away the run of the selected PRD with worktree and branch.
-func (m *model) discardPRD() {
-	p, d := m.current(), m.current().selectedPRD()
-	if d == nil || p.runs[d.Name] == nil {
+// discardPRD asks to throw away the run of the PRD called name with worktree and branch.
+func (m *model) discardPRD(name string) {
+	p := m.current()
+	if name == "" || p.runs[name] == nil {
 		return
 	}
-	t, name := m.selectedTarget(), d.Name
+	t := m.selectedTarget()
 	m.question = &question{
-		text: fmt.Sprintf("Discard the run of %s with worktree, branch and its commits? (y/n)", d.Label()),
+		text: fmt.Sprintf("Discard the run of %s with worktree, branch and its commits? (y/n)", p.labelOf(name)),
 		yes: func(*model) tea.Cmd {
 			return func() tea.Msg {
 				if err := runner.Discard(t, name); err != nil {
@@ -229,17 +281,17 @@ func (m *model) discardPRD() {
 	}
 }
 
-// toggleDev starts the dev server in the worktree of the selected PRD, or stops it.
-func (m *model) toggleDev() tea.Cmd {
-	p, d := m.current(), m.current().selectedPRD()
-	if d == nil {
+// toggleDev starts the dev server in the worktree of the PRD called name, or stops it.
+func (m *model) toggleDev(name string) tea.Cmd {
+	p := m.current()
+	if name == "" {
 		return nil
 	}
-	if p.runs[d.Name] == nil {
-		m.err = d.Label() + " has no worktree yet. Start it with s."
+	if p.runs[name] == nil {
+		m.err = p.labelOf(name) + " has no worktree yet. Start it with s."
 		return nil
 	}
-	t, name := m.selectedTarget(), d.Name
+	t := m.selectedTarget()
 	return func() tea.Msg {
 		if devserver.PID(t.ID, name) != 0 {
 			if err := devserver.Stop(t.ID, name); err != nil {
@@ -255,47 +307,49 @@ func (m *model) toggleDev() tea.Cmd {
 	}
 }
 
-// runDetailsView renders a PRD with a run: the run and its steps on the left, the live log of the
-// current step on the right.
-func (m model) runDetailsView(d *project.PRD, r *state.Run, width, height int, t theme) string {
-	text := lipgloss.NewStyle().Foreground(t.text)
-	muted := text.Faint(true)
-	warn := text.Foreground(t.focus)
-	ok := text.Foreground(colorOK)
-	field := func(label string, value string) string {
-		return muted.Render(pad(label, 7)) + value
-	}
+// queuePos is the 1-based position of the PRD called name of project id in the waiting queue, 0
+// if it does not wait.
+func (m model) queuePos(id, name string) int {
+	return slices.Index(m.waiting, id+"/"+name) + 1
+}
 
-	ph := r.Effective()
+// phaseText is the phase symbol in its color and the phase, with the queue position while waiting.
+func phaseText(ph project.Phase, queue int, t theme) string {
+	text := lipgloss.NewStyle().Foreground(t.text)
 	symbol := text
 	if c := phaseColor(ph, t); c != nil {
 		symbol = symbol.Foreground(c)
 	}
-	phaseText := symbol.Render(ph.Symbol()) + text.Render(" "+string(ph))
-	if ph == project.PhaseWaiting {
-		for i, key := range m.waiting {
-			if key == projectIDs(m.projects)[m.selected]+"/"+d.Name {
-				phaseText += muted.Render(fmt.Sprintf(" · #%d in queue", i+1))
-			}
-		}
+	s := symbol.Render(ph.Symbol()) + text.Render(" "+string(ph))
+	if ph == project.PhaseWaiting && queue > 0 {
+		s += text.Faint(true).Render(fmt.Sprintf(" · #%d in queue", queue))
 	}
-	info := column{title: d.Label(), max: 34, rows: []string{
-		phaseText,
-		field("branch", text.Render(r.Branch+" → "+r.Base)),
-		field("port", text.Render(fmt.Sprint(r.Port))),
-		field("cost", text.Render(fmt.Sprintf("%.2f USD", r.Cost()))),
-	}}
-	if m.devPID != 0 && m.logKey == projectIDs(m.projects)[m.selected]+"/"+d.Name {
-		info.rows = append(info.rows, field("dev", ok.Render("●")+text.Render(fmt.Sprintf(" :%d", r.Port))))
-	}
-	if r.Error != nil && ph == project.PhaseError {
-		info.rows = append(info.rows, warn.Render(claude.FirstLine(*r.Error)))
-	}
-	if r.Note != "" {
-		info.rows = append(info.rows, warn.Render(r.Note))
-	}
+	return s
+}
 
-	steps := column{title: "Steps", max: 30}
+// stepEnd is when step s of r ended, now while it runs.
+func stepEnd(r *state.Run, s *state.Step) string {
+	if s.EndedAt == "" && r.Running() {
+		return state.Now()
+	}
+	return s.EndedAt
+}
+
+// currentStep is the last step of r with its duration, "–" without one.
+func currentStep(r *state.Run) string {
+	s := r.LastStep()
+	if s == nil {
+		return "–"
+	}
+	return strings.TrimSpace(s.Name + " " + duration(s.StartedAt, stepEnd(r, s)))
+}
+
+// stepMarks renders every step of a run with its mark, duration and cost: ✓ done, ● running,
+// ✗ failed, ○ not started.
+func stepMarks(r *state.Run, t theme) []string {
+	text := lipgloss.NewStyle().Foreground(t.text)
+	muted := text.Faint(true)
+	var marks []string
 	for _, name := range state.Steps {
 		var s *state.Step
 		for i := range r.Steps {
@@ -310,51 +364,137 @@ func (m model) runDetailsView(d *project.PRD, r *state.Run, width, height int, t
 			mark, style = "●", text.Foreground(t.title)
 			extra = duration(s.StartedAt, state.Now())
 		case s.ExitCode == nil || !s.OK:
-			mark, style = "✗", warn
+			mark, style = "✗", text.Foreground(t.focus)
 			extra = duration(s.StartedAt, s.EndedAt)
 		default:
-			mark, style = "✓", ok
+			mark, style = "✓", text.Foreground(colorOK)
 			extra = duration(s.StartedAt, s.EndedAt)
 		}
 		if s != nil && s.CostUSD != nil {
 			extra += fmt.Sprintf(" %.2f $", *s.CostUSD)
 		}
-		steps.rows = append(steps.rows, style.Render(mark+" ")+text.Render(pad(name, 10))+muted.Render(extra))
+		if extra != "" {
+			extra = " " + strings.TrimSpace(extra)
+		}
+		marks = append(marks, style.Render(mark+" ")+text.Render(name)+muted.Render(extra))
+	}
+	return marks
+}
+
+// runCell is a cell of the run list with its own style outside the cursor row.
+type runCell struct {
+	text  string
+	style lipgloss.Style
+}
+
+// runListView renders the runs of p as a table of height rows: PRD, phase, step, cost, port, dev,
+// branch and the last log line. Columns that do not fit into width drop from the right, PRD and
+// phase stay. While focused, the cursor row gets a background.
+func (m model) runListView(p *projectEntry, width, height int, focused bool, t theme) string {
+	text := lipgloss.NewStyle().Foreground(t.text)
+	names := p.runList()
+	p.runCursor = clamp(p.runCursor, len(names))
+	id := projectIDs(m.projects)[m.selected]
+
+	// Plain phase texts measure the phase column, the styled ones go into the rows.
+	nameW, phaseW, branchW := 3, 5, 6
+	phases := make([]string, len(names))
+	for i, name := range names {
+		r := p.runs[name]
+		phases[i] = ansi.Strip(phaseText(r.Effective(), m.queuePos(id, name), t))
+		nameW = max(nameW, ansi.StringWidth(p.labelOf(name)))
+		phaseW = max(phaseW, ansi.StringWidth(phases[i]))
+		branchW = max(branchW, ansi.StringWidth(r.Branch))
+	}
+	nameW, phaseW, branchW = min(nameW, 28), min(phaseW, 24), min(branchW, 32)
+
+	// The optional columns in the order they drop from the right, the log line takes the rest.
+	titles := []string{"Step", "Cost", "Port", "Dev", "Branch"}
+	widths := []int{16, 9, 5, 7, branchW}
+	const logMin = 10
+	// A row is " ", the symbol and per cell a space and the cell.
+	used := 2 + 1 + nameW + 1 + phaseW
+	visible := 0
+	for _, w := range widths {
+		if used+1+w > width {
+			break
+		}
+		used += 1 + w
+		visible++
+	}
+	logW := 0
+	if visible == len(widths) && width-used-1 >= logMin {
+		logW = width - used - 1
 	}
 
-	logTitle := "Log"
-	if s := r.LastStep(); s != nil {
-		logTitle += " · " + s.Name
-	}
-	logCol := column{title: logTitle, max: width}
-	entries := m.log
-	if m.logKey != projectIDs(m.projects)[m.selected]+"/"+d.Name {
-		entries = nil
-	}
-	for _, e := range entries[max(0, len(entries)-(height-1)):] {
-		style := text
-		switch e.Kind {
-		case claude.KindRunner:
-			style = muted
-		case claude.KindError:
-			style = warn
-		case claude.KindResult:
-			style = ok
+	// row joins the cells after the symbol column, each in its style, or all in base on the
+	// cursor row.
+	row := func(cells []runCell, base lipgloss.Style, plain bool) string {
+		ws := append([]int{nameW, phaseW}, widths[:visible]...)
+		if logW > 0 {
+			ws = append(ws, logW)
 		}
-		indent := ""
-		if e.Sub {
-			indent = "  "
+		var b strings.Builder
+		for i, c := range cells[:len(ws)] {
+			style := c.style
+			if plain {
+				style = base
+			}
+			b.WriteString(base.Render(" ") + style.Render(pad(c.text, ws[i])))
 		}
-		stamp := "        "
-		if !e.At.IsZero() {
-			stamp = e.At.Local().Format("15:04:05")
+		return b.String()
+	}
+	muted := text.Faint(true)
+	header := []runCell{{"PRD", muted}, {"Phase", muted}}
+	for _, title := range titles {
+		header = append(header, runCell{title, muted})
+	}
+	header = append(header, runCell{"Log", muted})
+	lines := []string{ansi.Truncate(muted.Render("  ")+row(header, muted, false), width, "")}
+
+	// Keep the cursor visible below the header.
+	rows := max(1, height-1)
+	top := max(0, min(p.runCursor-rows+1, len(names)-rows))
+	for i := top; i < min(top+rows, len(names)); i++ {
+		name := names[i]
+		r := p.runs[name]
+		ph := r.Effective()
+		base := text
+		selected := i == p.runCursor && focused
+		if selected {
+			base = base.Foreground(t.selectedFg).Background(t.selectedBg)
 		}
-		logCol.rows = append(logCol.rows, muted.Render(stamp+" ")+style.Render(indent+e.Text))
+		symbol := base
+		if c := phaseColor(ph, t); c != nil && !selected {
+			symbol = symbol.Foreground(c)
+		}
+		cost, port, dev := fmt.Sprintf("%.2f USD", r.Cost()), "–", runCell{"–", muted}
+		if r.Port != 0 {
+			port = fmt.Sprint(r.Port)
+		}
+		if m.devPIDs[name] != 0 {
+			dev = runCell{fmt.Sprintf("● :%d", r.Port), text.Foreground(colorOK)}
+		}
+		last := runCell{claude.FirstLine(m.last[name].Text), muted}
+		switch {
+		case ph == project.PhaseError && r.Error != nil:
+			last = runCell{claude.FirstLine(*r.Error), text.Foreground(t.focus)}
+		case r.Note != "":
+			last = runCell{r.Note, text.Foreground(t.focus)}
+		}
+		phaseCell := runCell{phases[i], text}
+		if ph == project.PhaseWaiting {
+			phaseCell.style = muted
+		}
+		cells := []runCell{
+			{p.labelOf(name), text.Bold(true)}, phaseCell,
+			{currentStep(r), text}, {cost, text}, {port, text}, dev, {r.Branch, text}, last,
+		}
+		line := base.Render(" ") + symbol.Render(ph.Symbol()) + row(cells, base, selected)
+		line += base.Render(strings.Repeat(" ", max(0, width-ansi.StringWidth(line))))
+		lines = append(lines, ansi.Truncate(line, width, ""))
 	}
-	if len(logCol.rows) == 0 {
-		logCol.rows = []string{muted.Render("No log yet.")}
-	}
-	return renderColumns([]column{info, steps, logCol}, width, height, t)
+	return strings.Join(lines, "\n")
 }
 
 // usageWindows names the limit windows in the footer.

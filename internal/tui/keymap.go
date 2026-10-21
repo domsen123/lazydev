@@ -72,14 +72,17 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return next, cmd
 	}
 	if m.inTerminal() {
-		p := m.current()
-		p.terms[p.tab].SendKey(msg)
+		m.current().activeTerminal().SendKey(msg)
 		return m, nil
 	}
 	var handled bool
 	var next tea.Model = m
 	var cmd tea.Cmd
 	switch m.focus {
+	case colCenter:
+		if m.inLogView() {
+			handled = m.current().activeLog().update(key)
+		}
 	case colLeft:
 		next, cmd, handled = m.updateLeft(key)
 	case colRight:
@@ -110,10 +113,17 @@ func (m model) wizardVisible() bool {
 	return m.wizard != nil && m.wizard.editor == 0
 }
 
-// inTerminal is true while keys go to a terminal: the center column has the focus and a tab.
+// inTerminal is true while keys go to a terminal: the center column has the focus and its active
+// tab is a terminal.
 func (m model) inTerminal() bool {
 	p := m.current()
-	return m.focus == colCenter && p != nil && len(p.terms) > 0
+	return m.focus == colCenter && p != nil && p.activeTerminal() != nil
+}
+
+// inLogView is true while the center column has the focus and its active tab is a log tab.
+func (m model) inLogView() bool {
+	p := m.current()
+	return m.focus == colCenter && p != nil && p.activeLog() != nil
 }
 
 // global runs the global action of key. ok is false if key has none.
@@ -147,8 +157,13 @@ func (m model) global(key string) (next tea.Model, cmd tea.Cmd, ok bool) {
 	case actNewTerminal:
 		m.openTerminal(terminal.Shell())
 	case actCloseTab:
-		if p != nil && len(p.terms) > 0 {
-			p.terms[p.tab].Hangup()
+		// A terminal closes once its program ends, a log tab right away.
+		switch {
+		case p == nil:
+		case p.activeTerminal() != nil:
+			p.activeTerminal().Hangup()
+		case p.activeLog() != nil:
+			p.removeTab(p.tab)
 		}
 	case actMenu:
 		m.menu = &menu{}
@@ -273,14 +288,23 @@ func (m model) updatePRDs(key string) (next tea.Model, cmd tea.Cmd, ok bool) {
 		} else if len(rows) > 0 {
 			p.toggleDone()
 		}
+	case "L":
+		// The group row has no run.
+		if d := p.selectedPRD(); d != nil {
+			if p.runs[d.Name] == nil {
+				m.err = d.Label() + " has no run."
+				return m, nil, true
+			}
+			return m, m.openLog(projectIDs(m.projects)[m.selected], d.Name), true
+		}
 	case "s":
-		return m, m.startPRD(), true
+		return m, m.startPRD(selectedName(p)), true
 	case "x":
-		return m, m.stopPRD(), true
+		return m, m.stopPRD(selectedName(p)), true
 	case "D":
-		return m, m.toggleDev(), true
+		return m, m.toggleDev(selectedName(p)), true
 	case "X":
-		m.discardPRD()
+		m.discardPRD(selectedName(p))
 	case "c":
 		// The run owns the status line until it ends or gets discarded.
 		if d := p.selectedPRD(); d != nil && p.runs[d.Name] != nil {
@@ -309,12 +333,15 @@ func (m model) updateBottom(key string) (next tea.Model, cmd tea.Cmd, ok bool) {
 		m.resizeTerminals()
 		return m, nil, true
 	}
-	if m.bottomTab == bottomDetails {
-		if key != "i" {
-			return m, nil, false
-		}
+	if key == "i" && m.bottomTab == bottomDetails {
 		m.openWizard()
 		return m, nil, true
+	}
+	if m.runListVisible() {
+		return m.updateRunList(key)
+	}
+	if m.bottomTab == bottomDetails {
+		return m, nil, false
 	}
 	services := m.docker.ProjectServices(p.path)
 	switch key {
@@ -339,19 +366,60 @@ func (m model) updateBottom(key string) (next tea.Model, cmd tea.Cmd, ok bool) {
 	return m, nil, true
 }
 
+// updateRunList handles the plain keys of the run list. ok is false for keys it does not use.
+func (m model) updateRunList(key string) (next tea.Model, cmd tea.Cmd, ok bool) {
+	p := m.current()
+	names := p.runList()
+	switch key {
+	case "j", "down":
+		p.runCursor = clamp(p.runCursor+1, len(names))
+	case "k", "up":
+		p.runCursor = clamp(p.runCursor-1, len(names))
+	case "g", "home":
+		p.runCursor = 0
+	case "G", "end":
+		p.runCursor = clamp(len(names)-1, len(names))
+	case "l", "right", "enter":
+		return m, m.openLog(projectIDs(m.projects)[m.selected], p.selectedRun()), true
+	case "s":
+		return m, m.startPRD(p.selectedRun()), true
+	case "x":
+		return m, m.stopPRD(p.selectedRun()), true
+	case "D":
+		return m, m.toggleDev(p.selectedRun()), true
+	case "X":
+		m.discardPRD(p.selectedRun())
+	default:
+		return m, nil, false
+	}
+	return m, nil, true
+}
+
+// selectedName is the name of the PRD under the cursor of the PRD list, empty on the group row.
+func selectedName(p *projectEntry) string {
+	if d := p.selectedPRD(); d != nil {
+		return d.Name
+	}
+	return ""
+}
+
 // footerKeys is the key help of the focused column.
 func (m model) footerKeys() string {
 	switch {
 	case m.inTerminal():
 		return " alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+t terminal · alt+w close · alt+m menu · alt+q quit"
+	case m.inLogView():
+		return " j/k scroll · ctrl+d/u page · g/G top/end · z header · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+w close · t terminal · m menu · q quit"
 	case m.focus == colLeft || m.current() == nil:
 		return " j/k select · l open · a add · d remove · i edit .lazydev · alt+←/→ pane · alt+shift+←/→ tab · t terminal · m menu · q quit"
+	case m.focus == colBottom && m.runListVisible():
+		return " j/k move · l log · s start · x stop · X discard · D dev · i edit .lazydev · z zoom · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · m menu · q quit"
 	case m.focus == colBottom && m.bottomTab == bottomDetails:
 		return " i edit .lazydev · z zoom · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · m menu · q quit"
 	case m.focus == colBottom && m.bottomTab == bottomDocker:
 		return " j/k move · l logs · z zoom · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · m menu · q quit"
 	case m.focus == colRight && m.rightTab == rightPRDs:
-		return " j/k move · l open · n new · s start · x stop · X discard · D dev · c status · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · m menu · q quit"
+		return " j/k move · l open · L log · n new · s start · x stop · X discard · D dev · c status · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · m menu · q quit"
 	case m.focus == colRight && m.rightTab == rightFiles:
 		return " j/k move · l open · h back · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · m menu · q quit"
 	}

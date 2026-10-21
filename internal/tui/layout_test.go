@@ -12,6 +12,9 @@ import (
 	"github.com/charmbracelet/x/ansi"
 
 	"lazydev/internal/docker"
+	"lazydev/internal/project"
+	"lazydev/internal/repo"
+	"lazydev/internal/state"
 )
 
 func plainStyle(int) lipgloss.Style { return lipgloss.NewStyle() }
@@ -272,6 +275,30 @@ func TestViewSmoke(t *testing.T) {
 
 	m.bottomZoom, m.focus, m.rightTab = true, colRight, rightPRDs
 	checkSize(t, m.View(), 160, 40)
+
+	// Without runs, the details tab shows the project.
+	m.bottomZoom, m.bottomTab = false, bottomDetails
+	if err := repo.Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	p.lazydev = repo.Read(dir, projectIDs(m.projects)[0])
+	plain = ansi.Strip(m.View())
+	if !strings.Contains(plain, "base") || strings.Contains(plain, "Runs") {
+		t.Errorf("details without runs:\n%s", plain)
+	}
+	failed := "hook failed"
+	p.runs = map[string]*state.Run{
+		"checkout": {Branch: "feat/checkout", Phase: project.PhaseImplement, StartedAt: "2026-10-21T10:00:00Z"},
+		"search":   {Branch: "feat/search", Phase: project.PhaseError, StartedAt: "2026-10-21T11:00:00Z", Error: &failed},
+	}
+	view = m.View()
+	plain = ansi.Strip(view)
+	for _, want := range []string{"Runs", "checkout", "search", "hook failed"} {
+		if !strings.Contains(plain, want) {
+			t.Errorf("run list lacks %q:\n%s", want, plain)
+		}
+	}
+	checkSize(t, view, 160, 40)
 }
 
 func TestRightTabDefault(t *testing.T) {

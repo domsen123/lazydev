@@ -11,8 +11,8 @@ import (
 	"lazydev/internal/repo"
 )
 
-// The details tab shows the lazydev setup of the selected project while the right column shows
-// its files, and the selected PRD while it shows the PRDs.
+// The details tab shows the runs of the selected project while the right column shows the PRDs,
+// and the lazydev setup while it shows the files or the project has no runs.
 
 // column is one section of the details tab: a title and one value per row.
 type column struct {
