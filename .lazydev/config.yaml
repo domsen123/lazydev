@@ -1,0 +1,7 @@
+allowedTools:
+  - Bash(go:*)
+  - Bash(gofmt:*)
+  - Bash(make:*)
+  - Bash(head:*)
+  - Bash(tail:*)
+  - Bash(sed -n:*)

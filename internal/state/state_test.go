@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+	"time"
 
 	"lazydev/internal/project"
 )
@@ -200,6 +201,11 @@ func TestIsRunner(t *testing.T) {
 		cmd.Process.Kill()
 		cmd.Wait()
 	})
+	// Start returns before the kernel shows the new cmdline, so wait for it.
+	deadline := time.Now().Add(2 * time.Second)
+	for !IsRunner(cmd.Process.Pid) && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
 	if !IsRunner(cmd.Process.Pid) {
 		data, _ := os.ReadFile("/proc/" + strconv.Itoa(cmd.Process.Pid) + "/cmdline")
 		t.Errorf("runner not recognized, cmdline %q", data)
