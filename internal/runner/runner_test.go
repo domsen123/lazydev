@@ -306,6 +306,7 @@ func fakeClaude(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "claude")
 	script := `#!/bin/sh
+# printf statt echo, weil echo in dash "\n" als Zeilenumbruch ausgibt.
 { printf '%s\n' "$@"; echo "GIT_EDITOR=$GIT_EDITOR"; } >> .fake-args
 echo '{"type":"system","subtype":"init","session_id":"sess-1"}'
 echo 'eine Warnung' >&2
@@ -316,21 +317,21 @@ case "$2" in
 	case "$mode" in
 	exit) echo '{"type":"result","is_error":true,"result":"kaputt"}'; exit 3 ;;
 	noresult) exit 0 ;;
-	abort) echo '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Feld fehlt im PRD\n"}'; exit 0 ;;
+	abort) printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Feld fehlt im PRD\n"}'; exit 0 ;;
 	status) ;;
 	*) sed -i 's/^> Status: geplant/> Status: umgesetzt (2026-10-20)/' "$prd" ;;
 	esac
 	echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"x.ts"}}]}}'
-	echo '{"type":"result","is_error":false,"total_cost_usd":0.5,"result":"## Ergebnis\numgesetzt\n\n## Offene Fragen\n- keine\n"}'
+	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.5,"result":"## Ergebnis\numgesetzt\n\n## Offene Fragen\n- keine\n"}'
 	;;
 /merge-prd*)
 	if [ "$FAKE_MERGE_MODE" = abort ]; then
-		echo '{"type":"result","is_error":false,"result":"## Ergebnis\nabgebrochen\n\n## Offene Punkte\n- review.txt: beide Seiten unklar\n"}'
+		printf '%s\n' '{"type":"result","is_error":false,"result":"## Ergebnis\nabgebrochen\n\n## Offene Punkte\n- review.txt: beide Seiten unklar\n"}'
 		exit 0
 	fi
 	git rebase -q -X theirs main >/dev/null 2>&1 || true
 	touch .merge-fixed
-	echo '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\nbereit für Fast-Forward\n"}'
+	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\nbereit für Fast-Forward\n"}'
 	;;
 /arewedone)
 	echo change > review.txt

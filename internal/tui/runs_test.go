@@ -28,6 +28,8 @@ func setupRun(t *testing.T) Model {
 	cost := 0.25
 	r.StartStep("implement")
 	r.Steps[0].CostUSD = &cost
+	// Fester Tag, damit die Tageskosten in den Limits nicht vom Testdatum abhängen.
+	r.Steps[0].StartedAt = "2026-10-20T14:02:00+02:00"
 	if err := state.Save("alpha", "moved", r); err != nil {
 		t.Fatal(err)
 	}
