@@ -1,6 +1,6 @@
 # PRD: Status eines PRDs in der TUI ändern
 
-> Status: geplant · Template: einfach · Scope: Taste `c` öffnet eine Auswahl für den Status des gewählten PRDs: `geplant`, `umgesetzt` oder neu `verworfen`. lazydev schreibt den Wert in die Statuszeile und committet getrackte PRDs im Hauptordner. So lassen sich PRDs, die vor lazydev umgesetzt wurden, als erledigt markieren.
+> Status: umgesetzt (2026-10-21) · Template: einfach · Scope: Taste `c` öffnet eine Auswahl für den Status des gewählten PRDs: `geplant`, `umgesetzt` oder neu `verworfen`. lazydev schreibt den Wert in die Statuszeile und committet getrackte PRDs im Hauptordner. So lassen sich PRDs, die vor lazydev umgesetzt wurden, als erledigt markieren.
 
 ## Context
 

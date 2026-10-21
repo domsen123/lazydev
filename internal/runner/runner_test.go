@@ -206,7 +206,7 @@ func TestTeardownWithoutState(t *testing.T) {
 	}
 }
 
-func TestRunRejectsUnknownAndImplemented(t *testing.T) {
+func TestRunRejectsUnknownImplementedAndDiscarded(t *testing.T) {
 	cfg, target := setupProject(t)
 	if err := Run(cfg, target, "fehlt", io.Discard); err == nil {
 		t.Error("unbekanntes PRD akzeptiert")
@@ -214,6 +214,10 @@ func TestRunRejectsUnknownAndImplemented(t *testing.T) {
 	write(t, target.Dir(), "prd/auth/done.md", "# PRD: Fertig\n> Status: umgesetzt (2026-10-01)\n")
 	if err := Run(cfg, target, "done", io.Discard); err == nil {
 		t.Error("umgesetztes PRD akzeptiert")
+	}
+	write(t, target.Dir(), "prd/auth/dropped.md", "# PRD: Verworfen\n> Status: verworfen (2026-10-01)\n")
+	if err := Run(cfg, target, "dropped", io.Discard); err == nil || !strings.Contains(err.Error(), "ist verworfen") {
+		t.Errorf("verworfenes PRD akzeptiert: %v", err)
 	}
 	if _, err := FindProject(cfg, "nope"); err == nil {
 		t.Error("unbekanntes Projekt akzeptiert")

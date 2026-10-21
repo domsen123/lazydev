@@ -18,6 +18,8 @@ func TestParseStatusLine(t *testing.T) {
 		{"> Status: umgesetzt (2026-10-14) · Scope: Theme", true, StatusImplemented, "umgesetzt (2026-10-14)", "2026-10-14", "Scope: Theme"},
 		{">Status: geplant", true, StatusPlanned, "geplant", "", ""},
 		{"> Status: umgesetzt", true, StatusImplemented, "umgesetzt", "", ""},
+		{"> Status: verworfen (2026-10-21) · Scope: Theme", true, StatusDiscarded, "verworfen (2026-10-21)", "2026-10-21", "Scope: Theme"},
+		{"> Status: verworfen", true, StatusDiscarded, "verworfen", "", ""},
 		{"> Status: in Arbeit · a · b", true, StatusUnknown, "in Arbeit", "", "a · b"},
 		{"Status: geplant", false, StatusUnknown, "", "", ""},
 		{"# PRD: Titel", false, StatusUnknown, "", "", ""},
@@ -78,6 +80,49 @@ func TestResetStatus(t *testing.T) {
 		if got := ResetStatus(in); got != want {
 			t.Errorf("ResetStatus(%q) = %q, erwartet %q", in, got, want)
 		}
+	}
+}
+
+func TestSetStatus(t *testing.T) {
+	tests := []struct {
+		name, in, value, out string
+		ok                   bool
+	}{
+		{
+			name:  "mit Freitext",
+			in:    "# PRD: X\n> Status: geplant · Template: einfach · Scope: a\n> b\n",
+			value: "umgesetzt (2026-10-21)",
+			out:   "# PRD: X\n> Status: umgesetzt (2026-10-21) · Template: einfach · Scope: a\n> b\n",
+			ok:    true,
+		},
+		{
+			name:  "ohne Freitext",
+			in:    "# PRD: X\n> Status: geplant\n\nText\n",
+			value: "verworfen (2026-10-21)",
+			out:   "# PRD: X\n> Status: verworfen (2026-10-21)\n\nText\n",
+			ok:    true,
+		},
+		{
+			name:  "Statuszeile nicht in Zeile 2",
+			in:    "# PRD: X\n\n> Status: umgesetzt (2026-10-20) · Scope: a\n\n> Status: umgesetzt\n",
+			value: "geplant",
+			out:   "# PRD: X\n\n> Status: geplant · Scope: a\n\n> Status: umgesetzt\n",
+			ok:    true,
+		},
+		{
+			name:  "ohne Statuszeile",
+			in:    "# PRD: X\n\nText\n",
+			value: "geplant",
+			out:   "# PRD: X\n\nText\n",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := SetStatus(tt.in, tt.value)
+			if got != tt.out || ok != tt.ok {
+				t.Errorf("SetStatus = %q, %v, erwartet %q, %v", got, ok, tt.out, tt.ok)
+			}
+		})
 	}
 }
 
@@ -174,6 +219,9 @@ func TestPhaseFromStatus(t *testing.T) {
 	}
 	if got := PhaseFromStatus(Status{Kind: StatusImplemented}); got != PhaseMerged {
 		t.Errorf("umgesetzt: %s", got)
+	}
+	if got := PhaseFromStatus(Status{Kind: StatusDiscarded}); got != PhaseDiscarded || got.Label() != "verworfen" || got.Symbol() != "✗" {
+		t.Errorf("verworfen: %s %s %s", got, got.Label(), got.Symbol())
 	}
 	if got := PhaseFromStatus(Status{}); got != PhaseUnknown {
 		t.Errorf("unbekannt: %s", got)

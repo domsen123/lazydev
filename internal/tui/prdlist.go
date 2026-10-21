@@ -31,7 +31,7 @@ type prdRow struct {
 }
 
 // prdList liefert die sichtbaren Zeilen: offene PRDs, die Gruppenzeile „erledigt“ und, falls
-// aufgeklappt, die gemergten PRDs.
+// aufgeklappt, die gemergten und verworfenen PRDs.
 func (m Model) prdList(p *project.Project) []prdRow {
 	if p == nil {
 		return nil
@@ -39,7 +39,7 @@ func (m Model) prdList(p *project.Project) []prdRow {
 	var open, done []*project.PRD
 	for i := range p.PRDs {
 		d := &p.PRDs[i]
-		if prdPhase(d, m.runs.get(p, d)) == project.PhaseMerged {
+		if phase := prdPhase(d, m.runs.get(p, d)); phase == project.PhaseMerged || phase == project.PhaseDiscarded {
 			done = append(done, d)
 		} else {
 			open = append(open, d)

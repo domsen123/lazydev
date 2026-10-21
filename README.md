@@ -142,6 +142,7 @@ work, and `?` shows the full list.
 | `Ctrl+X` | In the chat: end the chat, with confirmation. A running round stops, the log stays. |
 | `Ctrl+R` | In the chat: retry the last round after an error |
 | `v` | Show the full PRD as Markdown in a window. Inside, `o` opens the file in your editor. |
+| `c` | Set the status of a PRD without a run: `geplant` (planned), `umgesetzt` (done) or `verworfen` (discarded). Done and discarded PRDs move to the "erledigt" (done) group. Tracked PRDs are committed in the main folder after a confirmation. |
 | `s` | Start the implementation. After an error or an abort, it continues at the failed step. Asks first to allow hooks and allowed tools from `.lazydev/config.yaml`. |
 | `m` | Approve the merge when `autoMerge` is off or the merge failed |
 | `x` | Stop the runner. The worktree stays. |

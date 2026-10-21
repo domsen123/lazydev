@@ -16,6 +16,15 @@ const (
 	StatusUnknown StatusKind = iota
 	StatusPlanned
 	StatusImplemented
+	// StatusDiscarded gilt für PRDs, die nicht umgesetzt werden.
+	StatusDiscarded
+)
+
+// Statuswerte, die lazydev selbst schreibt. umgesetzt und verworfen bekommen das Datum dazu.
+const (
+	StatusValuePlanned     = "geplant"
+	StatusValueImplemented = "umgesetzt"
+	StatusValueDiscarded   = "verworfen"
 )
 
 // Status ist die geparste Zeile "> Status: <wert> · <freitext>".
@@ -23,15 +32,15 @@ type Status struct {
 	Kind StatusKind
 	// Value ist der Teil vor "·", z. B. "umgesetzt (2026-10-14)".
 	Value string
-	// Date ist das Datum aus "umgesetzt (YYYY-MM-DD)", sonst leer.
+	// Date ist das Datum aus "umgesetzt (YYYY-MM-DD)" oder "verworfen (YYYY-MM-DD)", sonst leer.
 	Date string
 	// Detail ist der Freitext nach "·", z. B. "Scope: Backend-only".
 	Detail string
 }
 
 var (
-	statusLineRe  = regexp.MustCompile(`^>\s*Status:\s*(.*)$`)
-	implementedRe = regexp.MustCompile(`^umgesetzt\s*\((\d{4}-\d{2}-\d{2})\)`)
+	statusLineRe = regexp.MustCompile(`^>\s*Status:\s*(.*)$`)
+	statusDateRe = regexp.MustCompile(`^(?:umgesetzt|verworfen)\s*\((\d{4}-\d{2}-\d{2})\)`)
 )
 
 // headerScanLines begrenzt die Suche nach Titel und Statuszeile auf den Kopf der Datei.
@@ -47,20 +56,24 @@ func ParseStatusLine(line string) (s Status, ok bool) {
 	s.Value = strings.TrimSpace(value)
 	s.Detail = strings.TrimSpace(detail)
 	switch {
-	case s.Value == "geplant":
+	case s.Value == StatusValuePlanned:
 		s.Kind = StatusPlanned
-	case strings.HasPrefix(s.Value, "umgesetzt"):
+	case strings.HasPrefix(s.Value, StatusValueImplemented):
 		s.Kind = StatusImplemented
-		if d := implementedRe.FindStringSubmatch(s.Value); d != nil {
+	case strings.HasPrefix(s.Value, StatusValueDiscarded):
+		s.Kind = StatusDiscarded
+	}
+	if s.Kind == StatusImplemented || s.Kind == StatusDiscarded {
+		if d := statusDateRe.FindStringSubmatch(s.Value); d != nil {
 			s.Date = d[1]
 		}
 	}
 	return s, true
 }
 
-// ResetStatus setzt den Wert der ersten Statuszeile auf "geplant". Der Freitext nach "·"
-// bleibt erhalten. Ohne Statuszeile liefert ResetStatus den Inhalt unverändert.
-func ResetStatus(content string) string {
+// SetStatus setzt den Wert der ersten Statuszeile auf value. Der Freitext nach "·" bleibt
+// erhalten. ok ist false ohne Statuszeile, dann bleibt der Inhalt unverändert.
+func SetStatus(content, value string) (string, bool) {
 	lines := strings.SplitAfter(content, "\n")
 	for i, line := range lines {
 		if i >= headerScanLines {
@@ -74,15 +87,22 @@ func ResetStatus(content string) string {
 		if strings.HasSuffix(line, "\n") {
 			newline = "\n"
 		}
-		reset := "> Status: geplant"
+		set := "> Status: " + value
 		if s.Detail != "" {
 			_, rest, _ := strings.Cut(strings.TrimRight(line, "\r\n"), "·")
-			reset += " ·" + rest
+			set += " ·" + rest
 		}
-		lines[i] = reset + newline
-		break
+		lines[i] = set + newline
+		return strings.Join(lines, ""), true
 	}
-	return strings.Join(lines, "")
+	return content, false
+}
+
+// ResetStatus setzt den Wert der ersten Statuszeile auf "geplant". Der Freitext nach "·"
+// bleibt erhalten. Ohne Statuszeile liefert ResetStatus den Inhalt unverändert.
+func ResetStatus(content string) string {
+	reset, _ := SetStatus(content, StatusValuePlanned)
+	return reset
 }
 
 // Felder, die der Runner vor dem Merge in den Freitext der Statuszeile schreibt.

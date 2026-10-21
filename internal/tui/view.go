@@ -167,6 +167,8 @@ func (m Model) View() string {
 		fg = m.viewLimits(time.Now())
 	case m.mode == modeBranch && m.branch != nil:
 		fg = m.viewBranchPicker()
+	case m.mode == modeStatus && m.prdStatus != nil:
+		fg = m.viewStatusPicker()
 	case m.mode == modeInit && m.wizard != nil:
 		fg = m.viewInitWizard()
 	case m.mode == modeConfirm && m.returnMode == modeNormal && m.confirm != nil && m.confirm.details != nil:
@@ -428,6 +430,8 @@ func (m Model) helpLine() string {
 		keys = [][2]string{{"j", "ja"}, {"n", "nein"}}
 	case modeBranch:
 		keys = [][2]string{{"↑ ↓", "Branch wählen"}, {"Enter", "übernehmen"}, {"Esc", "abbrechen"}}
+	case modeStatus:
+		keys = [][2]string{{"↑ ↓", "Status wählen"}, {"Enter", "übernehmen"}, {"Esc", "abbrechen"}}
 	case modeInit:
 		keys = m.wizard.keys()
 	case modeNewPRD:
@@ -488,6 +492,9 @@ func (m Model) prdKeys() [][2]string {
 	if d := m.selectedPRD(); d != nil {
 		r := m.selectedRun()
 		keys = append(keys, [2]string{"v", "ansehen"})
+		if statusBlocked(d, r) == "" {
+			keys = append(keys, [2]string{"c", "Status"})
+		}
 		if startBlocked(d, r) == "" {
 			if r != nil {
 				keys = append(keys, [2]string{"s", "fortsetzen"})
@@ -669,6 +676,7 @@ var helpSections = []struct {
 		{"n", "neues PRD im Chat (Opus)"},
 		{"N", "älteste Rückfrage eines Chats öffnen"},
 		{"v", "PRD vollständig ansehen, darin o für den Editor"},
+		{"c", "Status setzen: geplant, umgesetzt oder verworfen"},
 		{"s", "Umsetzung starten oder beim gescheiterten Schritt fortsetzen"},
 		{"m", "Merge freigeben"},
 		{"x", "Runner abbrechen, der Worktree bleibt"},

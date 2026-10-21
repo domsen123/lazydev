@@ -59,6 +59,8 @@ const (
 	modeBranch
 	// modeInit legt .lazydev/ im gewählten Projekt an.
 	modeInit
+	// modeStatus wählt den Status des gewählten PRDs.
+	modeStatus
 )
 
 // confirmation ist eine Rückfrage. yes läuft nach „j“. Mit details zeigt die TUI ein Fenster mit
@@ -87,6 +89,8 @@ type Model struct {
 	input      textinput.Model
 	candidates []string
 	branch     *branchPicker
+	// prdStatus ist das offene Fenster „Status“, sonst nil.
+	prdStatus *statusPicker
 	// wizard ist der offene Wizard „.lazydev/ anlegen“, sonst nil.
 	wizard *initWizard
 

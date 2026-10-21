@@ -121,7 +121,7 @@ func TestHelpAndCost(t *testing.T) {
 		t.Errorf("Kosten oder Hilfe-Hinweis fehlen:\n%s", view)
 	}
 	m = drive(t, m, keys("?")...)
-	if m.mode != modeHelp || !strings.Contains(ansi.Strip(m.View()), "Dev-Server im Worktree starten") {
+	if m.mode != modeHelp || !strings.Contains(ansi.Strip(m.View()), "Status setzen: geplant, umgesetzt oder verworfen") {
 		t.Errorf("Hilfe:\n%s", ansi.Strip(m.View()))
 	}
 	m = drive(t, m, keys("j")...)

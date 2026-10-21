@@ -238,8 +238,10 @@ Ein PRD liegt unter `prd/<bereich>/<name>.md`. Die zweite Zeile trägt den Statu
 > Status: geplant · Scope: <Kurzfassung>
 ```
 
-Bekannte Statuswerte: `geplant`, `umgesetzt (YYYY-MM-DD)`. Der Teil nach `·` ist Freitext, lazydev wertet
-ihn nicht aus.
+Bekannte Statuswerte: `geplant`, `umgesetzt (YYYY-MM-DD)` und `verworfen (YYYY-MM-DD)` für PRDs, die nicht
+umgesetzt werden. Werte, die mit `umgesetzt` bzw. `verworfen` beginnen, zählen als dieser Status. Der Teil
+nach `·` ist Freitext, lazydev wertet ihn nicht aus. Den Wert setzt die Umsetzung durch Claude oder `c`
+(siehe „Status ändern (`c`)“).
 
 Vor dem Fast-Forward schreibt lazydev die Felder `Kosten:` und `Modell:` in den Freitext, direkt nach
 dem Statuswert und vor allen anderen Teilen, getrennt mit ` · `:
@@ -299,7 +301,8 @@ geht das PRD auf „Fehler“, auch bei Exit-Code 0. Die erste offene Frage steh
   wenn er Kosten über 0 hat, sonst aus dem Feld `Kosten:` der Statuszeile (Format `4.12 $`).
   Der Titel nennt die Summe der Kosten aller PRDs des Projekts nach derselben Regel, kein PRD zählt
   doppelt.
-  Oben stehen die offenen PRDs, darunter die Gruppenzeile `▸ <n> erledigt` mit allen gemergten PRDs.
+  Oben stehen die offenen PRDs, darunter die Gruppenzeile `▸ <n> erledigt` mit allen gemergten und
+  verworfenen PRDs.
   In der Kostenspalte zeigt sie die Summe der Kosten aller erledigten PRDs nach derselben Regel.
   Die Gruppe ist beim Start zugeklappt. `e` oder `Enter` auf der Gruppenzeile klappt sie auf und zu.
   `S` sortiert beide Teile nach Name oder nach Erstellzeit, neueste zuerst. Die Spaltenüberschrift
@@ -324,7 +327,7 @@ geht das PRD auf „Fehler“, auch bei Exit-Code 0. Die erste offene Frage steh
 - **Unten:** Log des gewählten PRDs, live, scrollbar.
 
 **Fenster über der TUI:** Chat, Hilfe, Claude-Limits, „Neues PRD · <projekt>“, „Ziel-Branch“,
-„.lazydev/ anlegen · <projekt>“, die Rückfrage zum Vertrauen, „PRD: …“ und „Issue #<nummer>“ erscheinen als Fenster mit rundem Rahmen über der TUI. Innen haben sie
+„Status · <bereich>/<name>“, „.lazydev/ anlegen · <projekt>“, die Rückfrage zum Vertrauen, „PRD: …“ und „Issue #<nummer>“ erscheinen als Fenster mit rundem Rahmen über der TUI. Innen haben sie
 2 Spalten Abstand links und rechts und 1 Zeile oben und unten. Hinter einem offenen Fenster erscheint die
 TUI ohne Farben in `colorMuted`. Die Fußzeile bleibt ungedimmt und zeigt die Tastenhilfe.
 
@@ -334,7 +337,8 @@ Die Fußzeile zeigt nur die Tasten, die im aktiven Fokus und im Zustand des gew�
 stehen immer `? Hilfe` und `q beenden`, bei schmalem Terminal kürzt sich die Zeile am Ende mit `…`.
 
 - **Projekte:** `a`, mit gewähltem Projekt dazu `d`, `b`, `i`, `D` und `n`.
-- **PRDs:** `n`, mit gewähltem PRD dazu `v` und die Aktionen, die gerade greifen. `s` heißt „starten“ ohne
+- **PRDs:** `n`, mit gewähltem PRD dazu `v`, ohne Lauf-Zustand `c` und die Aktionen, die gerade greifen.
+  `s` heißt „starten“ ohne
   Lauf und „fortsetzen“ mit Lauf. `m`, `x` und `X` erscheinen unter denselben Bedingungen, unter denen die
   Taste etwas tut. `o` erscheint mit Worktree und Claude-Sitzung, `p` und `w` mit Worktree. `e` erscheint
   mit erledigten PRDs, `S` ab zwei Zeilen in der Liste.
@@ -361,6 +365,7 @@ nicht, nennt die Statuszeile den Grund. `?` zeigt die vollständige Liste.
 | `Ctrl+X` | Im Chat: Chat beenden, mit Rückfrage. Eine laufende Runde bricht ab, das Log bleibt. |
 | `Ctrl+R` | Im Chat: nach einem Fehler die letzte Runde mit derselben Eingabe wiederholen |
 | `v` | PRD vollständig als Markdown im Fenster ansehen. Darin öffnet `o` die Datei im Editor. |
+| `c` | Status des gewählten PRDs ohne Lauf-Zustand wählen: `geplant`, `umgesetzt` oder `verworfen`. Committet getrackte PRDs im Hauptordner, mit Rückfrage. Siehe „Status ändern (`c`)“. |
 | `s` | Umsetzung des gewählten PRDs starten, mit Rückfrage. Nach Fehler oder Abbruch geht es beim gescheiterten Schritt weiter. Setzt `.lazydev/config.yaml` unbestätigte Hooks oder Freigaben, fragt `s` vorher danach (siehe „Vertrauen“). |
 | `m` | Merge des gewählten PRDs anstoßen (nur bei `autoMerge: false` oder nach einem Fehler) |
 | `x` | Laufenden Schritt abbrechen, mit Rückfrage |
@@ -525,8 +530,10 @@ den Port, zeigt lazydev Prozessname und PID und vergibt den nächsten freien Por
 | gemergt | `✓` | Im Ziel-Branch, Worktree aufgeräumt |
 | abgebrochen | `■` | Vom Menschen gestoppt oder Prozess beendet. Worktree bleibt. |
 | Fehler | `✗` | Ein Schritt endete mit Fehler oder offener Frage. Worktree bleibt. |
+| verworfen | `✗` | Status `verworfen`, das PRD wird nicht umgesetzt. Nur ohne Lauf-Zustand. |
 
-Ohne Lauf-Zustand gilt die Statuszeile des PRDs: `geplant` → geplant, `umgesetzt` → gemergt.
+Ohne Lauf-Zustand gilt die Statuszeile des PRDs: `geplant` → geplant, `umgesetzt` → gemergt,
+`verworfen` → verworfen.
 
 ### Neues PRD (`n`)
 
@@ -583,7 +590,9 @@ Ohne Lauf-Zustand gilt die Statuszeile des PRDs: `geplant` → geplant, `umgeset
 
 ### Umsetzung starten (`s`)
 
-1. **Prüfen:** Läuft für dieses PRD schon ein Worktree, lehnt lazydev ab. Sind Hooks oder Freigaben aus
+1. **Prüfen:** Läuft für dieses PRD schon ein Worktree, lehnt lazydev ab. Steht ein PRD ohne Lauf-Zustand
+   auf `umgesetzt` oder `verworfen`, zeigt `s` als Fehler `<prd> ist schon umgesetzt` bzw.
+   `<prd> ist verworfen`. Sind Hooks oder Freigaben aus
    `.lazydev/config.yaml` nicht bestätigt, startet kein Runner (siehe „Vertrauen“). Ist `maxParallel`
    erreicht, setzt lazydev das PRD auf „wartet“ und startet es, sobald ein Platz frei wird.
 2. **Worktree anlegen:** `git worktree add -b feat/<prd-name> <worktree-pfad> <ziel-branch>`. Der Lauf
@@ -597,8 +606,37 @@ Ohne Lauf-Zustand gilt die Statuszeile des PRDs: `geplant` → geplant, `umgeset
 6. **Review:** nur nach Erfolg: `claude -p "<prompt>"` mit dem Prompt des Schritts `review` im Worktree.
 7. **Merge:** nach Erfolg in die Merge-Queue des Projekts (siehe „Merge“).
 
-Commits, die lazydev selbst erstellt (Schritt 3 und „Kosten und Modell vermerken“ im Merge), schreibt es
-direkt mit `git commit`, ohne Claude und ohne Trailer.
+Commits, die lazydev selbst erstellt (Schritt 3, „Kosten und Modell vermerken“ im Merge und „Status
+ändern (`c`)“), schreibt es direkt mit `git commit`, ohne Claude und ohne Trailer.
+
+### Status ändern (`c`)
+
+`c` setzt den Status eines PRDs, etwa für PRDs, die vor lazydev umgesetzt wurden, oder für PRDs, die nie
+umgesetzt werden. `c` wirkt im Normalmodus unabhängig vom Fokus. Ohne gewähltes PRD bewirkt `c` nichts.
+
+1. **Prüfen:** Hat das PRD einen Lauf-Zustand, zeigt die Statuszeile als Fehler
+   `<prd> hat einen Lauf von lazydev. Verwirf ihn zuerst mit X.` Hat das PRD keine Statuszeile, zeigt sie
+   `<prd> hat keine Statuszeile`. lazydev legt keine an.
+2. **Fenster:** „Status · <bereich>/<name>“ mit den Werten `geplant`, `umgesetzt` und `verworfen`.
+   Vorgewählt ist der aktuelle Wert, markiert mit ` (aktuell)`. `j`/`k` wählen, `Enter` übernimmt, `Esc`
+   bricht ab. Fußzeile: `↑ ↓ Status wählen · Enter übernehmen · Esc abbrechen`.
+3. **Wert:** `geplant` bleibt ohne Datum, `umgesetzt` und `verworfen` bekommen das heutige Datum:
+   `umgesetzt (YYYY-MM-DD)` bzw. `verworfen (YYYY-MM-DD)`. Wählst du den aktuellen Wert, schließt das
+   Fenster ohne Änderung. `umgesetzt` und `verworfen` mit anderem Datum gelten als gleich. lazydev ändert
+   nur den Teil vor dem ersten `·` der Statuszeile, der Freitext bleibt.
+4. **Ungetracktes PRD:** lazydev schreibt die Datei ohne Rückfrage und ohne Commit. Meldung:
+   `Status von <prd>: <wert>`.
+5. **Getracktes PRD:** lazydev fragt `Status von <prd> auf <wert> setzen und committen? (j/n)`. Nach `j`
+   prüft es, dass der Hauptordner auf dem Ziel-Branch steht und die PRD-Datei keine uncommitteten
+   Änderungen hat (`git status --porcelain -- <pfad>`). Sonst ändert lazydev nichts und zeigt als Fehler
+   `Hauptordner steht auf <branch> statt <ziel-branch>` bzw. `<pfad> hat uncommittete Änderungen`. Andere
+   geänderte Dateien im Hauptordner stören nicht. Danach schreibt lazydev die Datei und committet nur
+   sie: `git commit -m "docs(prd): mark <name> as <wert>" -- <pfad>` mit `planned`, `done` oder
+   `discarded`. Meldung: `Status von <prd>: <wert>, committet`. lazydev pusht nicht.
+6. **Danach:** lazydev liest die Projekte neu ein. Das PRD wechselt sofort in die passende Gruppe,
+   `umgesetzt` und `verworfen` nach „erledigt“.
+
+Der Commit ändert den Ziel-Branch. Laufende PRDs holen ihn beim Rebase im Merge.
 
 ### Aufruf von Claude
 

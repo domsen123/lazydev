@@ -33,6 +33,8 @@ func startBlocked(d *project.PRD, r *state.Run) string {
 	switch {
 	case r == nil && d.Status.Kind == project.StatusImplemented:
 		return d.Label() + " ist schon umgesetzt"
+	case r == nil && d.Status.Kind == project.StatusDiscarded:
+		return d.Label() + " ist verworfen"
 	case r == nil:
 		return ""
 	case r.Running():

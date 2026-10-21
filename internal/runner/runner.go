@@ -200,8 +200,11 @@ func prepare(cfg *config.Config, t Target, prdName string) (*state.Run, error) {
 	if !ok {
 		return nil, fmt.Errorf("kein PRD %q unter %s/", prdName, project.PRDDir)
 	}
-	if prd.Status.Kind == project.StatusImplemented {
+	switch prd.Status.Kind {
+	case project.StatusImplemented:
 		return nil, fmt.Errorf("%s ist schon umgesetzt", prd.Path)
+	case project.StatusDiscarded:
+		return nil, fmt.Errorf("%s ist verworfen", prd.Path)
 	}
 	used, err := state.UsedPorts()
 	if err != nil {

@@ -42,9 +42,9 @@ func TestFooterFollowsFocusAndState(t *testing.T) {
 		t.Errorf("Merge-Queue:\n got %q\nwant %q", got, want)
 	}
 
-	// Ohne Lauf und ohne Branch gibt es nur starten, nichts zu verwerfen.
+	// Ohne Lauf und ohne Branch gibt es nur Status und starten, nichts zu verwerfen.
 	m = drive(t, m, keys("j")...)
-	if got, want := help(), " ? Hilfe · q beenden · n neues PRD · v ansehen · s starten · S sortieren"; got != want {
+	if got, want := help(), " ? Hilfe · q beenden · n neues PRD · v ansehen · c Status · s starten · S sortieren"; got != want {
 		t.Errorf("geplant:\n got %q\nwant %q", got, want)
 	}
 

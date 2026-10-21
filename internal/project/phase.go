@@ -14,6 +14,8 @@ const (
 	PhaseMerged     Phase = "merged"
 	PhaseAborted    Phase = "aborted"
 	PhaseError      Phase = "error"
+	// PhaseDiscarded gilt für PRDs mit Statuswert "verworfen".
+	PhaseDiscarded Phase = "discarded"
 	// PhaseUnknown gilt für PRDs ohne lesbare Statuszeile.
 	PhaseUnknown Phase = "unknown"
 )
@@ -29,6 +31,7 @@ var phaseLabels = map[Phase]string{
 	PhaseMerged:     "gemergt",
 	PhaseAborted:    "abgebrochen",
 	PhaseError:      "Fehler",
+	PhaseDiscarded:  "verworfen",
 	PhaseUnknown:    "unbekannt",
 }
 
@@ -54,7 +57,7 @@ func (p Phase) Symbol() string {
 		return "✓"
 	case PhaseAborted:
 		return "■"
-	case PhaseError:
+	case PhaseError, PhaseDiscarded:
 		return "✗"
 	default:
 		return "?"
@@ -68,6 +71,8 @@ func PhaseFromStatus(s Status) Phase {
 		return PhasePlanned
 	case StatusImplemented:
 		return PhaseMerged
+	case StatusDiscarded:
+		return PhaseDiscarded
 	default:
 		return PhaseUnknown
 	}

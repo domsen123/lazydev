@@ -119,6 +119,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateEvent(msg)
 		case modeBranch:
 			return m.updateBranch(msg)
+		case modeStatus:
+			return m.updateStatus(msg)
 		case modeInit:
 			return m.updateInitWizard(msg)
 		case modeNewPRD:
@@ -215,6 +217,8 @@ func (m Model) updateNormal(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.nextNotification()
 	case "v":
 		return m.openPRDView()
+	case "c":
+		return m.openStatusPicker()
 	case "D":
 		return m.openDocker()
 	case "o":

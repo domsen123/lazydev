@@ -142,6 +142,7 @@ anderen Tasten funktionieren trotzdem, `?` zeigt die vollständige Liste.
 | `Ctrl+X` | Im Chat: Chat beenden, mit Rückfrage. Eine laufende Runde bricht ab, das Log bleibt. |
 | `Ctrl+R` | Im Chat: nach einem Fehler die letzte Runde wiederholen |
 | `v` | PRD vollständig als Markdown im Fenster ansehen. Darin öffnet `o` die Datei im Editor. |
+| `c` | Status eines PRDs ohne Lauf setzen: `geplant`, `umgesetzt` oder `verworfen`. Umgesetzte und verworfene PRDs landen in der Gruppe „erledigt“. Getrackte PRDs committet lazydev nach Rückfrage im Hauptordner. |
 | `s` | Umsetzung starten. Nach Fehler oder Abbruch geht es beim gescheiterten Schritt weiter. Fragt vorher, ob du Hooks und Freigaben aus `.lazydev/config.yaml` erlaubst. |
 | `m` | Merge freigeben, wenn `autoMerge` aus ist oder der Merge scheiterte |
 | `x` | Runner abbrechen. Der Worktree bleibt. |
