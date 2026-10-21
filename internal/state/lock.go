@@ -7,6 +7,12 @@ import (
 	"syscall"
 )
 
+// MergeLock is the name of the lock that guards the base branch of project id during merges, pulls
+// and pushes.
+func MergeLock(id string) string {
+	return id + ".merge"
+}
+
 // Lock locks locks/<name>.lock with flock until unlock runs, waiting while another process holds it.
 func Lock(name string) (unlock func(), err error) {
 	return flock(name, syscall.LOCK_EX)

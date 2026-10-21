@@ -229,7 +229,7 @@ func TestMergeAbortedInQueueContinues(t *testing.T) {
 
 func TestMergeWaitsForMergeLock(t *testing.T) {
 	target := newProject(t, "", false)
-	unlock, err := state.Lock("app.merge")
+	unlock, err := state.Lock(state.MergeLock("app"))
 	if err != nil {
 		t.Fatal(err)
 	}

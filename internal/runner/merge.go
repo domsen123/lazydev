@@ -209,7 +209,7 @@ func mainDirProblem(dir, base string) (string, error) {
 func waitMergeLock(ctx context.Context, id string, log *logger) (func(), error) {
 	logged := false
 	for {
-		unlock, err := state.TryLock(id + ".merge")
+		unlock, err := state.TryLock(state.MergeLock(id))
 		if err != nil || unlock != nil {
 			return unlock, err
 		}
