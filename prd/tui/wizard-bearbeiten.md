@@ -1,6 +1,6 @@
 # PRD: `.lazydev/` mit dem Wizard bearbeiten
 
-> Status: umgesetzt (2026-10-21) · Scope: `i` öffnet den Wizard auch, wenn `.lazydev/` schon existiert. Er zeigt die aktuellen Einstellungen, ändert Ziel-Branch und Knowledge in `.lazydev/config.yaml` und hat eine neue Seite „Prompts“, die die Prompt-Dateien im Editor öffnet oder auf den Standard zurücksetzt.
+> Status: umgesetzt (2026-10-21) · Kosten: 3.25 USD · Modell: claude-opus-5-5 · Scope: `i` öffnet den Wizard auch, wenn `.lazydev/` schon existiert. Er zeigt die aktuellen Einstellungen, ändert Ziel-Branch und Knowledge in `.lazydev/config.yaml` und hat eine neue Seite „Prompts“, die die Prompt-Dateien im Editor öffnet oder auf den Standard zurücksetzt.
 
 ## Context
 
