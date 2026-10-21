@@ -57,7 +57,7 @@ const (
 	modeIssueView
 	// modeBranch wählt den Ziel-Branch des gewählten Projekts.
 	modeBranch
-	// modeInit legt .lazydev/ im gewählten Projekt an.
+	// modeInit legt .lazydev/ im gewählten Projekt an oder bearbeitet es.
 	modeInit
 	// modeStatus wählt den Status des gewählten PRDs.
 	modeStatus
@@ -91,7 +91,7 @@ type Model struct {
 	branch     *branchPicker
 	// prdStatus ist das offene Fenster „Status“, sonst nil.
 	prdStatus *statusPicker
-	// wizard ist der offene Wizard „.lazydev/ anlegen“, sonst nil.
+	// wizard ist der offene Wizard „.lazydev/ anlegen“ oder „.lazydev/ bearbeiten“, sonst nil.
 	wizard *initWizard
 
 	// withoutRepo enthält die Pfade der Projekte ohne .lazydev/config.yaml.

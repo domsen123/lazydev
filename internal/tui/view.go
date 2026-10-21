@@ -169,7 +169,7 @@ func (m Model) View() string {
 		fg = m.viewBranchPicker()
 	case m.mode == modeStatus && m.prdStatus != nil:
 		fg = m.viewStatusPicker()
-	case m.mode == modeInit && m.wizard != nil:
+	case (m.mode == modeInit || (m.mode == modeConfirm && m.returnMode == modeInit)) && m.wizard != nil:
 		fg = m.viewInitWizard()
 	case m.mode == modeConfirm && m.returnMode == modeNormal && m.confirm != nil && m.confirm.details != nil:
 		fg = m.viewConfirmDetails()
@@ -669,7 +669,7 @@ var helpSections = []struct {
 		{"a", "Projekt hinzufügen, Tab vervollständigt den Pfad"},
 		{"d", "Projekt aus der Liste entfernen, die Dateien bleiben"},
 		{"b", "Ziel-Branch wählen, schreibt .lazydev/config.yaml"},
-		{"i", ".lazydev/ anlegen: Ziel-Branch, Knowledge, Prompts"},
+		{"i", ".lazydev/ anlegen oder bearbeiten: Ziel-Branch, Knowledge, Prompts"},
 		{"D", "Docker-Ansicht: U compose up, S compose stop, L Logs"},
 	}},
 	{"PRDs", [][2]string{

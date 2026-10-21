@@ -135,6 +135,71 @@ func TestSetRepoBaseBranchKeepsComments(t *testing.T) {
 	}
 }
 
+func TestSetRepoSettings(t *testing.T) {
+	dir := t.TempDir()
+	content := strings.Replace(fullRepo, "knowledge:", "# Pflichtlektüre\nknowledge:", 1)
+	writeFile(t, RepoPath(dir), content)
+
+	// Gleicher Inhalt schreibt nichts.
+	changed, err := SetRepoSettings(dir, "next", map[string][]string{"all": {"CLAUDE.md"}, "implement": {"docs/db.md"}, "review": nil})
+	if err != nil || changed {
+		t.Fatalf("unverändert: %v, %v", changed, err)
+	}
+	if data, _ := os.ReadFile(RepoPath(dir)); string(data) != content {
+		t.Errorf("Datei geändert:\n%s", data)
+	}
+
+	changed, err = SetRepoSettings(dir, DefaultBaseBranch, map[string][]string{
+		"merge": {"b.md"}, "all": {"CLAUDE.md", "a.md"}, "create": {"docs/db.md"},
+	})
+	if err != nil || !changed {
+		t.Fatalf("geändert: %v, %v", changed, err)
+	}
+	data, _ := os.ReadFile(RepoPath(dir))
+	want := `# Einstellungen für lazydev
+preset: nuxt-drizzle
+# Pflichtlektüre
+knowledge:
+  all:
+    - CLAUDE.md
+    - a.md
+  create:
+    - docs/db.md
+  merge:
+    - b.md
+allowedTools:
+  - "Bash(pnpm test:e2e:*)"
+hooks:
+  setup: ./scripts/setup.sh
+  dev: ./scripts/dev.sh
+`
+	if string(data) != want {
+		t.Errorf("nach dem Speichern:\n%s\nerwartet:\n%s", data, want)
+	}
+
+	// Eine leere knowledge entfällt, der Kommentar bleibt über dem nächsten Feld.
+	if changed, err := SetRepoSettings(dir, "next", nil); err != nil || !changed {
+		t.Fatalf("leer: %v, %v", changed, err)
+	}
+	data, _ = os.ReadFile(RepoPath(dir))
+	if strings.Contains(string(data), "knowledge") || !strings.Contains(string(data), "baseBranch: next") ||
+		!strings.Contains(string(data), "# Pflichtlektüre\nallowedTools:") || !strings.Contains(string(data), "setup: ./scripts/setup.sh") {
+		t.Errorf("ohne knowledge:\n%s", data)
+	}
+
+	// Ohne knowledge kommt der Schlüssel ans Ende.
+	writeFile(t, RepoPath(dir), "preset: nuxt-drizzle\n")
+	if _, err := SetRepoSettings(dir, "", map[string][]string{"implement": {"CLAUDE.md"}}); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(RepoPath(dir)); string(data) != "preset: nuxt-drizzle\nknowledge:\n  implement:\n    - CLAUDE.md\n" {
+		t.Errorf("neuer Schlüssel:\n%s", data)
+	}
+	if _, err := SetRepoSettings(filepath.Join(dir, "fehlt"), "next", nil); err == nil {
+		t.Error("ohne Datei kein Fehler")
+	}
+}
+
 func TestTrustHash(t *testing.T) {
 	a := Repo{AllowedTools: []string{"Bash(x:*)"}, Hooks: Hooks{Setup: "./s.sh"}}
 	// Andere Felder ändern den Hash nicht.

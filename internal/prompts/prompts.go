@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"unicode"
 
 	"lazydev/internal/config"
 )
@@ -76,6 +77,46 @@ func embedded(dir string, step Step) string {
 // FileName ist der Prompt eines Schritts relativ zum Projekt, z. B. ".lazydev/implement.md".
 func FileName(step Step) string {
 	return config.RepoDir + "/" + string(step) + ".md"
+}
+
+// FileState ist der Zustand der Datei .lazydev/<schritt>.md.
+type FileState int
+
+const (
+	// StateDefault: Die Datei fehlt, es gilt der Standard-Prompt.
+	StateDefault FileState = iota
+	// StateCopy: Die Datei gleicht dem Standard-Prompt.
+	StateCopy
+	// StateCustom: Die Datei weicht vom Standard-Prompt ab.
+	StateCustom
+)
+
+// StateOf liefert den Zustand des Prompts eines Schritts im Hauptordner projectDir. Frontmatter
+// und Leerraum am Ende zählen beim Vergleich nicht.
+func StateOf(projectDir string, step Step) (FileState, error) {
+	data, err := os.ReadFile(filepath.Join(projectDir, FileName(step)))
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return StateDefault, nil
+	case err != nil:
+		return StateDefault, err
+	}
+	normalize := func(s string) string { return strings.TrimRightFunc(stripFrontmatter(s), unicode.IsSpace) }
+	if normalize(string(data)) == normalize(Default(step)) {
+		return StateCopy, nil
+	}
+	return StateCustom, nil
+}
+
+// Label liefert den Text eines Zustands für die TUI.
+func Label(s FileState) string {
+	switch s {
+	case StateCopy:
+		return "Kopie des Standards"
+	case StateCustom:
+		return "eigener Prompt"
+	}
+	return "Standard von lazydev"
 }
 
 // Build liest den Prompt des Schritts aus .lazydev/ im Hauptordner projectDir, sonst den

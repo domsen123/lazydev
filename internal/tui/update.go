@@ -105,6 +105,8 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(m.loadProjects(""), m.loadDocker())
 	case prdEditedMsg:
 		return m.handlePRDEdited(msg)
+	case wizardEditedMsg:
+		return m.handleWizardEdited(msg)
 	case tea.MouseMsg:
 		return m.handleMouse(msg), nil
 	case tea.KeyMsg:

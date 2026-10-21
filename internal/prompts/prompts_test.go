@@ -178,6 +178,22 @@ func TestInit(t *testing.T) {
 	}
 }
 
+func TestStateOf(t *testing.T) {
+	dir := t.TempDir()
+	if s, err := StateOf(dir, Review); err != nil || s != StateDefault || Label(s) != "Standard von lazydev" {
+		t.Errorf("ohne Datei: %v, %v", s, err)
+	}
+	// Frontmatter und Leerraum am Ende zählen nicht.
+	write(t, dir, FileName(Review), "---\ndescription: x\n---\n"+strings.TrimSpace(Default(Review))+"\n\n\n")
+	if s, err := StateOf(dir, Review); err != nil || s != StateCopy || Label(s) != "Kopie des Standards" {
+		t.Errorf("Kopie: %v, %v", s, err)
+	}
+	write(t, dir, FileName(Review), Default(Review)+"\nEigene Regel.\n")
+	if s, err := StateOf(dir, Review); err != nil || s != StateCustom || Label(s) != "eigener Prompt" {
+		t.Errorf("eigener Prompt: %v, %v", s, err)
+	}
+}
+
 // TestDefaultPromptsUseAgents prüft, dass die Agenten, die Standard-Prompts und Verträge aufrufen,
 // eingebettet sind.
 func TestDefaultPromptsUseAgents(t *testing.T) {

@@ -185,41 +185,149 @@ func mappingKeys(n *yaml.Node) []string {
 // nicht, das Feld entfällt dann. Andere Felder, Reihenfolge und Kommentare bleiben erhalten.
 func SetRepoBaseBranch(projectDir, branch string) error {
 	path := RepoPath(projectDir)
-	data, err := os.ReadFile(path)
+	_, root, err := readRepoNode(path)
 	if err != nil {
 		return err
 	}
-	var doc yaml.Node
-	if err := yaml.Unmarshal(data, &doc); err != nil {
+	_, knowledge, err := repoSettings(root)
+	if err != nil {
 		return fmt.Errorf("%s: %w", path, err)
 	}
+	_, err = SetRepoSettings(projectDir, branch, knowledge)
+	return err
+}
+
+// SetRepoSettings schreibt baseBranch und knowledge in .lazydev/config.yaml. Der Standard main und
+// eine leere knowledge stehen dort nicht, die Felder entfallen dann. Die Schlüssel unter knowledge
+// folgen KnowledgeKeys, die Dateien je Schlüssel bleiben in ihrer Reihenfolge. Andere Felder,
+// Reihenfolge und Kommentare bleiben erhalten. Ergeben beide Werte denselben Inhalt wie vorher,
+// schreibt SetRepoSettings nichts und liefert changed == false.
+func SetRepoSettings(projectDir, base string, knowledge map[string][]string) (changed bool, err error) {
+	path := RepoPath(projectDir)
+	doc, root, err := readRepoNode(path)
+	if err != nil {
+		return false, err
+	}
+	oldBase, oldKnowledge, err := repoSettings(root)
+	if err != nil {
+		return false, fmt.Errorf("%s: %w", path, err)
+	}
+	if base == "" {
+		base = DefaultBaseBranch
+	}
+	knowledge = compactKnowledge(knowledge)
+	sameKnowledge := equalKnowledge(oldKnowledge, knowledge)
+	if base == oldBase && sameKnowledge {
+		return false, nil
+	}
+	setBaseBranchNode(root, base)
+	if !sameKnowledge {
+		setKnowledgeNode(root, knowledge)
+	}
+	var buf bytes.Buffer
+	enc := yaml.NewEncoder(&buf)
+	enc.SetIndent(2)
+	if err := enc.Encode(doc); err != nil {
+		return false, err
+	}
+	if err := enc.Close(); err != nil {
+		return false, err
+	}
+	out := buf.Bytes()
+	// Eine leere Zuordnung schreibt yaml als "{}".
+	if len(root.Content) == 0 && root.HeadComment == "" && root.FootComment == "" && doc.HeadComment == "" && doc.FootComment == "" {
+		out = nil
+	}
+	if err := writeFileAtomic(path, out, 0o644); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// readRepoNode liest .lazydev/config.yaml unter path als Dokument und liefert dazu die Zuordnung
+// auf oberster Ebene. Eine leere Datei gilt als leere Zuordnung.
+func readRepoNode(path string) (doc, root *yaml.Node, err error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	doc = &yaml.Node{}
+	if err := yaml.Unmarshal(data, doc); err != nil {
+		return nil, nil, fmt.Errorf("%s: %w", path, err)
+	}
 	if doc.Kind == 0 {
-		doc = yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
+		doc = &yaml.Node{Kind: yaml.DocumentNode, Content: []*yaml.Node{{Kind: yaml.MappingNode, Tag: "!!map"}}}
 	}
-	root := mappingOf(&doc)
+	root = mappingOf(doc)
 	if root == nil {
-		return fmt.Errorf("%s: keine YAML-Zuordnung", path)
+		return nil, nil, fmt.Errorf("%s: keine YAML-Zuordnung", path)
 	}
-	idx := -1
-	for i := 0; i+1 < len(root.Content); i += 2 {
-		if root.Content[i].Value == "baseBranch" {
-			idx = i
-			break
+	return doc, root, nil
+}
+
+// repoSettings liefert baseBranch, ohne Angabe DefaultBaseBranch, und knowledge ohne leere Listen.
+func repoSettings(root *yaml.Node) (base string, knowledge map[string][]string, err error) {
+	base = DefaultBaseBranch
+	if i := keyIndex(root, "baseBranch"); i >= 0 && root.Content[i+1].Value != "" {
+		base = root.Content[i+1].Value
+	}
+	if i := keyIndex(root, "knowledge"); i >= 0 {
+		if err := root.Content[i+1].Decode(&knowledge); err != nil {
+			return "", nil, err
 		}
 	}
+	return base, compactKnowledge(knowledge), nil
+}
+
+// keyIndex liefert die Position des Schlüssels key in der Zuordnung n, sonst -1.
+func keyIndex(n *yaml.Node, key string) int {
+	for i := 0; i+1 < len(n.Content); i += 2 {
+		if n.Content[i].Value == key {
+			return i
+		}
+	}
+	return -1
+}
+
+// compactKnowledge entfernt leere Listen. Ohne Einträge liefert es nil.
+func compactKnowledge(k map[string][]string) map[string][]string {
+	var out map[string][]string
+	for key, files := range k {
+		if len(files) == 0 {
+			continue
+		}
+		if out == nil {
+			out = map[string][]string{}
+		}
+		out[key] = files
+	}
+	return out
+}
+
+// equalKnowledge vergleicht zwei knowledge-Zuordnungen samt Reihenfolge der Dateien.
+func equalKnowledge(a, b map[string][]string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for key, files := range a {
+		if !slices.Equal(files, b[key]) {
+			return false
+		}
+	}
+	return true
+}
+
+// setBaseBranchNode setzt baseBranch in der Zuordnung root. Der Standard main entfällt.
+func setBaseBranchNode(root *yaml.Node, branch string) {
+	idx := keyIndex(root, "baseBranch")
 	switch {
 	case branch == DefaultBaseBranch && idx >= 0:
-		// Ein Kommentar über dem Feld bleibt über dem nächsten Feld stehen.
-		if c := root.Content[idx].HeadComment; c != "" && idx+2 < len(root.Content) {
-			next := root.Content[idx+2]
-			next.HeadComment = strings.TrimSuffix(c+"\n"+next.HeadComment, "\n")
-		} else if c != "" {
-			root.FootComment = strings.TrimPrefix(root.FootComment+"\n"+c, "\n")
-		}
-		root.Content = slices.Delete(root.Content, idx, idx+2)
+		deleteKey(root, idx)
 	case branch == DefaultBaseBranch:
 	case idx >= 0:
-		root.Content[idx+1].SetString(branch)
+		if root.Content[idx+1].Value != branch {
+			root.Content[idx+1].SetString(branch)
+		}
 	default:
 		value := &yaml.Node{}
 		value.SetString(branch)
@@ -231,21 +339,53 @@ func SetRepoBaseBranch(projectDir, branch string) error {
 		}
 		root.Content = append([]*yaml.Node{key, value}, root.Content...)
 	}
-	var buf bytes.Buffer
-	enc := yaml.NewEncoder(&buf)
-	enc.SetIndent(2)
-	if err := enc.Encode(&doc); err != nil {
-		return err
+}
+
+// setKnowledgeNode ersetzt den Wert von knowledge in der Zuordnung root. Der Schlüssel behält
+// seinen Kommentar, ohne Schlüssel kommt er ans Ende. Eine leere knowledge entfällt.
+func setKnowledgeNode(root *yaml.Node, knowledge map[string][]string) {
+	idx := keyIndex(root, "knowledge")
+	if len(knowledge) == 0 {
+		if idx >= 0 {
+			deleteKey(root, idx)
+		}
+		return
 	}
-	if err := enc.Close(); err != nil {
-		return err
+	value := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+	for _, k := range KnowledgeKeys {
+		files := knowledge[k]
+		if len(files) == 0 {
+			continue
+		}
+		key := &yaml.Node{}
+		key.SetString(k)
+		list := &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+		for _, f := range files {
+			item := &yaml.Node{}
+			item.SetString(f)
+			list.Content = append(list.Content, item)
+		}
+		value.Content = append(value.Content, key, list)
 	}
-	out := buf.Bytes()
-	// Eine leere Zuordnung schreibt yaml als "{}".
-	if len(root.Content) == 0 && root.HeadComment == "" && root.FootComment == "" && doc.HeadComment == "" && doc.FootComment == "" {
-		out = nil
+	if idx >= 0 {
+		root.Content[idx+1] = value
+		return
 	}
-	return writeFileAtomic(path, out, 0o644)
+	key := &yaml.Node{}
+	key.SetString("knowledge")
+	root.Content = append(root.Content, key, value)
+}
+
+// deleteKey entfernt Schlüssel und Wert an Position idx der Zuordnung root. Ein Kommentar über dem
+// Feld bleibt über dem nächsten Feld stehen.
+func deleteKey(root *yaml.Node, idx int) {
+	if c := root.Content[idx].HeadComment; c != "" && idx+2 < len(root.Content) {
+		next := root.Content[idx+2]
+		next.HeadComment = strings.TrimSuffix(c+"\n"+next.HeadComment, "\n")
+	} else if c != "" {
+		root.FootComment = strings.TrimPrefix(root.FootComment+"\n"+c, "\n")
+	}
+	root.Content = slices.Delete(root.Content, idx, idx+2)
 }
 
 // Effective liefert die wirksamen Einstellungen eines Projekts. Mit .lazydev/config.yaml gelten nur
