@@ -1,6 +1,6 @@
 # PRD: Discord-Benachrichtigungen und zweispaltiges Menü
 
-> Status: umgesetzt (2026-10-21) · Scope: Der Runner meldet Merge, Fehler, Abbruch und Warten auf den Hauptordner per Discord-Webhook, global und pro Projekt schaltbar. Das Menü (`alt+m`) wird zweispaltig mit den Tabs General, Discord, Git und Quit.
+> Status: umgesetzt (2026-10-21) · Kosten: 3.74 USD · Modell: claude-opus-5-5 · Scope: Der Runner meldet Merge, Fehler, Abbruch und Warten auf den Hauptordner per Discord-Webhook, global und pro Projekt schaltbar. Das Menü (`alt+m`) wird zweispaltig mit den Tabs General, Discord, Git und Quit.
 
 ## Context
 
