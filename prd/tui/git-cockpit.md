@@ -1,6 +1,6 @@
 # PRD: Git-Cockpit für Fetch, Pull, Push und Commit
 
-> Status: umgesetzt (2026-10-21) · Scope: Modal `alt+g` (auch im Menü) mit Branch, Änderungen, letzten Commits und den Aktionen Fetch, Pull (`--ff-only`), Push und Commit. Jede Aktion läuft als Terminal-Tab über das interne Kommando `lazydev git`, Pull und Push unter dem Merge-Lock.
+> Status: umgesetzt (2026-10-21) · Kosten: 3.34 USD · Modell: claude-opus-5-5 · Scope: Modal `alt+g` (auch im Menü) mit Branch, Änderungen, letzten Commits und den Aktionen Fetch, Pull (`--ff-only`), Push und Commit. Jede Aktion läuft als Terminal-Tab über das interne Kommando `lazydev git`, Pull und Push unter dem Merge-Lock.
 
 ## Context
 
