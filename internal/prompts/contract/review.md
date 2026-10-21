@@ -7,6 +7,8 @@ Rückfragen sind nicht möglich.
   committeten Änderungen.
 - Committe alle Änderungen im Worktree über den Agenten `committer`. Danach muss
   `git status --porcelain` leer sein.
+- Du arbeitest bereits im Worktree. Kein `cd` und kein `git -C`. Führe jeden Shell-Befehl einzeln aus,
+  ohne `&&`, `;`, `||`, Pipes und Subshells. Zusammengesetzte Befehle lehnt lazydev ab.
 - Starte nie einen Watch-Modus, Dev-Server oder andere Befehle, die nicht von selbst enden.
 - Verboten: `git push`.
 - Ändere nichts unter `.lazydev/`.

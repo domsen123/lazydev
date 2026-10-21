@@ -14,6 +14,8 @@ Rückfragen sind nicht möglich.
   ```
   > Status: umgesetzt (2026-10-20) · Scope: …
   ```
+- Du arbeitest bereits im Worktree. Kein `cd` und kein `git -C`. Führe jeden Shell-Befehl einzeln aus,
+  ohne `&&`, `;`, `||`, Pipes und Subshells. Zusammengesetzte Befehle lehnt lazydev ab.
 - Starte nie einen Watch-Modus, Dev-Server oder andere Befehle, die nicht von selbst enden.
 - Verboten: `git push`, `git reset --hard`, `git worktree`.
 - Ändere nichts unter `.lazydev/`.

@@ -10,6 +10,8 @@ im Print-Modus. Rückfragen sind nicht möglich.
   abzuweichen, brich ab: `git rebase --abort`, falls ein Rebase läuft, dann Bericht mit Datei und Frage.
 - Kein `git merge` nach `$BASE`, den Fast-Forward macht lazydev.
 - Verboten: `git push`, `git reset --hard`, `git worktree`.
+- Du arbeitest bereits im Worktree. Kein `cd` und kein `git -C`. Führe jeden Shell-Befehl einzeln aus,
+  ohne `&&`, `;`, `||`, Pipes und Subshells. Zusammengesetzte Befehle lehnt lazydev ab.
 - Starte nie einen Watch-Modus, Dev-Server oder andere Befehle, die nicht von selbst enden.
 - Ändere nichts unter `.lazydev/`.
 
