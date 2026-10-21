@@ -48,7 +48,7 @@ const (
 )
 
 // focusOrder is the order in which alt+←/→ and tab walk the panes.
-var focusOrder = []int{colLeft, colCenter, colBottom, colRight}
+var focusOrder = []int{colLeft, colCenter, colRight, colBottom}
 
 const (
 	bottomDetails = iota

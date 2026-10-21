@@ -5,3 +5,14 @@ allowedTools:
   - Bash(head:*)
   - Bash(tail:*)
   - Bash(sed -n:*)
+knowledge:
+  create:
+    - CLAUDE.md
+    - README.md
+    - SPEC.md
+  implement:
+    - CLAUDE.md
+    - README.md
+    - SPEC.md
+  review:
+    - SPEC.md

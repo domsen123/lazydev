@@ -122,7 +122,7 @@ footer: input, question, error, note, or key help with the Claude limits at the 
 2. Outside a terminal, `alt` is optional unless the focused pane uses the plain key.
 3. A key means the same in every pane: `j/k` move, `l`/`enter` open, `h` back.
 
-Focus order for `alt+←/→` and `tab`: Projects → center → details pane → Explorer. Keys go to the terminal while
+Focus order for `alt+←/→` and `tab`: Projects → center → Explorer → details pane. Keys go to the terminal while
 the center has the focus and its active tab is a terminal.
 
 ### Panes
