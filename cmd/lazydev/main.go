@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"lazydev/internal/config"
+	"lazydev/internal/gitcmd"
 	"lazydev/internal/project"
 	"lazydev/internal/repo"
 	"lazydev/internal/runner"
@@ -51,6 +52,16 @@ func main() {
 			fail(err)
 		}
 		return
+	case "git":
+		// "lazydev git <id> <dir> <action> [<message>]" runs an action of the git cockpit in a terminal tab.
+		if len(rest) != 3 && len(rest) != 4 {
+			usageError()
+		}
+		message := ""
+		if len(rest) == 4 {
+			message = rest[3]
+		}
+		os.Exit(gitcmd.Main(rest[0], rest[1], rest[2], message))
 	case "trust":
 		if len(rest) != 1 {
 			usageError()

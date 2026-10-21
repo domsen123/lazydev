@@ -57,6 +57,12 @@ func BranchExists(dir, branch string) bool {
 	return err == nil
 }
 
+// Upstream is the upstream of the checked out branch, e.g. origin/main, empty without upstream.
+func Upstream(dir string) string {
+	u, _ := Run(dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{upstream}")
+	return u
+}
+
 // CurrentBranch is the checked out branch, empty for a detached HEAD or outside a repository.
 func CurrentBranch(dir string) string {
 	b, _ := Run(dir, "symbolic-ref", "--quiet", "--short", "HEAD")
