@@ -99,7 +99,7 @@ func TestUnblockOpensClaudeInWorktree(t *testing.T) {
 	if !strings.Contains(got, "# lazydev unblock: "+blockedPRDPath+"\n") || slices.Contains(lines, "-p") {
 		t.Errorf("arguments:\n%s", got)
 	}
-	if i := slices.Index(lines, "--agents"); i < 0 || i+1 >= len(lines) || !strings.HasSuffix(lines[i+1], "agents.json") {
+	if i := slices.Index(lines, "--agents"); i < 0 || i+1 >= len(lines) || !strings.HasPrefix(lines[i+1], `{"committer":`) {
 		t.Errorf("agents:\n%s", got)
 	}
 	// repo.Init added the prompt of the dialog.

@@ -48,6 +48,17 @@ func Agents() (map[string]Agent, error) {
 	return agents, nil
 }
 
+// AgentsJSON returns the built-in agents as one line of JSON. An interactive claude takes
+// --agents inline only, a file path works with -p alone.
+func AgentsJSON() (string, error) {
+	agents, err := Agents()
+	if err != nil {
+		return "", err
+	}
+	data, err := json.Marshal(agents)
+	return string(data), err
+}
+
 // WriteAgents writes the built-in agents to agents.json in the state folder and returns its path.
 // Several runners write the same file, so it goes through a temporary file.
 func WriteAgents() (string, error) {

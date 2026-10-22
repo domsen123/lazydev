@@ -30,7 +30,7 @@ func (m *model) unblockPRD(name string) {
 		m.err = err.Error()
 		return
 	}
-	agents, err := claude.WriteAgents()
+	agents, err := claude.AgentsJSON()
 	if err != nil {
 		m.err = err.Error()
 		return

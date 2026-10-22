@@ -477,7 +477,8 @@ needs a decision of the user, not another attempt.
 - **`f`:** in the PRDs tab and in the run list on a run in phase blocked, otherwise the error
   `<prd> is not blocked.`. It runs `.lazydev/` init, builds the prompt of the step `unblock` with the PRD path
   relative to the worktree as `$ARGUMENTS` and opens a center tab `unblock` running
-  `claude "<unblock prompt>" --agents <state>/agents.json` interactively in the worktree.
+  `claude "<unblock prompt>" --agents '<agents JSON>'` interactively in the worktree. An interactive
+  claude takes `--agents` as inline JSON only, not as a file path.
 - **Dialog:** the contract makes Claude ask the questions of `## Blocker` numbered with options A to D, wait
   for the answers and work them into the PRD. Then it removes `## Blocker` and sets the status line to
   `geplant` after `Schritt: implement`, to `umgesetzt (<today>)` after `Schritt: merge`. It changes only the
