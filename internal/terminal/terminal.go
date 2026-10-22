@@ -12,6 +12,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	uv "github.com/charmbracelet/ultraviolet"
 	"github.com/charmbracelet/x/ansi"
 	"github.com/charmbracelet/x/vt"
 	"github.com/creack/pty"
@@ -28,7 +29,8 @@ type Terminal struct {
 	name string
 	// label is a fixed tab title, e.g. the workflow step. It wins over the program's title.
 	label string
-	// mu guards label and title. The output goroutine sets the title.
+	// mu guards label and title, which the output goroutine sets, and the writes to the emulator.
+	// SafeEmulator.Scrollback returns its buffer without a lock, so snapshot reads it under mu.
 	mu    sync.Mutex
 	title string
 	emu   *vt.SafeEmulator
@@ -36,6 +38,8 @@ type Terminal struct {
 	cmd   *exec.Cmd
 	// done is closed once the program has ended.
 	done chan struct{}
+	// copy is the open copy mode, nil without one. Only Update and View touch it.
+	copy *copyMode
 }
 
 // OutputMsg reports new output of terminal ID, so the view gets redrawn.
@@ -73,7 +77,10 @@ func Start(id, width, height int, dir string, args []string, send func(tea.Msg))
 		for {
 			n, err := f.Read(buf)
 			if n > 0 {
-				_, _ = t.emu.Write(titles.filter(buf[:n]))
+				out := titles.filter(buf[:n])
+				t.mu.Lock()
+				_, _ = t.emu.Write(out)
+				t.mu.Unlock()
 				send(OutputMsg{id})
 			}
 			if err != nil {
@@ -113,8 +120,17 @@ func (t *Terminal) setTitle(title string) {
 	t.title = title
 }
 
-// TabTitle is the fixed label, otherwise the title the program set, otherwise the program name.
+// TabTitle is the fixed label, otherwise the title the program set, otherwise the program name. In
+// copy mode it ends with " [copy]".
 func (t *Terminal) TabTitle() string {
+	title := t.baseTitle()
+	if t.copy != nil {
+		title += " [copy]"
+	}
+	return title
+}
+
+func (t *Terminal) baseTitle() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	switch {
@@ -137,6 +153,9 @@ func (t *Terminal) Resize(width, height int) {
 	}
 	t.emu.Resize(width, height)
 	_ = pty.Setsize(t.pty, winsize(width, height))
+	if t.copy != nil {
+		t.copy.clamp(width, height)
+	}
 }
 
 // Hangup asks the program to end with SIGHUP, like a terminal window that gets closed. Killing it
@@ -163,8 +182,41 @@ func (t *Terminal) Release() {
 	_ = t.emu.Close()
 }
 
+// snapshot reads all lines of the emulator: the scrollback, oldest first, then the lines of the
+// screen. In the alt screen it reads the screen only. mu keeps the output goroutine from writing
+// meanwhile.
+func (t *Terminal) snapshot() copyLines {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	width, height := t.emu.Width(), t.emu.Height()
+	var lines copyLines
+	if !t.emu.IsAltScreen() {
+		if sb := t.emu.Scrollback(); sb != nil {
+			lines = make(copyLines, 0, sb.Len()+height)
+			for _, l := range sb.Lines() {
+				lines = append(lines, newCopyLine(l, width))
+			}
+		}
+	}
+	row := make(uv.Line, width)
+	for y := range height {
+		for x := range width {
+			row[x] = uv.EmptyCell
+			if c := t.emu.CellAt(x, y); c != nil {
+				row[x] = *c
+			}
+		}
+		lines = append(lines, newCopyLine(row, width))
+	}
+	return lines
+}
+
 // View renders the screen. With showCursor, the cell under the cursor is drawn in reverse video.
+// In copy mode it renders the snapshot instead, without the cursor of the program.
 func (t *Terminal) View(showCursor bool) string {
+	if t.copy != nil {
+		return t.copy.view(t.emu.Width(), t.emu.Height())
+	}
 	lines := strings.Split(t.emu.Render(), "\n")
 	pos := t.emu.CursorPosition()
 	if !showCursor || t.emu.CursorHidden() || pos.Y < 0 || pos.Y >= len(lines) {
