@@ -68,7 +68,7 @@ git push origin v0.2.0
 | Projects (links) | Projekte mit Branch und Commits vor/hinter dem Upstream |
 | Mitte | Terminal-Tabs, Log-Tabs und Markdown-Viewer des Projekts. In einem Projekt ohne Tab startet Claude Code |
 | Unter der Mitte | `Details`: Läufe des Projekts, ohne Läufe die Einrichtung von `.lazydev/`. `Docker`: Compose-Services und Container |
-| Explorer (rechts) | `PRDs`: PRDs mit Phase, erledigte eingeklappt. `Files`: Dateibaum |
+| Explorer (rechts) | `PRDs`: PRDs mit Phase, neueste oben, erledigte eingeklappt. `Files`: Dateibaum |
 
 ## Tasten
 

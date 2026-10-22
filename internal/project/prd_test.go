@@ -103,7 +103,11 @@ func TestRead(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			tt.want.Root = dir
+			info, err := os.Stat(filepath.Join(dir, tt.rel))
+			if err != nil {
+				t.Fatal(err)
+			}
+			tt.want.Root, tt.want.ModTime = dir, info.ModTime()
 			if d != tt.want {
 				t.Errorf("Read =\n%+v\nwant\n%+v", d, tt.want)
 			}

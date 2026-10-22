@@ -67,7 +67,7 @@ git push origin v0.2.0
 | Projects (left) | Projects with branch and commits ahead/behind upstream |
 | Center | Terminal tabs, log tabs and Markdown viewers of the project. Claude Code starts in a project without a tab |
 | Below center | `Details`: runs of the project, without runs the `.lazydev/` setup. `Docker`: compose services and containers |
-| Explorer (right) | `PRDs`: PRDs with phase, done ones folded. `Files`: file tree |
+| Explorer (right) | `PRDs`: PRDs with phase, newest first, done ones folded. `Files`: file tree |
 
 ## Keys
 

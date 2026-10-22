@@ -183,8 +183,8 @@ The native selection of the terminal works with Shift held while dragging.
   image, age; `l` follows `docker logs -f --tail 200` in a tab. Docker refreshes on `docker events` and
   every 10 s.
 - **Explorer,** tab `PRDs` (default): two lines per PRD (phase symbol and `<area>/<name>`, then phase and
-  branch), open PRDs by label, then `▸ n done · x.xx USD` which `l` unfolds. PRDs refresh every 5 s, runs
-  every second. `L` opens the log tab of the selected PRD, without run the error `<label> has no run.`, on the
+  branch), open PRDs newest first by modification time of the file (label on ties), then `▸ n done · x.xx USD`
+  which `l` unfolds, sorted the same way. PRDs refresh every 5 s, runs every second. `L` opens the log tab of the selected PRD, without run the error `<label> has no run.`, on the
   group row nothing. `f` opens the unblock dialog of a blocked run (see Blocked runs). Tab `Files`: file tree without `.git`, `l` opens folders or files in `$VISUAL`/`$EDITOR`/`vi`
   as a tab.
 

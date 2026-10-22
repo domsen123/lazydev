@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"lazydev/internal/git"
 )
@@ -36,6 +37,8 @@ type PRD struct {
 	Branch string
 	// Cost stands in the status line after a merge, 0 without "Kosten:".
 	Cost float64
+	// ModTime is the modification time of the file.
+	ModTime time.Time
 }
 
 // Label is "<area>/<name>", like the PRD list shows it.
@@ -120,9 +123,13 @@ func Read(root, path string) (PRD, error) {
 		return PRD{}, err
 	}
 	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return PRD{}, err
+	}
 	rel, _ := filepath.Rel(root, path)
 	rel = filepath.ToSlash(rel)
-	d := PRD{Path: rel, Root: root, Name: strings.TrimSuffix(filepath.Base(path), ".md")}
+	d := PRD{Path: rel, Root: root, Name: strings.TrimSuffix(filepath.Base(path), ".md"), ModTime: info.ModTime()}
 	if area := filepath.ToSlash(filepath.Dir(strings.TrimPrefix(rel, Dir+"/"))); area != "." {
 		d.Area = area
 	}

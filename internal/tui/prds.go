@@ -90,9 +90,15 @@ func (p *projectEntry) prdRows() []prdRow {
 			open = append(open, d)
 		}
 	}
-	byLabel := func(a, b *project.PRD) int { return strings.Compare(a.Label(), b.Label()) }
-	slices.SortStableFunc(open, byLabel)
-	slices.SortStableFunc(done, byLabel)
+	// The newest PRD comes first, the label breaks ties.
+	newest := func(a, b *project.PRD) int {
+		if c := b.ModTime.Compare(a.ModTime); c != 0 {
+			return c
+		}
+		return strings.Compare(a.Label(), b.Label())
+	}
+	slices.SortStableFunc(open, newest)
+	slices.SortStableFunc(done, newest)
 	var rows []prdRow
 	for _, d := range open {
 		rows = append(rows, prdRow{prd: d})
