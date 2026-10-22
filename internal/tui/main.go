@@ -266,6 +266,18 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		return m.updateKey(msg)
+	case tea.MouseMsg:
+		if m.quitting {
+			return m, nil
+		}
+		return m.updateMouse(msg)
+	case copiedMsg:
+		m.err, m.note = "", ""
+		if msg.err != nil {
+			m.err = msg.err.Error()
+		} else {
+			m.note = copiedNote(msg.lines)
+		}
 	}
 	return m, nil
 }
@@ -524,6 +536,13 @@ func (m model) termSize() (width, height int) {
 	_, center := columns(m.width)
 	top, _ := m.rows(m.height - 1)
 	return max(1, center-2), max(1, top-centerChrome)
+}
+
+// termOrigin is the screen cell of the top left corner of the terminal area: below the border, the
+// tab bar and the separator of the center column.
+func (m model) termOrigin() (x, y int) {
+	side, _ := columns(m.width)
+	return side + 1, 3
 }
 
 func (m model) View() string {
@@ -787,7 +806,7 @@ func box(title, body string, width, height int, outline lipgloss.TerminalColor, 
 // Run starts the TUI.
 func Run() error {
 	bus := &sender{}
-	p := tea.NewProgram(newModel(bus), tea.WithAltScreen())
+	p := tea.NewProgram(newModel(bus), tea.WithAltScreen(), tea.WithMouseCellMotion())
 	bus.p = p
 	_, err := p.Run()
 	return err

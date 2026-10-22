@@ -32,6 +32,7 @@ const (
 	actMenu
 	actGit
 	actUpdate
+	actCopy
 	actQuit
 )
 
@@ -48,6 +49,7 @@ var globalKeys = map[string]action{
 	"alt+m":           actMenu, "alt+esc": actMenu,
 	"alt+g": actGit,
 	"alt+u": actUpdate,
+	"alt+c": actCopy,
 	"alt+q": actQuit, "alt+ctrl+c": actQuit,
 }
 
@@ -78,7 +80,14 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return next, cmd
 	}
 	if m.inTerminal() {
-		m.current().activeTerminal().SendKey(msg)
+		// In copy mode no key goes to the program.
+		if term := m.current().activeTerminal(); term.InCopy() {
+			if text, done := term.CopyKey(key); done {
+				return m, copyToClipboard(text)
+			}
+		} else {
+			term.SendKey(msg)
+		}
 		return m, nil
 	}
 	var handled bool
@@ -108,8 +117,9 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	// Rule 2: outside a terminal, alt is optional. g skips it: rule 3 makes g "to the top" in every
-	// pane, so in a pane without list it must not open the git cockpit.
-	if key != "g" {
+	// pane, so in a pane without list it must not open the git cockpit. c skips it too, it changes
+	// the status in the PRDs tab and must not open copy mode elsewhere.
+	if key != "g" && key != "c" {
 		if next, cmd, ok := m.global("alt+" + key); ok {
 			return next, cmd
 		}
@@ -180,6 +190,18 @@ func (m model) global(key string) (next tea.Model, cmd tea.Cmd, ok bool) {
 		m.openCockpit()
 	case actUpdate:
 		return m, m.startUpdate(), true
+	case actCopy:
+		// Copy mode belongs to the tab: alt+c focuses the terminal and opens or leaves it.
+		if p == nil || p.activeTerminal() == nil {
+			m.err = "The active tab is not a terminal."
+			break
+		}
+		m.focus = colCenter
+		if term := p.activeTerminal(); term.InCopy() {
+			term.LeaveCopy()
+		} else {
+			term.EnterCopy(false, false)
+		}
 	case actQuit:
 		next, cmd := m.quit()
 		return next, cmd, true
@@ -419,8 +441,10 @@ func selectedName(p *projectEntry) string {
 // footerKeys is the key help of the focused column.
 func (m model) footerKeys() string {
 	switch {
+	case m.inTerminal() && m.current().activeTerminal().InCopy():
+		return " j/k move · ctrl+d/u page · g/G top/end · v select · y copy · esc leave · alt+←/→ pane · alt+shift+←/→ tab · alt+w close · alt+m menu · alt+q quit"
 	case m.inTerminal():
-		return " alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+t terminal · alt+w close · alt+g git · alt+m menu · alt+q quit"
+		return " alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+t terminal · alt+w close · alt+c copy · alt+g git · alt+m menu · alt+q quit"
 	case m.inLogView():
 		return " j/k scroll · ctrl+d/u page · g/G top/end · z header · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+w close · t terminal · alt+g git · m menu · q quit"
 	case m.focus == colLeft || m.current() == nil:
