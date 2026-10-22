@@ -254,7 +254,7 @@ hint line.
 
 | Tab | Right column |
 |---|---|
-| `General` | Entry `Color theme  ‹ <name> ›`, below it `Colors of borders, focus and selection. lazydev saves the choice in settings.json.` |
+| `General` | Entry `Color theme  ‹ <name> ›`, below it `Colors of borders, focus and selection. lazydev saves the choice in settings.json.`, a blank line and `lazydev <version>`. With a newer release known the line is `lazydev <version> · <latest> available, run install.sh again.` until lazydev ends (see Releases) |
 | `Discord` | Entries `Notifications  ‹ on/off ›` (global), `Global URL  <url>`, `<project name>  ‹ on/off ›`, `URL for <project name>  <url>`, `Send test`. Without a selected project the two project entries drop out. Below them the description of the selected entry |
 | `Git` | `Fetch, pull, push and commit the main folder of the selected project. Each action runs in a center tab. Also alt+g.` |
 | `Quit` | `Ends lazydev and its terminal tabs. Runners keep working in the background.` |
@@ -397,6 +397,30 @@ stop it.
   take `locks/<id>.merge` without waiting.
 - On SIGTERM a runner ends its context first, so the step records an abort, then signals its process group.
 
+### Releases
+
+- `internal/version.Version` is the version of the binary, `dev` by default. `make build` and `make install`
+  set it to `git describe --tags --always --dirty`, GoReleaser to the tag, e.g. `v0.1.0`.
+- Pushing a tag `v*` starts the GitHub Action `release`: `make test`, then GoReleaser v2 builds `linux/amd64`
+  and `linux/arm64` with `CGO_ENABLED=0` and creates the release with
+  `lazydev_<version without v>_linux_<arch>.tar.gz` (`lazydev`, `LICENSE`, `README.md`, `README.de.md`) and
+  `checksums.txt` (SHA-256). Tags follow `vMAJOR.MINOR.PATCH` without suffix.
+- The release notes come from the commits since the previous tag, grouped into `Features` (`feat`), `Fixes`
+  (`fix`), `Performance` (`perf`) and `Other`. `docs`, `test`, `chore`, `ci`, `style` and `build` drop out.
+  There is no `CHANGELOG.md`.
+- `install.sh` in the repository root installs a release with `gh release download`, the newest one or the
+  tag of its first argument. It needs `gh` with a login, `tar`, `sha256sum` and `uname`, Linux and `amd64`
+  or `arm64`, and checks the checksum. It installs `$PREFIX/bin/lazydev` (`PREFIX` defaults to
+  `$HOME/.local`) and prints `Installed lazydev <tag> to <path>. Restart lazydev to use it.`, plus
+  `Add <dir> to PATH.` when the folder is not in `PATH`. Errors print one line `install.sh: …` to stderr and
+  end with 1. Running it again updates. Running runners keep their copy in `bin/`.
+- Update check: once at the start of the TUI, in the background, only when `Version` has the format
+  `vMAJOR.MINOR.PATCH` without suffix. It runs `gh release view --repo domsen123/lazydev --json tagName
+  --jq .tagName` with `GH_PROMPT_DISABLED=1` and a 10 s timeout. A numerically higher tag sets the footer
+  note `lazydev <latest> available, you run <version>. Run install.sh again to update.` unless an error or
+  note shows already, and the version line of the menu tab `General`. Missing `gh`, no login, no network,
+  timeout or unreadable output show nothing.
+
 ## Data
 
 | Path | Content |
@@ -412,4 +436,5 @@ State files are written atomically. Merged runs keep their state until discarded
 ## CLI
 
 `lazydev` starts the TUI. `start`, `stop`, `discard [--yes]`, `trust` take a project ID or path from the list;
-`run` and `git` are internal. See `lazydev help`.
+`run` and `git` are internal. `version`, `--version` and `-v` print `lazydev <version>` and end with 0. See
+`lazydev help`.

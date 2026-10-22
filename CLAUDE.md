@@ -40,6 +40,7 @@ older versions do not build against the newer `x/ansi`.
 | `config` | `projects.json`, `settings.json`, project IDs, path helpers |
 | `notify` | Discord webhook: payload and delivery with retry |
 | `gitcmd` | Actions of the git cockpit (fetch, pull, push, commit) behind `lazydev git`, pull and push under the merge lock |
+| `version` | Version of the binary (ldflags), release format, newest release via `gh` |
 | `docker`, `devserver`, `usage`, `git`, `fsutil` | Containers, detached dev servers, Claude limits, git binary, atomic writes |
 
 ### Process model

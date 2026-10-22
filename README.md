@@ -17,12 +17,38 @@ project's base branch. [SPEC.md](SPEC.md) describes the behavior in full.
 
 ## Install
 
+The repository is private, so `install.sh` downloads a release through `gh`. Log in once with
+`gh auth login`. The script needs `gh`, `tar`, `sha256sum` and `uname`.
+
+```sh
+gh api repos/domsen123/lazydev/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
+sh install.sh v0.2.0  # a specific release instead of the newest
+```
+
+The script checks the checksum and installs `lazydev` to `$PREFIX/bin`, `PREFIX` defaults to `~/.local`. To
+update, run it again. `lazydev version` prints the installed version. On start the TUI checks for a newer
+release and shows a note in the footer and in the menu tab `General`.
+
+From source, with Go 1.27+:
+
 ```sh
 make install          # ~/.local/bin/lazydev, PREFIX overridable
 go run ./cmd/lazydev  # without installing
 ```
 
-Runners keep the code they started with. After `make install`, restart lazydev.
+Runners keep the code they started with. After an update, restart lazydev.
+
+## Release
+
+Push a tag `vX.Y.Z`. A GitHub Action runs `make test`, builds `linux/amd64` and `linux/arm64` with
+GoReleaser and creates the release with the archives and `checksums.txt`. The release notes come from the
+commits since the previous tag, grouped into Features, Fixes, Performance and Other. Commits of type `docs`,
+`test`, `chore`, `ci`, `style` and `build` do not show.
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
 
 ## Get started
 
@@ -160,6 +186,7 @@ lazydev start <project> <prd>            # start or continue in the background
 lazydev stop <project> <prd>
 lazydev discard [--yes] <project> <prd>
 lazydev trust <project>
+lazydev version                          # also --version, -v
 ```
 
 `<project>` is the ID (folder name) or path of a project in the list, `<prd>` the file name without `.md`.

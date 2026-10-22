@@ -18,12 +18,39 @@ Fast-Forward in den Ziel-Branch des Projekts. [SPEC.md](SPEC.md) beschreibt das 
 
 ## Installation
 
+Das Repository ist privat, deshalb lädt `install.sh` ein Release über `gh`. Melde dich einmal mit
+`gh auth login` an. Das Skript braucht `gh`, `tar`, `sha256sum` und `uname`.
+
+```sh
+gh api repos/domsen123/lazydev/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
+sh install.sh v0.2.0  # ein bestimmtes Release statt des neuesten
+```
+
+Das Skript prüft die Prüfsumme und installiert `lazydev` nach `$PREFIX/bin`, `PREFIX` ist standardmäßig
+`~/.local`. Zum Aktualisieren rufst du es erneut auf. `lazydev version` gibt die installierte Version aus.
+Beim Start prüft die TUI, ob ein neueres Release existiert, und zeigt einen Hinweis im Footer und im
+Menü-Tab `General`.
+
+Aus dem Quellcode, mit Go 1.27+:
+
 ```sh
 make install          # ~/.local/bin/lazydev, PREFIX überschreibbar
 go run ./cmd/lazydev  # ohne Installation
 ```
 
-Runner behalten den Code, mit dem sie gestartet sind. Nach `make install` lazydev neu starten.
+Runner behalten den Code, mit dem sie gestartet sind. Nach einem Update lazydev neu starten.
+
+## Release
+
+Pushe einen Tag `vX.Y.Z`. Eine GitHub Action führt `make test` aus, baut `linux/amd64` und `linux/arm64`
+mit GoReleaser und legt das Release mit den Archiven und `checksums.txt` an. Die Release-Notes kommen aus
+den Commits seit dem vorigen Tag, gruppiert in Features, Fixes, Performance und Other. Commits vom Typ
+`docs`, `test`, `chore`, `ci`, `style` und `build` fehlen darin.
+
+```sh
+git tag v0.2.0
+git push origin v0.2.0
+```
 
 ## Erste Schritte
 
@@ -165,6 +192,7 @@ lazydev start <projekt> <prd>            # im Hintergrund starten oder fortsetze
 lazydev stop <projekt> <prd>
 lazydev discard [--yes] <projekt> <prd>
 lazydev trust <projekt>
+lazydev version                          # auch --version, -v
 ```
 
 `<projekt>` ist die ID (Ordnername) oder der Pfad eines Projekts der Liste, `<prd>` der Dateiname ohne
