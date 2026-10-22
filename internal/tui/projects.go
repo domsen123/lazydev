@@ -69,6 +69,15 @@ func (p *projectEntry) activeLog() *logView {
 	return lv
 }
 
+// activeView is the active tab if it is a viewer tab, nil otherwise.
+func (p *projectEntry) activeView() *mdView {
+	if p.tab >= len(p.tabs) {
+		return nil
+	}
+	v, _ := p.tabs[p.tab].(*mdView)
+	return v
+}
+
 // removeTab drops tab i. The active tab stays the same or moves to its left neighbor.
 func (p *projectEntry) removeTab(i int) {
 	p.tabs = slices.Delete(p.tabs, i, i+1)

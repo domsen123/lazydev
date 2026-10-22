@@ -8,7 +8,7 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-// centerTab is a tab of the center column: a terminal or the log of a run.
+// centerTab is a tab of the center column: a terminal, the log of a run or a Markdown viewer.
 type centerTab interface {
 	ID() int
 	TabTitle() string

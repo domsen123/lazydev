@@ -27,6 +27,16 @@ const logStampWidth = 9
 // logTabs replaces characters a terminal would not draw in one cell.
 var logTabs = strings.NewReplacer("\t", "    ", "\r", "")
 
+// wrapText splits text into screen lines of at most width cells, tabs as four spaces. Words wider
+// than width break hard.
+func wrapText(text string, width int) []string {
+	var lines []string
+	for part := range strings.SplitSeq(logTabs.Replace(text), "\n") {
+		lines = append(lines, strings.Split(ansi.Wrap(part, width, ""), "\n")...)
+	}
+	return lines
+}
+
 // logView is a center tab with the log of the run of prd in project projectID.
 type logView struct {
 	id             int
@@ -238,11 +248,9 @@ func (lv *logView) body() []string {
 				stamp = e.At.Local().Format("15:04:05") + " "
 			}
 			width := max(1, lv.width-logStampWidth-len(indent))
-			for part := range strings.SplitSeq(logTabs.Replace(e.Text), "\n") {
-				for wrapped := range strings.SplitSeq(ansi.Wrap(part, width, ""), "\n") {
-					lines = append(lines, muted.Render(stamp)+style.Render(indent+wrapped))
-					stamp = strings.Repeat(" ", logStampWidth)
-				}
+			for _, wrapped := range wrapText(e.Text, width) {
+				lines = append(lines, muted.Render(stamp)+style.Render(indent+wrapped))
+				stamp = strings.Repeat(" ", logStampWidth)
 			}
 		}
 	}
@@ -359,14 +367,21 @@ func (lv *logView) View(bool) string {
 	return strings.Join(lines, "\n")
 }
 
-// closeEndedLogs closes the log tabs whose run is gone or merged.
-func (p *projectEntry) closeEndedLogs() {
+// closeEndedTabs closes the log tabs and the viewers of PRDs in a worktree whose run is gone or
+// merged.
+func (p *projectEntry) closeEndedTabs() {
 	for i := len(p.tabs) - 1; i >= 0; i-- {
-		lv, ok := p.tabs[i].(*logView)
-		if !ok {
+		var prd string
+		switch tab := p.tabs[i].(type) {
+		case *logView:
+			prd = tab.prd
+		case *mdView:
+			prd = tab.run
+		}
+		if prd == "" {
 			continue
 		}
-		if r := p.runs[lv.prd]; r == nil || r.Effective() == project.PhaseMerged {
+		if r := p.runs[prd]; r == nil || r.Effective() == project.PhaseMerged {
 			p.removeTab(i)
 		}
 	}

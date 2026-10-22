@@ -65,7 +65,7 @@ git push origin v0.2.0
 | Pane | Content |
 |---|---|
 | Projects (left) | Projects with branch and commits ahead/behind upstream |
-| Center | Terminal tabs and log tabs of the project. Claude Code starts in a project without a tab |
+| Center | Terminal tabs, log tabs and Markdown viewers of the project. Claude Code starts in a project without a tab |
 | Below center | `Details`: runs of the project, without runs the `.lazydev/` setup. `Docker`: compose services and containers |
 | Explorer (right) | `PRDs`: PRDs with phase, done ones folded. `Files`: file tree |
 
@@ -81,6 +81,7 @@ git push origin v0.2.0
 | `alt+t` / `alt+w` | new shell tab / close tab |
 | `alt+g` | git cockpit: fetch, pull, push, commit |
 | `alt+c` | copy mode of the terminal tab |
+| `alt+v` | Markdown viewer of the selected file or PRD |
 | `alt+u` | install the newer release, if one is shown |
 | `alt+m` / `alt+q` | menu (theme, Discord, git) / quit |
 | `j/k`, `l`/`enter`, `h` | move, open, back (lists, tree) |
@@ -108,6 +109,14 @@ the tab width come out as one line.
 
 lazydev copies through OSC 52 to its terminal, so it works over SSH too, and outside SSH also into the local
 clipboard. Some terminals turn OSC 52 off or limit its size.
+
+## Reading Markdown
+
+`alt+v` (or `v` outside a terminal) opens the Markdown file marked in the `Files` tab, or the PRD marked in the
+`PRDs` tab, rendered in a center tab `md <file>`. A PRD in the worktree of a run shows from there, and its
+viewer closes with the run. `j/k`, `ctrl+d/u` and `g/G` scroll, so does the mouse wheel. `e` opens the file in
+the editor as a new tab, the viewer stays. The viewer renders again within about a second when the file
+changes, and closes with a note when the file is gone. `alt+w` closes it.
 
 ## `.lazydev/`
 

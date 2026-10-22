@@ -34,6 +34,7 @@ const (
 	actGit
 	actUpdate
 	actCopy
+	actView
 	actQuit
 )
 
@@ -51,6 +52,7 @@ var globalKeys = map[string]action{
 	"alt+g": actGit,
 	"alt+u": actUpdate,
 	"alt+c": actCopy,
+	"alt+v": actView,
 	"alt+q": actQuit, "alt+ctrl+c": actQuit,
 }
 
@@ -98,6 +100,15 @@ func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case colCenter:
 		if m.inLogView() {
 			handled = m.current().activeLog().update(key)
+		} else if m.inMDView() {
+			v := m.current().activeView()
+			if key == "e" {
+				// The editor opens as a new tab, the viewer stays.
+				m.openTerminal(editorCommand(v.path))
+				next, handled = m, true
+			} else {
+				handled = v.update(key)
+			}
 		}
 	case colLeft:
 		next, cmd, handled = m.updateLeft(key)
@@ -146,6 +157,12 @@ func (m model) inLogView() bool {
 	return m.focus == colCenter && p != nil && p.activeLog() != nil
 }
 
+// inMDView is true while the center column has the focus and its active tab is a viewer tab.
+func (m model) inMDView() bool {
+	p := m.current()
+	return m.focus == colCenter && p != nil && p.activeView() != nil
+}
+
 // global runs the global action of key. ok is false if key has none.
 func (m model) global(key string) (next tea.Model, cmd tea.Cmd, ok bool) {
 	if len(key) == 5 && key[:4] == "alt+" && key[4] >= '1' && key[4] <= '9' {
@@ -177,12 +194,12 @@ func (m model) global(key string) (next tea.Model, cmd tea.Cmd, ok bool) {
 	case actNewTerminal:
 		m.openTerminal(terminal.Shell())
 	case actCloseTab:
-		// A terminal closes once its program ends, a log tab right away.
+		// A terminal closes once its program ends, a log or viewer tab right away.
 		switch {
 		case p == nil:
 		case p.activeTerminal() != nil:
 			p.activeTerminal().Hangup()
-		case p.activeLog() != nil:
+		case p.activeLog() != nil, p.activeView() != nil:
 			p.removeTab(p.tab)
 		}
 	case actMenu:
@@ -203,6 +220,8 @@ func (m model) global(key string) (next tea.Model, cmd tea.Cmd, ok bool) {
 		} else {
 			term.EnterCopy(false, false)
 		}
+	case actView:
+		m.openView()
 	case actQuit:
 		next, cmd := m.quit()
 		return next, cmd, true
@@ -457,9 +476,11 @@ func (m model) footerKeys() string {
 	case m.inTerminal() && m.current().activeTerminal().InCopy():
 		return " j/k move · ctrl+d/u page · g/G top/end · v select · y copy · esc leave · alt+←/→ pane · alt+shift+←/→ tab · alt+w close · alt+m menu · alt+q quit"
 	case m.inTerminal():
-		return " alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+t terminal · alt+w close · alt+c copy · alt+g git · alt+m menu · alt+q quit"
+		return " alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+t terminal · alt+w close · alt+c copy · alt+v view · alt+g git · alt+m menu · alt+q quit"
 	case m.inLogView():
 		return " j/k scroll · ctrl+d/u page · g/G top/end · z header · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+w close · t terminal · alt+g git · m menu · q quit"
+	case m.inMDView():
+		return " j/k scroll · ctrl+d/u page · g/G top/end · e edit · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+w close · t terminal · alt+g git · m menu · q quit"
 	case m.focus == colLeft || m.current() == nil:
 		return " j/k select · l open · a add · d remove · i edit .lazydev · alt+←/→ pane · alt+shift+←/→ tab · t terminal · alt+g git · m menu · q quit"
 	case m.focus == colBottom && m.runListVisible():
@@ -469,9 +490,9 @@ func (m model) footerKeys() string {
 	case m.focus == colBottom && m.bottomTab == bottomDocker:
 		return " j/k move · l logs · z zoom · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · alt+g git · m menu · q quit"
 	case m.focus == colRight && m.rightTab == rightPRDs:
-		return " j/k move · l open · L log · n new · s start · x stop · X discard · D dev" + m.unblockKey(selectedName(m.current())) + " · c status · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+g git · m menu · q quit"
+		return " j/k move · l open · v view · L log · n new · s start · x stop · X discard · D dev" + m.unblockKey(selectedName(m.current())) + " · c status · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+g git · m menu · q quit"
 	case m.focus == colRight && m.rightTab == rightFiles:
-		return " j/k move · l open · h back · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+g git · m menu · q quit"
+		return " j/k move · l open · v view · h back · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+g git · m menu · q quit"
 	}
 	return " alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · alt+g git · m menu · q quit"
 }

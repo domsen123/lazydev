@@ -66,7 +66,7 @@ git push origin v0.2.0
 | Pane | Inhalt |
 |---|---|
 | Projects (links) | Projekte mit Branch und Commits vor/hinter dem Upstream |
-| Mitte | Terminal-Tabs und Log-Tabs des Projekts. In einem Projekt ohne Tab startet Claude Code |
+| Mitte | Terminal-Tabs, Log-Tabs und Markdown-Viewer des Projekts. In einem Projekt ohne Tab startet Claude Code |
 | Unter der Mitte | `Details`: Läufe des Projekts, ohne Läufe die Einrichtung von `.lazydev/`. `Docker`: Compose-Services und Container |
 | Explorer (rechts) | `PRDs`: PRDs mit Phase, erledigte eingeklappt. `Files`: Dateibaum |
 
@@ -82,6 +82,7 @@ git push origin v0.2.0
 | `alt+t` / `alt+w` | neuer Shell-Tab / Tab schließen |
 | `alt+g` | Git-Cockpit: Fetch, Pull, Push, Commit |
 | `alt+c` | Kopiermodus des Terminal-Tabs |
+| `alt+v` | Markdown-Viewer der gewählten Datei oder des gewählten PRDs |
 | `alt+u` | neueres Release installieren, falls eines angezeigt wird |
 | `alt+m` / `alt+q` | Menü (Farbschema, Discord, Git) / beenden |
 | `j/k`, `l`/`enter`, `h` | bewegen, öffnen, zurück (Listen, Baum) |
@@ -109,6 +110,14 @@ umgebrochen sind, kommen als eine Zeile an.
 
 lazydev kopiert per OSC 52 an sein Terminal, das geht also auch über SSH, und außerhalb von SSH zusätzlich in
 die lokale Zwischenablage. Manche Terminals schalten OSC 52 ab oder begrenzen die Größe.
+
+## Markdown lesen
+
+`alt+v` (oder `v` außerhalb eines Terminals) öffnet die im Tab `Files` markierte Markdown-Datei oder das im Tab
+`PRDs` markierte PRD gerendert in einem Tab `md <datei>` in der Mitte. Ein PRD im Worktree eines Laufs kommt von
+dort, sein Viewer schließt sich mit dem Lauf. `j/k`, `ctrl+d/u` und `g/G` scrollen, ebenso das Mausrad. `e`
+öffnet die Datei im Editor als neuen Tab, der Viewer bleibt. Ändert sich die Datei, rendert der Viewer innerhalb
+von etwa einer Sekunde neu, verschwindet sie, schließt er sich mit einem Hinweis. `alt+w` schließt ihn.
 
 ## `.lazydev/`
 

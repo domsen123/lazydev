@@ -143,9 +143,14 @@ the center has the focus and its active tab is a terminal, unless the tab is in 
 `alt+c` opens copy mode of the active terminal tab (see Copy mode). Plain `c` never does, rule 2 skips it like
 `g`, because `c` changes the status in the PRDs tab.
 
+`alt+v` opens the Markdown viewer of the selection in the right column (see Markdown viewer), from anywhere,
+inside a terminal and a log tab too. Rule 2 applies, plain `v` works outside a terminal because no pane uses
+it. In copy mode `v` stays the selection, copy mode keys run before rule 2.
+
 lazydev turns on mouse reporting (cell motion). Mouse events act only in the terminal area of the active
-terminal tab, elsewhere and while an overlay (menu, wizard, status picker, git cockpit, question, input) is
-open lazydev ignores them. They never go to the program in the tab and do not clear the footer error or note.
+terminal tab or Markdown viewer, elsewhere and while an overlay (menu, wizard, status picker, git cockpit,
+question, input) is open lazydev ignores them. They never go to the program in the tab and do not clear the
+footer error or note.
 The native selection of the terminal works with Shift held while dragging.
 
 ### Panes
@@ -159,7 +164,8 @@ The native selection of the terminal works with Shift held while dragging.
   second kind of tab: titled `log <prd>`, they show the log of a run without a process and count in the tab
   number of the project. `alt+w` closes a log tab right away. A log tab closes by itself once its run is
   merged or its run state is gone (`X`), it stays open after error, block or abort. Opening the log of a run whose
-  log tab is open focuses that tab.
+  log tab is open focuses that tab. Markdown viewers are the third kind of tab: titled `md <file>`, they
+  show a Markdown file rendered, without a process, and count in the tab number too (see Markdown viewer).
 - **Details pane,** tab `Details` (default): with the PRDs tab active, the runs of the selected project
   (title `Runs`), independent of the PRD selected in the Explorer. The list holds every run that is not
   merged (waiting, setup, implement, review, merge, merge-queue, error, blocked, aborted), ordered by start time and
@@ -214,9 +220,51 @@ without `alt` unless the tab uses the key.
 Every second the tab reads what the runner appended to each step log since the last read, up to the last
 complete line. A file shorter than the read offset gets read again from the start.
 
+### Markdown viewer
+
+`alt+v` opens the selection of the active tab of the right column of the selected project, whichever pane
+has the focus: in tab `Files` the marked row, in tab `PRDs` the marked PRD at `<root>/<path>`, for a PRD that
+a run moved into its worktree the file in the worktree. `l`/`enter` keep opening the editor.
+
+- **Errors:** no tab opens and the footer shows the error. Without project
+  `Add a folder first: a in the left column`. Tab `Files` on a folder or with an empty tree
+  `Select a Markdown file in the Files tab.`. Tab `PRDs` on the group row or without PRDs
+  `Select a PRD in the PRDs tab.`. An extension other than `.md` or `.markdown` (any case)
+  `<file> is no Markdown file.`. An unreadable file `Cannot read <file>: <first line of the error>`. `<file>` is
+  the base name.
+- **Tab:** a new center tab of the selected project, appended on the right, becomes active and the center
+  gets the focus. Title `md <file>`, e.g. `md README.md`. It counts in the tab number of the project. If a
+  viewer of the same absolute path is open in the project, `alt+v` focuses it instead and does not read the
+  file again.
+- **Rendering:** Glamour (`github.com/charmbracelet/glamour`) with a fixed style per theme: `Default` the
+  dark style, `Tokyo Night` the Tokyo Night style. No automatic style detection. Word wrap at the tab width.
+  A theme change in the menu renders again. The tab shows the rendered Markdown only, without header. Lines
+  wider than the tab are cut, shorter ones filled with spaces. If Glamour fails, the tab shows the raw text,
+  tabs as four spaces, wrapped to the tab width.
+- **Keys:** `j`/`↓` and `k`/`↑` one line, `ctrl+d`/`pgdown` and `ctrl+u`/`pgup` half the height,
+  `g`/`home` to the top, `G`/`end` to the end. The viewer starts at the top and follows no end. `e` opens the
+  file with `$VISUAL`/`$EDITOR`/`vi` as a new terminal tab, the viewer stays open. Keys never go to a terminal,
+  other keys work as global keys (rule 2). `alt+w` closes the viewer right away. `alt+c` shows
+  `The active tab is not a terminal.`, viewers have no copy mode.
+- **Refresh:** every second lazydev checks modification time and size of the files of all viewers of all
+  projects in the background. If one of them changed, it reads the file again and the tab renders again. The
+  scroll position stays, clamped to the new end. Without change it does not read the file.
+- **Gone file:** if the check does not find the file or cannot read it, the tab closes by itself with the
+  note `<file> is gone, its viewer closed.` or `Cannot read <file>: <first line of the error>, its viewer closed.`.
+  With several tabs at once the note of the last one wins.
+- **Run:** a viewer that opened a PRD from the worktree of a run closes with that run like a log tab, once
+  the run is merged or its run state is gone (`X`), without note. It never switches to the file in the main
+  folder. Viewers of files in the main folder belong to no run.
+- **Mouse:** the wheel in the content area of the active viewer (the terminal area) scrolls 3 lines, a left
+  click there focuses the center. Nothing else, there is no selection.
+- **Footer:**
+  ` j/k scroll · ctrl+d/u page · g/G top/end · e edit · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+w close · t terminal · alt+g git · m menu · q quit`.
+  The footers of the tabs `PRDs` and `Files` show `v view` after `l open`, the terminal footer `alt+v view`
+  after `alt+c copy`.
+
 ### Copy mode
 
-Every terminal tab has a copy mode, log tabs have none. It copies the content of the tab only, without
+Every terminal tab has a copy mode, log tabs and Markdown viewers have none. It copies the content of the tab only, without
 borders and neighbor columns, and joins wrapped lines.
 
 - **Open:** `alt+c` opens it for the active terminal tab of the selected project and focuses the center, from

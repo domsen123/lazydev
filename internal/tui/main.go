@@ -244,17 +244,19 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(fetchPRDs(m.projects), m.fetchRuns())
 	case runTickMsg:
-		return m, tea.Batch(m.fetchRuns(), m.readLogs(), runTick())
+		return m, tea.Batch(m.fetchRuns(), m.readLogs(), m.readViews(), runTick())
 	case runsMsg:
 		ids := projectIDs(m.projects)
 		for i, p := range m.projects {
 			p.runs = msg.byID[ids[i]]
-			p.closeEndedLogs()
+			p.closeEndedTabs()
 		}
 		m.waiting, m.last, m.devPIDs = msg.waiting, msg.last, msg.devPIDs
 		m.usage, m.hasUsage = msg.usage, msg.hasUsage
 	case logReadMsg:
 		m.applyLogs(msg)
+	case mdReadMsg:
+		m.applyViews(msg)
 	case dockerLoadedMsg:
 		m.docker = msg.info
 	case dockerEventMsg:
@@ -786,6 +788,9 @@ func (m model) centerBody(width int, t theme) string {
 	}
 	if lv := p.activeLog(); lv != nil {
 		lv.ctx = m.logContext(lv)
+	}
+	if v := p.activeView(); v != nil {
+		v.theme = m.theme
 	}
 	bar := renderTabs(labels, p.tab, width, tabStyle(p.tab, m.focus == colCenter, t), text)
 	return bar + "\n" + separator + "\n" + p.tabs[p.tab].View(m.focus == colCenter && m.menu == nil && m.status == nil && m.cockpit == nil && !m.wizardVisible())
