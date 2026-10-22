@@ -1,0 +1,49 @@
+version: 2
+project_name: lazydev
+
+builds:
+  - main: ./cmd/lazydev
+    binary: lazydev
+    env:
+      - CGO_ENABLED=0
+    goos: [linux]
+    goarch: [amd64, arm64]
+    flags: [-trimpath]
+    ldflags:
+      - "-s -w -X lazydev/internal/version.Version={{ .Tag }}"
+
+archives:
+  - formats: [tar.gz]
+    name_template: "lazydev_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    files:
+      - LICENSE
+      - README.md
+      - README.de.md
+
+checksum:
+  name_template: checksums.txt
+  algorithm: sha256
+
+changelog:
+  use: git
+  sort: asc
+  filters:
+    exclude:
+      - '^(docs|test|chore|ci|style|build)(\(.*\))?!?:'
+  groups:
+    - title: Features
+      regexp: '^feat(\(.*\))?!?:'
+      order: 0
+    - title: Fixes
+      regexp: '^fix(\(.*\))?!?:'
+      order: 1
+    - title: Performance
+      regexp: '^perf(\(.*\))?!?:'
+      order: 2
+    - title: Other
+      order: 999
+
+release:
+  github:
+    owner: domsen123
+    name: lazydev
