@@ -81,6 +81,7 @@ git push origin v0.2.0
 | `alt+j/k`, `alt+1…9` | Projekt, Tab in der Mitte |
 | `alt+t` / `alt+w` | neuer Shell-Tab / Tab schließen |
 | `alt+g` | Git-Cockpit: Fetch, Pull, Push, Commit |
+| `alt+c` | Kopiermodus des Terminal-Tabs |
 | `alt+u` | neueres Release installieren, falls eines angezeigt wird |
 | `alt+m` / `alt+q` | Menü (Farbschema, Discord, Git) / beenden |
 | `j/k`, `l`/`enter`, `h` | bewegen, öffnen, zurück (Listen, Baum) |
@@ -92,6 +93,21 @@ git push origin v0.2.0
 | `c` | Status: planned, merged, discarded. Committet getrackte PRDs (PRDs) |
 | `z` | Details-Pane vergrößern, Kopf im Log-Tab |
 | `l` | Logs des Containers als Tab (Docker) |
+
+## Aus Terminal-Tabs kopieren
+
+Kopiert wird nur der Inhalt des Tabs, ohne Projekte, Explorer und Rahmen. Zeilen, die an der Tab-Breite
+umgebrochen sind, kommen als eine Zeile an.
+
+- **Kopiermodus:** `alt+c` friert den Tab samt Scrollback ein. `j/k`, `ctrl+d/u` und `g/G` bewegen die Marke,
+  `v` beginnt eine Auswahl ganzer Zeilen, `y` kopiert und verlässt den Modus, `esc` oder `q` verlassen ihn. Das
+  Label des Tabs endet auf ` [copy]`. Das Programm läuft weiter, seine Ausgabe erscheint nach dem Verlassen.
+- **Ziehen:** mit der linken Taste im Tab ziehen markiert zeichengenau. Loslassen kopiert.
+- **Mausrad:** scrollt durch den Scrollback. Rad runter bis zum Ende zeigt wieder die laufende Ausgabe.
+- **Native Markierung:** beim Ziehen Shift gedrückt halten, wie in den meisten Terminal-Programmen.
+
+lazydev kopiert per OSC 52 an sein Terminal, das geht also auch über SSH, und außerhalb von SSH zusätzlich in
+die lokale Zwischenablage. Manche Terminals schalten OSC 52 ab oder begrenzen die Größe.
 
 ## `.lazydev/`
 

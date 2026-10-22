@@ -1,6 +1,6 @@
 # PRD: Text aus Terminal-Tabs kopieren
 
-> Status: geplant · Template: einfach · Scope: Terminal-Tabs bekommen einen Kopiermodus (`alt+c`) mit Scrollback, Zeilenauswahl per Tastatur und Kopieren in die Zwischenablage, dazu Mausauswahl und Mausrad direkt im Tab. Kopiert wird nur der Inhalt des Tabs ohne Rahmen und Nachbarspalten, umgebrochene Zeilen werden wieder zusammengefügt.
+> Status: umgesetzt (2026-10-22) · Template: einfach · Scope: Terminal-Tabs bekommen einen Kopiermodus (`alt+c`) mit Scrollback, Zeilenauswahl per Tastatur und Kopieren in die Zwischenablage, dazu Mausauswahl und Mausrad direkt im Tab. Kopiert wird nur der Inhalt des Tabs ohne Rahmen und Nachbarspalten, umgebrochene Zeilen werden wieder zusammengefügt.
 
 ## Context
 

@@ -80,6 +80,7 @@ git push origin v0.2.0
 | `alt+j/k`, `alt+1…9` | project, center tab |
 | `alt+t` / `alt+w` | new shell tab / close tab |
 | `alt+g` | git cockpit: fetch, pull, push, commit |
+| `alt+c` | copy mode of the terminal tab |
 | `alt+u` | install the newer release, if one is shown |
 | `alt+m` / `alt+q` | menu (theme, Discord, git) / quit |
 | `j/k`, `l`/`enter`, `h` | move, open, back (lists, tree) |
@@ -91,6 +92,21 @@ git push origin v0.2.0
 | `c` | status: planned, merged, discarded. Commits tracked PRDs (PRDs) |
 | `z` | zoom the details pane, header in the log tab |
 | `l` | logs of the container as a tab (Docker) |
+
+## Copying from terminal tabs
+
+Copying takes the content of the tab only, without projects, explorer and borders. Lines that wrapped at
+the tab width come out as one line.
+
+- **Copy mode:** `alt+c` freezes the tab with its scrollback. `j/k`, `ctrl+d/u` and `g/G` move the mark, `v`
+  starts a selection of whole lines, `y` copies and leaves, `esc` or `q` leave. The tab label ends with
+  ` [copy]`. The program keeps running, its output shows once you leave.
+- **Drag:** drag with the left button in the tab to select exact to the character. Releasing copies.
+- **Wheel:** scrolls through the scrollback. Wheel down to the end shows the running output again.
+- **Native selection:** hold Shift while dragging, like in most terminal programs.
+
+lazydev copies through OSC 52 to its terminal, so it works over SSH too, and outside SSH also into the local
+clipboard. Some terminals turn OSC 52 off or limit its size.
 
 ## `.lazydev/`
 

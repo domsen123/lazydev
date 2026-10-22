@@ -133,7 +133,15 @@ footer: input, question, error, note, or key help with the Claude limits at the 
 3. A key means the same in every pane: `j/k` move, `l`/`enter` open, `h` back.
 
 Focus order for `alt+←/→` and `tab`: Projects → center → Explorer → details pane. Keys go to the terminal while
-the center has the focus and its active tab is a terminal.
+the center has the focus and its active tab is a terminal, unless the tab is in copy mode.
+
+`alt+c` opens copy mode of the active terminal tab (see Copy mode). Plain `c` never does, rule 2 skips it like
+`g`, because `c` changes the status in the PRDs tab.
+
+lazydev turns on mouse reporting (cell motion). Mouse events act only in the terminal area of the active
+terminal tab, elsewhere and while an overlay (menu, wizard, status picker, git cockpit, question, input) is
+open lazydev ignores them. They never go to the program in the tab and do not clear the footer error or note.
+The native selection of the terminal works with Shift held while dragging.
 
 ### Panes
 
@@ -141,7 +149,8 @@ the center has the focus and its active tab is a terminal.
   or `no git`. Git info refreshes every 5 s. The selected project has a bar on the border.
 - **Center:** terminal tabs (PTY + x/vt emulator) per project, they keep running while another project is
   selected. A project without tab starts `claude`. `alt+t` opens `$SHELL`. Window titles become tab titles,
-  workflow tabs have fixed labels like `create`. Closing sends SIGHUP and kills after 2 s. Log tabs are the
+  workflow tabs have fixed labels like `create`. Closing sends SIGHUP and kills after 2 s. `alt+c`, the mouse
+  wheel and dragging open copy mode of a terminal tab (see Copy mode). Log tabs are the
   second kind of tab: titled `log <prd>`, they show the log of a run without a process and count in the tab
   number of the project. `alt+w` closes a log tab right away. A log tab closes by itself once its run is
   merged or its run state is gone (`X`), it stays open after error or abort. Opening the log of a run whose
@@ -194,6 +203,56 @@ without `alt` unless the tab uses the key.
 
 Every second the tab reads what the runner appended to each step log since the last read, up to the last
 complete line. A file shorter than the read offset gets read again from the start.
+
+### Copy mode
+
+Every terminal tab has a copy mode, log tabs have none. It copies the content of the tab only, without
+borders and neighbor columns, and joins wrapped lines.
+
+- **Open:** `alt+c` opens it for the active terminal tab of the selected project and focuses the center, from
+  any pane. Without a terminal as active tab the error is `The active tab is not a terminal.`. `alt+c` in copy
+  mode leaves it like `esc`.
+- **Snapshot:** opening takes a snapshot of all lines: the scrollback (oldest first, up to 10 000 lines), then
+  the lines of the screen. In the alt screen it takes the screen lines only. Copy mode shows and copies the
+  snapshot only. The program keeps running, its output goes into the emulator and shows after leaving.
+- **Start:** the view shows the end of the snapshot, the screen as before. The mark stands on the line of the
+  cursor, with a hidden or invalid cursor on the last line.
+- **View:** the mark is the whole line in reverse video over the full width of the tab. The cursor of the
+  program does not show. The tab label ends with ` [copy]`. The footer shows
+  ` j/k move · ctrl+d/u page · g/G top/end · v select · y copy · esc leave · alt+←/→ pane · alt+shift+←/→ tab · alt+w close · alt+m menu · alt+q quit`.
+- **Keys:** `j`/`↓` and `k`/`↑` one line, `ctrl+d`/`pgdown` and `ctrl+u`/`pgup` half the height, `g`/`home`
+  the first line, `G`/`end` the last line. The view scrolls along so the mark stays visible. `v` sets the anchor
+  on the line of the mark, a second `v` drops the selection. All lines between anchor and mark, both
+  included, are selected and show in reverse video. The keyboard selects whole lines only. `y` copies the
+  selection, without one the line of the mark, and leaves copy mode. `esc` and `q` leave without copying.
+  No key goes to the program. Global `alt` keys work, rule 2 does not apply, other keys do nothing.
+- **State of the tab:** copy mode stays with the tab while the focus or the tab changes, until it is left.
+  When the program ends, the tab closes as before and copy mode with it. A resize keeps the snapshot and
+  clamps mark, anchor and view to the valid range, lines wider than the tab are cut.
+- **Wheel:** up scrolls 3 lines up, outside copy mode it opens copy mode first (snapshot as with `alt+c`).
+  Down scrolls 3 lines down. The mark moves with the view and keeps its row in the window. Copy mode opened
+  by the wheel ends when wheel down reaches the end without a selection. Opened by `alt+c` it ends only with
+  `esc`, `q`, `alt+c` or `y`.
+- **Mouse:** a click in the terminal area focuses the center. Pressing the left button opens copy mode if it
+  is not open and sets the start of the selection on the cell under the mouse, moving with the button held
+  sets the end. The selection is exact to the cell like in a terminal: from the start cell to the end of its
+  line, whole lines between, from the start of the line to the end cell. Start and end may be swapped. With
+  the mouse above or below the terminal area while dragging, the view scrolls one line in that direction per
+  motion event and the end of the selection follows. Left and right the column clamps to the area.
+  Releasing copies the selection and removes it. Copy mode opened by the mouse ends then, otherwise it stays.
+  Start and end on the same cell copy nothing. Pressing the mouse drops a keyboard selection, `v` drops a
+  mouse selection.
+- **Text:** without ANSI styles, trailing spaces removed, lines separated by `\n`, no `\n` after the last line.
+  Cells of wide characters count once. x/vt keeps no soft wraps: a line that reaches the last column of the
+  width the tab had at the snapshot (width in cells without trailing empty cells ≥ tab width) gets the next
+  line appended without `\n`, in the scrollback and on the screen. After a resize of the tab the rule can be
+  wrong for older lines.
+- **Clipboard:** always OSC 52 (`ansi.SetSystemClipboard`) to the terminal of lazydev, in one write.
+  Additionally `clipboard.WriteAll` of `github.com/atotto/clipboard` when the platform supports it and neither
+  `SSH_CONNECTION` nor `SSH_TTY` is set. Its error is ignored. Success shows the note `Copied 1 line.` or
+  `Copied <n> lines.`, counted in lines of the copied text after joining. Empty text copies nothing and shows
+  the error `Nothing to copy.`, a failed OSC 52 write the error `Copy failed: <err>`. There is no own size
+  limit, some terminals limit OSC 52.
 
 ### Git cockpit (`alt+g`)
 
