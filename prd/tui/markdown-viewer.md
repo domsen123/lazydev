@@ -1,6 +1,6 @@
 # PRD: Markdown-Viewer als Tab
 
-> Status: geplant · Scope: `alt+v` öffnet die gewählte Markdown-Datei (Tab `Files`) oder das gewählte PRD (Tab
+> Status: umgesetzt (2026-10-22) · Scope: `alt+v` öffnet die gewählte Markdown-Datei (Tab `Files`) oder das gewählte PRD (Tab
 > `PRDs`) als mit Glamour gerendertes Markdown in einem eigenen Center-Tab, der sich bei Änderungen der Datei neu rendert.
 
 ## Context
