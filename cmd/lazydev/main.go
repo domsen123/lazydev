@@ -14,6 +14,7 @@ import (
 	"lazydev/internal/runner"
 	"lazydev/internal/state"
 	"lazydev/internal/tui"
+	"lazydev/internal/version"
 )
 
 const usage = `Usage:
@@ -22,6 +23,7 @@ const usage = `Usage:
   lazydev stop <project> <prd>             stop the runner, the worktree stays
   lazydev discard [--yes] <project> <prd>  throw away the run: worktree, branch and its commits
   lazydev trust <project>                  check and trust hooks and allowed tools of .lazydev/config.yaml
+  lazydev version                          print the version, also --version and -v
 
 <project> is the project ID (its folder name) or its path, <prd> the PRD file name without .md.
 Projects get added in the TUI. After an error or abort, start continues with the failed step.
@@ -42,6 +44,9 @@ func main() {
 	switch cmd {
 	case "-h", "--help", "help":
 		fmt.Printf(usage, config.Dir(), state.Dir())
+		return
+	case "version", "--version", "-v":
+		fmt.Println("lazydev " + version.Version)
 		return
 	case "run":
 		// "lazydev run <id> <dir> <prd>" is the detached runner the TUI and start spawn.
