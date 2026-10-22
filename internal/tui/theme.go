@@ -26,6 +26,8 @@ type theme struct {
 	selectedBg, selectedFg lipgloss.TerminalColor
 	// onFocus is the text color on a focus colored background, e.g. the active tab (main_bg).
 	onFocus lipgloss.TerminalColor
+	// update colors the notes about a newer release, a yellow (no btop key).
+	update lipgloss.TerminalColor
 }
 
 // themes lists the color themes in the order of the menu. The first one is the default.
@@ -41,6 +43,7 @@ var themes = []theme{
 		selectedBg: lipgloss.Color("#6a2f2f"),
 		selectedFg: lipgloss.Color("#eeeeee"),
 		onFocus:    lipgloss.Color("#000000"),
+		update:     lipgloss.Color("#e5c07b"),
 	},
 	{
 		// btop's tokyo-night.theme.
@@ -53,6 +56,7 @@ var themes = []theme{
 		selectedBg: lipgloss.Color("#414868"),
 		selectedFg: lipgloss.Color("#cfc9c2"),
 		onFocus:    lipgloss.Color("#1a1b26"),
+		update:     lipgloss.Color("#e0af68"),
 	},
 }
 

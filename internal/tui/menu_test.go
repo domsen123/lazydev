@@ -89,11 +89,11 @@ func TestMenuVersion(t *testing.T) {
 	}
 	setVersion(t, "v0.1.0")
 	m.latest = "v9.9.9"
-	if want := "lazydev v0.1.0 · v9.9.9 available, run install.sh again."; m.versionLine() != want {
+	if want := "lazydev v0.1.0 · v9.9.9 available, alt+u updates."; m.versionLine() != want {
 		t.Errorf("version line: %q", m.versionLine())
 	}
 	// The line wraps in the right column of 54 characters.
-	if plain := ansi.Strip(m.View()); !strings.Contains(plain, "v9.9.9 available, run install.sh") {
+	if plain := ansi.Strip(m.View()); !strings.Contains(plain, "v9.9.9 available, alt+u updates") {
 		t.Errorf("General tab lacks the newer release:\n%s", plain)
 	}
 }

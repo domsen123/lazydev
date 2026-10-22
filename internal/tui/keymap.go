@@ -31,6 +31,7 @@ const (
 	actCloseTab
 	actMenu
 	actGit
+	actUpdate
 	actQuit
 )
 
@@ -46,6 +47,7 @@ var globalKeys = map[string]action{
 	"alt+w":           actCloseTab,
 	"alt+m":           actMenu, "alt+esc": actMenu,
 	"alt+g": actGit,
+	"alt+u": actUpdate,
 	"alt+q": actQuit, "alt+ctrl+c": actQuit,
 }
 
@@ -176,6 +178,8 @@ func (m model) global(key string) (next tea.Model, cmd tea.Cmd, ok bool) {
 		m.menu = &menu{}
 	case actGit:
 		m.openCockpit()
+	case actUpdate:
+		return m, m.startUpdate(), true
 	case actQuit:
 		next, cmd := m.quit()
 		return next, cmd, true

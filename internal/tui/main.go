@@ -113,8 +113,11 @@ type model struct {
 	bottomZoom bool
 	// note is a message for the footer that is no error, cleared by the next key.
 	note string
-	// latest is a release newer than the running version, empty while none is known.
-	latest string
+	// latest is a release newer than the running version, empty while none is known. updating is
+	// true while alt+u installs it, installed is the tag once it is installed.
+	latest    string
+	updating  bool
+	installed string
 	// adding is true while the input for a new folder is open.
 	adding bool
 	input  textinput.Model
@@ -198,6 +201,14 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.err == "" && m.note == "" {
 			m.note = updateNote(msg.latest)
 		}
+	case installMsg:
+		m.updating = false
+		if msg.err != nil {
+			m.note, m.err = "", "update: "+msg.err.Error()
+			break
+		}
+		m.latest, m.installed = "", msg.tag
+		m.err, m.note = "", installedNote(msg.tag)
 	case gitInfoMsg:
 		for _, p := range m.projects {
 			if p.path == msg.path {
@@ -580,6 +591,8 @@ func (m model) footer(t theme) string {
 		return text.Render(" Closing terminals …")
 	case m.err != "":
 		return text.Foreground(t.focus).Render(ansi.Truncate(" "+m.err, m.width, "…"))
+	case m.note != "" && m.updateNoteShown():
+		return text.Foreground(t.update).Render(ansi.Truncate(" "+m.note, m.width, "…"))
 	case m.note != "":
 		return text.Render(ansi.Truncate(" "+m.note, m.width, "…"))
 	case m.status != nil && m.menu == nil:
@@ -590,8 +603,16 @@ func (m model) footer(t theme) string {
 		return text.Render(ansi.Truncate(m.wizard.keys(), m.width, "…"))
 	}
 	// The Claude limits stand at the right end, the key help gets the rest.
+	// A newer release stays visible in front of the key help.
 	limits := m.usageView(t)
-	keys := ansi.Truncate(m.footerKeys(), max(0, m.width-ansi.StringWidth(limits)-1), "…")
+	prefix := ""
+	if m.latest != "" {
+		prefix = " alt+u update " + m.latest + " ·"
+	}
+	keys := ansi.Truncate(prefix+m.footerKeys(), max(0, m.width-ansi.StringWidth(limits)-1), "…")
+	if prefix != "" && strings.HasPrefix(keys, prefix) {
+		return text.Foreground(t.update).Render(prefix) + text.Render(keys[len(prefix):]) + strings.Repeat(" ", max(1, m.width-ansi.StringWidth(keys)-ansi.StringWidth(limits))) + limits
+	}
 	return text.Render(keys) + strings.Repeat(" ", max(1, m.width-ansi.StringWidth(keys)-ansi.StringWidth(limits))) + limits
 }
 

@@ -3,8 +3,10 @@ package main
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"lazydev/internal/config"
@@ -23,6 +25,7 @@ const usage = `Usage:
   lazydev stop <project> <prd>             stop the runner, the worktree stays
   lazydev discard [--yes] <project> <prd>  throw away the run: worktree, branch and its commits
   lazydev trust <project>                  check and trust hooks and allowed tools of .lazydev/config.yaml
+  lazydev update                           install the newest release over this binary
   lazydev version                          print the version, also --version and -v
 
 <project> is the project ID (its folder name) or its path, <prd> the PRD file name without .md.
@@ -47,6 +50,14 @@ func main() {
 		return
 	case "version", "--version", "-v":
 		fmt.Println("lazydev " + version.Version)
+		return
+	case "update":
+		if len(rest) != 0 {
+			usageError()
+		}
+		if err := update(); err != nil {
+			fail(err)
+		}
 		return
 	case "run":
 		// "lazydev run <id> <dir> <prd>" is the detached runner the TUI and start spawn.
@@ -118,6 +129,34 @@ func main() {
 			fail(err)
 		}
 	}
+}
+
+// update installs the newest release over the running binary.
+func update() error {
+	if _, _, _, ok := version.Release(version.Version); !ok {
+		return fmt.Errorf("lazydev %s is no release build, update it from source", version.Version)
+	}
+	ctx := context.Background()
+	latest, err := version.Latest(ctx)
+	if err != nil {
+		return err
+	}
+	if !version.Newer(latest, version.Version) {
+		fmt.Printf("lazydev %s is the newest release.\n", version.Version)
+		return nil
+	}
+	path, err := os.Executable()
+	if err == nil {
+		path, err = filepath.EvalSymlinks(path)
+	}
+	if err != nil {
+		return err
+	}
+	if err := version.Install(ctx, latest, path); err != nil {
+		return err
+	}
+	fmt.Printf("Installed lazydev %s to %s. Restart lazydev to use it.\n", latest, path)
+	return nil
 }
 
 // trust shows hooks and allowed tools of .lazydev/config.yaml and saves their hash after "y".

@@ -1,7 +1,7 @@
 #!/bin/sh
 # Installs or updates lazydev from a GitHub release of domsen123/lazydev.
 #
-#   gh api repos/domsen123/lazydev/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
+#   curl -fsSL https://raw.githubusercontent.com/domsen123/lazydev/main/install.sh | sh
 #   sh install.sh v0.2.0
 #
 # Without argument the newest release. PREFIX defaults to $HOME/.local, the binary lands in $PREFIX/bin.
@@ -15,10 +15,9 @@ fail() {
 	exit 1
 }
 
-for tool in gh tar sha256sum uname; do
+for tool in curl tar sha256sum uname; do
 	command -v "$tool" >/dev/null 2>&1 || fail "$tool not found"
 done
-gh auth status >/dev/null 2>&1 || fail "gh is not logged in, run gh auth login"
 
 os=$(uname -s)
 [ "$os" = Linux ] || fail "lazydev runs on Linux only"
@@ -32,19 +31,24 @@ esac
 if [ $# -gt 0 ]; then
 	tag=$1
 else
-	tag=$(gh release view --repo "$repo" --json tagName --jq .tagName)
+	tag=$(curl -fsSL "https://api.github.com/repos/$repo/releases/latest" |
+		sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' | head -n 1)
+	[ -n "$tag" ] || fail "no release found"
 fi
+version=${tag#v}
 
 tmp=$(mktemp -d)
 trap 'rm -rf "$tmp"' EXIT
 trap 'exit 1' HUP INT TERM
 
-gh release download "$tag" --repo "$repo" --dir "$tmp" \
-	--pattern "lazydev_*_linux_$arch.tar.gz" --pattern checksums.txt
+archive=lazydev_${version}_linux_$arch.tar.gz
+base=https://github.com/$repo/releases/download/$tag
+curl -fsSL -o "$tmp/$archive" "$base/$archive" || fail "download of $archive failed"
+curl -fsSL -o "$tmp/checksums.txt" "$base/checksums.txt" || fail "download of checksums.txt failed"
 
 cd "$tmp"
-grep "_linux_$arch.tar.gz" checksums.txt | sha256sum -c - >/dev/null 2>&1 || fail "checksum mismatch"
-tar -xzf lazydev_*_linux_"$arch".tar.gz lazydev
+grep " $archive\$" checksums.txt | sha256sum -c - >/dev/null 2>&1 || fail "checksum mismatch"
+tar -xzf "$archive" lazydev
 
 mkdir -p "$prefix/bin"
 install -m 755 lazydev "$prefix/bin/lazydev"
