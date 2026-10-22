@@ -1,6 +1,6 @@
 # PRD: Blockierte Läufe
 
-> Status: umgesetzt (2026-10-22) · Scope: Bricht Claude in implement oder im Claude-Schritt merge mit offenen Fragen ab, endet der Lauf in der neuen Phase `blocked` statt `error`. Der Runner schreibt die Fragen als `## Blocker` ins PRD und setzt die Statuszeile auf `blockiert (YYYY-MM-DD)`. Taste `f` öffnet einen interaktiven Claude-Tab im Worktree, der das PRD mit dem Nutzer klärt. Danach geht es mit `s` weiter.
+> Status: umgesetzt (2026-10-22) · Kosten: 7.03 USD · Modell: claude-opus-5-5 · Scope: Bricht Claude in implement oder im Claude-Schritt merge mit offenen Fragen ab, endet der Lauf in der neuen Phase `blocked` statt `error`. Der Runner schreibt die Fragen als `## Blocker` ins PRD und setzt die Statuszeile auf `blockiert (YYYY-MM-DD)`. Taste `f` öffnet einen interaktiven Claude-Tab im Worktree, der das PRD mit dem Nutzer klärt. Danach geht es mit `s` weiter.
 
 ## Context
 
