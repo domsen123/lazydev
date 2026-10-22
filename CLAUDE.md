@@ -68,6 +68,9 @@ Every step lands in `steps` of the run state and must be repeatable, `s` continu
 - A Claude step succeeds only with exit code 0, a last `result` without error and its check: after
   implement `## Ergebnis` and the PRD status line, after review a clean worktree. After implement, review
   and the Claude step merge, `checkLazydevUntouched` makes sure nothing under `.lazydev/` changed.
+- `abgebrochen` with open questions in implement or the Claude step merge is a `blockedError`: phase
+  `blocked`, `## Blocker` and status `blockiert` in the PRD of the worktree (`blocker.go`). `f` in the TUI
+  opens the dialog `unblock` in the worktree, `s` continues after it.
 - Merge (`merge.go`): `flock` per project, `git rebase <base>`, on conflict `rebase --abort` and the Claude
   step merge, check hook, cost into the PRD, wait for a clean main folder, `git merge --ff-only`, cleanup.
   Merges always run right after the review.

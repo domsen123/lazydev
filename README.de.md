@@ -89,6 +89,7 @@ git push origin v0.2.0
 | `n` | neues PRD mit Claude Code (PRDs) |
 | `s` / `x` / `X` | starten oder fortsetzen / stoppen / Lauf verwerfen (PRDs, Runs) |
 | `D` | Dev-Server im Worktree des PRDs an/aus (PRDs, Runs) |
+| `f` | blockierten Lauf mit Claude Code in seinem Worktree klären (PRDs, Runs) |
 | `L` / `l` | Log des Laufs als Tab (PRDs / Runs) |
 | `c` | Status: planned, merged, discarded. Committet getrackte PRDs (PRDs) |
 | `z` | Details-Pane vergrößern, Kopf im Log-Tab |
@@ -116,11 +117,11 @@ Liegt versioniert im Projekt, für alle gleich. Hinzufügen und Wizard legen feh
 | Datei | Inhalt |
 |---|---|
 | `config.yaml` | `baseBranch`, `knowledge`, `allowedTools`, `hooks` |
-| `create.md`, `implement.md`, `review.md`, `merge.md` | Prompts der Schritte. Der Workflow liest sie nur von hier |
+| `create.md`, `implement.md`, `review.md`, `merge.md`, `unblock.md` | Prompts der Schritte. Der Workflow liest sie nur von hier |
 
 ```yaml
 baseBranch: develop          # Standard main
-knowledge:                   # Dateien, die Claude zuerst liest: all, create, implement, review, merge
+knowledge:                   # Dateien, die Claude zuerst liest: all, create, implement, review, merge, unblock
   all: [CLAUDE.md]
   implement: [docs/architecture.md]
 allowedTools:                # zusätzlich zu den eingebauten Tools jedes Schritts
@@ -146,11 +147,27 @@ hooks:                       # Skripte, relativ zum Hauptordner
   Fast-Forward, Teardown-Hook, Aufräumen).
 - Höchstens 3 Runner gleichzeitig, der Rest wartet. Ports ab 3500.
 - Nach einem Fehler oder `x` setzt `s` beim gescheiterten Schritt fort. `X` verwirft Worktree, Branch und
-  dessen Commits, das PRD kommt mit Status `geplant` zurück.
+  dessen Commits, das PRD kommt mit Status `geplant` und ohne `## Blocker` zurück.
 - Der Merge wartet, solange der Hauptordner nicht auf dem Ziel-Branch steht oder Änderungen außerhalb von
   `prd/` und `.lazydev/` hat.
-- Die Statuswerte im PRD bleiben deutsch (`geplant`, `umgesetzt (Datum)`, `verworfen (Datum)`), wie die
-  Prompts.
+- Die Statuswerte im PRD bleiben deutsch (`geplant`, `umgesetzt (Datum)`, `verworfen (Datum)`,
+  `blockiert (Datum)`), wie die Prompts.
+- Phasen: `○` planned, `◌` waiting, `●` setup/implement/review/merge, `◐` merge-queue, `✓` merged, `■`
+  aborted, `✗` error/discarded, `⊘` blocked (gelb).
+
+### Blockierte Läufe
+
+Lässt das PRD eine Entscheidung offen, bricht Claude implement oder den Claude-Schritt merge mit offenen
+Fragen ab. Das ist kein Fehler: Der Lauf endet in der Phase `blocked`.
+
+1. Der Runner setzt das PRD im Worktree auf `blockiert (Datum)`, hängt `## Blocker` mit dem Schritt und
+   allen Fragen an und committet nur das PRD. Discord bekommt `⊘ Blocked`.
+2. `f` auf dem Lauf öffnet Claude Code im Worktree als Tab `unblock`. Es stellt die Fragen mit den Optionen
+   A bis D, arbeitet deine Antworten ins PRD ein, entfernt `## Blocker` und setzt den Status zurück
+   (`geplant` bei implement, `umgesetzt (Datum)` bei merge). Es ändert nur das PRD und committet nichts.
+3. `s` setzt beim blockierten Schritt fort. Solange das PRD noch `blockiert` sagt, lehnt `s` ab.
+
+Bemerkungen ohne Entscheidung stehen im Bericht von implement unter `## Hinweise` und blockieren nicht.
 
 ## Git-Cockpit
 
@@ -173,7 +190,7 @@ deshalb wie in einer Shell.
 
 ## Discord
 
-Runner schreiben an einen Discord-Webhook, wenn ein PRD gemergt ist, ein Schritt scheitert, `x` einen
+Runner schreiben an einen Discord-Webhook, wenn ein PRD gemergt ist, ein Schritt scheitert oder blockiert, `x` einen
 Runner abbricht oder der Merge auf den Hauptordner zu warten beginnt. Das klappt auch ohne laufende TUI.
 
 1. Lege in Discord einen Webhook für einen Kanal an und kopiere seine URL.
@@ -197,7 +214,8 @@ Ein Projekt lässt sich stummschalten oder bekommt eine eigene URL. Die URL land
 }
 ```
 
-Jede Nachricht ist ein Embed mit Projekt, Branch, Kosten, Dauer und Modell, ohne Fehlertext. Scheitert der
+Jede Nachricht ist ein Embed mit Projekt, Branch, Kosten, Dauer und Modell, ohne Fehlertext. Ein blockierter
+Lauf (`⊘ Blocked`) bekommt zusätzlich das Feld `Blocker` mit seinen offenen Fragen. Scheitert der
 Versand, wiederholt der Runner ihn 3-mal im Abstand von 5 s. Danach bekommt das Step-Log
 `Discord notification failed: <fehler>`. Der Lauf geht unverändert weiter.
 

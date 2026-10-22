@@ -88,6 +88,7 @@ git push origin v0.2.0
 | `n` | new PRD with Claude Code (PRDs) |
 | `s` / `x` / `X` | start or continue / stop / discard run (PRDs, Runs) |
 | `D` | dev server of the PRD's worktree on/off (PRDs, Runs) |
+| `f` | resolve a blocked run with Claude Code in its worktree (PRDs, Runs) |
 | `L` / `l` | log of the run as a tab (PRDs / Runs) |
 | `c` | status: planned, merged, discarded. Commits tracked PRDs (PRDs) |
 | `z` | zoom the details pane, header in the log tab |
@@ -115,11 +116,11 @@ Versioned in the project, the same for everyone. Adding a project and the wizard
 | File | Content |
 |---|---|
 | `config.yaml` | `baseBranch`, `knowledge`, `allowedTools`, `hooks` |
-| `create.md`, `implement.md`, `review.md`, `merge.md` | Prompts of the steps. The workflow reads them from here only |
+| `create.md`, `implement.md`, `review.md`, `merge.md`, `unblock.md` | Prompts of the steps. The workflow reads them from here only |
 
 ```yaml
 baseBranch: develop          # default main
-knowledge:                   # files Claude reads first: all, create, implement, review, merge
+knowledge:                   # files Claude reads first: all, create, implement, review, merge, unblock
   all: [CLAUDE.md]
   implement: [docs/architecture.md]
 allowedTools:                # on top of the built-in tools of each step
@@ -144,10 +145,27 @@ hooks:                       # scripts, relative to the main folder
   teardown hook, cleanup).
 - Max 3 runners at a time, the rest waits. Ports from 3500.
 - After an error or `x`, `s` continues with the failed step. `X` throws away worktree, branch and its
-  commits, the PRD goes back with status `geplant`.
+  commits, the PRD goes back with status `geplant` and without `## Blocker`.
 - The merge waits while the main folder is not on the base branch or has changes outside `prd/` and
   `.lazydev/`.
-- PRD status values stay German (`geplant`, `umgesetzt (date)`, `verworfen (date)`), like the prompts.
+- PRD status values stay German (`geplant`, `umgesetzt (date)`, `verworfen (date)`, `blockiert (date)`), like
+  the prompts.
+- Phases: `○` planned, `◌` waiting, `●` setup/implement/review/merge, `◐` merge-queue, `✓` merged, `■`
+  aborted, `✗` error/discarded, `⊘` blocked (yellow).
+
+### Blocked runs
+
+When the PRD leaves a decision open, Claude aborts implement or the Claude step merge with open questions.
+That is no error: the run ends in phase `blocked`.
+
+1. The runner sets the PRD in the worktree to `blockiert (date)`, appends `## Blocker` with the step and all
+   questions and commits only the PRD. Discord gets `⊘ Blocked`.
+2. `f` on the run opens Claude Code in the worktree as tab `unblock`. It asks the questions with options A
+   to D, works your answers into the PRD, removes `## Blocker` and sets the status back (`geplant` for
+   implement, `umgesetzt (date)` for merge). It changes only the PRD and commits nothing.
+3. `s` continues with the blocked step. While the PRD still says `blockiert`, `s` refuses.
+
+Remarks without a decision go under `## Hinweise` in the report of implement and do not block.
 
 ## Git cockpit
 
@@ -169,8 +187,8 @@ action runs as a center tab, so passphrase and credential prompts work like in a
 
 ## Discord
 
-Runners post to a Discord webhook when a PRD is merged, a step fails, `x` aborts a runner or the merge
-starts to wait for the main folder. They post without a running TUI too.
+Runners post to a Discord webhook when a PRD is merged, a step fails or blocks, `x` aborts a runner or the
+merge starts to wait for the main folder. They post without a running TUI too.
 
 1. In Discord, create a webhook for a channel and copy its URL.
 2. `alt+m`, tab `Discord`, `enter`. Select `Global URL`, press `enter`, paste the URL and press `enter`.
@@ -192,7 +210,8 @@ in a repository. The menu shows it shortened to `…/<last 4 characters>`.
 }
 ```
 
-Each message is an embed with project, branch, cost, duration and model, without error text. A failed
+Each message is an embed with project, branch, cost, duration and model, without error text. A blocked run
+(`⊘ Blocked`) adds the field `Blocker` with its open questions. A failed
 delivery retries 3 times 5 s apart, then the step log gets `Discord notification failed: <error>`. The run
 goes on unchanged.
 

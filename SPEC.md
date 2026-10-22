@@ -47,13 +47,13 @@ Folder in the main folder of a project, versioned with it. Nothing can be overri
 | File | Content |
 |---|---|
 | `config.yaml` | `baseBranch` (default `main`), `knowledge`, `allowedTools`, `hooks` (`setup`, `teardown`, `check`, `dev`) |
-| `<step>.md` | Prompt of `create`, `implement`, `review`, `merge` |
+| `<step>.md` | Prompt of `create`, `implement`, `review`, `merge`, `unblock` |
 
 - Unknown fields in `config.yaml` are ignored, e.g. `preset` of older versions. Broken YAML is an error shown in
   the details pane, runs refuse to start.
 - **Init** creates missing files only: `config.yaml` (empty, or `baseBranch` when the repo has neither `main`
-  nor `master` but a checked out branch) and the four prompts of the built-in simple workflow. It never
-  overwrites. Adding a project, opening the wizard, `n`, and writing a prompt in the wizard run it, so a
+  nor `master` but a checked out branch) and the five prompts of the built-in simple workflow. It never
+  overwrites. Adding a project, opening the wizard, `n`, `f` and writing a prompt in the wizard run it, so a
   deleted `.lazydev/` comes back.
 - The workflow reads prompts from `.lazydev/<step>.md` only. A missing prompt fails the step with
   `.lazydev/<step>.md is missing, press i to add it`.
@@ -66,13 +66,14 @@ A prompt consists of, separated by blank lines:
 
 1. Header `# lazydev <step>: <argument>`. Without argument `<branch> → <base>`. Logs show it.
 2. Knowledge block `## Pflichtlektüre` listing the files of `knowledge.all` and `knowledge.<step>`, without
-   duplicates. Each file must exist where Claude runs (main folder for create, worktree otherwise).
+   duplicates. Each file must exist where Claude runs (main folder for create, worktree otherwise, unblock
+   included).
 3. `.lazydev/<step>.md` without frontmatter, with `$ARGUMENTS`, `$BASE`, `$BRANCH` replaced.
 4. The built-in contract of the step (`internal/prompts/contract/`). It has priority, a project cannot change
    it.
 
-Arguments: create gets the user's description, implement the PRD path, review none, merge the branch plus an
-optional error context. Prompts, contracts and PRD status values are German.
+Arguments: create gets the user's description, implement and unblock the PRD path, review none, merge the
+branch plus an optional error context. Prompts, contracts and PRD status values are German.
 
 ### Trust
 
@@ -90,13 +91,13 @@ of the hash.
 ### Wizard (`i`)
 
 Pages: base branch (local branches without `feat/`) → knowledge files (tracked `.md` outside `prd/` and
-`.lazydev/`, `space` marks) → steps per file (`1`–`4` toggle create, implement, review, merge, new files get
-create and implement) → prompts (`o` opens one in the editor as a center tab and hides the wizard until the
+`.lazydev/`, `space` marks) → steps per file (`1`–`5` toggle create, implement, review, merge, unblock, new
+files get create and implement) → prompts (`o` opens one in the editor as a center tab and hides the wizard until the
 editor ends, `r` resets it to the simple workflow, an existing one after `y`) → summary with the resulting `config.yaml`, `enter`
 saves.
 
 - Without knowledge in `config.yaml`, `CLAUDE.md`, `ARCHITECTURE.md` and `_ARCHITECTURE.md` are preselected.
-- A file marked for all four steps goes under `all`.
+- A file marked for all five steps goes under `all`.
 - Saving writes `baseBranch` (left out for `main`) and `knowledge` only and keeps other fields, order and
   comments. No change means no write.
 
@@ -105,7 +106,11 @@ saves.
 - Files `prd/<area>/<name>.md`. Title from the first `# ` heading without `PRD:`. Status line
   `> Status: <value> · <detail>` within the first 20 lines, following `>` lines belong to the detail.
 - Values: `geplant` → planned, `umgesetzt (YYYY-MM-DD)` → merged, `verworfen (YYYY-MM-DD)` → discarded,
-  anything else → unknown. After a merge the detail starts with `Kosten: <x.xx> USD · Modell: <model>`.
+  `blockiert (YYYY-MM-DD)` → blocked, anything else → unknown. After a merge the detail starts with
+  `Kosten: <x.xx> USD · Modell: <model>`.
+- A blocked run ends the PRD in its worktree with the section `## Blocker`: first line `Schritt: implement` or
+  `Schritt: merge`, a blank line, then the open questions as a list. A new blocker replaces the section up to
+  the next `## ` heading or the end of the file.
 - A PRD that a run moved into its worktree is read from there while the main folder lacks it.
 - Branch: `feat/<name>` if it exists, the base branch for merged PRDs.
 
@@ -153,18 +158,18 @@ The native selection of the terminal works with Shift held while dragging.
   wheel and dragging open copy mode of a terminal tab (see Copy mode). Log tabs are the
   second kind of tab: titled `log <prd>`, they show the log of a run without a process and count in the tab
   number of the project. `alt+w` closes a log tab right away. A log tab closes by itself once its run is
-  merged or its run state is gone (`X`), it stays open after error or abort. Opening the log of a run whose
+  merged or its run state is gone (`X`), it stays open after error, block or abort. Opening the log of a run whose
   log tab is open focuses that tab.
 - **Details pane,** tab `Details` (default): with the PRDs tab active, the runs of the selected project
   (title `Runs`), independent of the PRD selected in the Explorer. The list holds every run that is not
-  merged (waiting, setup, implement, review, merge, merge-queue, error, aborted), ordered by start time and
+  merged (waiting, setup, implement, review, merge, merge-queue, error, blocked, aborted), ordered by start time and
   then by PRD name. A header row names the columns, each run has one row: phase symbol and PRD label, phase
   (waiting with `· #n in queue`), current step with duration (`–` without step), cost (`x.xx USD`), port,
   dev server (`● :<port>` while running, otherwise `–`), branch, and in the rest of the width the first line
-  of the last entry of the current step's log, faint. In phase error the first line of the error replaces it,
-  otherwise a note does, both in the warning color. Too narrow, the columns drop from the right: log line,
-  branch, dev, port, cost, step. PRD and phase stay. Keys: `j/k`, `g/G` move, `l`/`enter` open the log tab,
-  `s`, `x`, `X`, `D` act on the selected run like in the PRDs tab, `i` wizard, `z` zoom. Each project keeps
+  of the last entry of the current step's log, faint. In phase error and blocked the first line of the error
+  replaces it, otherwise a note does, both in the warning color. Too narrow, the columns drop from the right:
+  log line, branch, dev, port, cost, step. PRD and phase stay. Keys: `j/k`, `g/G` move, `l`/`enter` open the
+  log tab, `s`, `x`, `X`, `D`, `f` act on the selected run like in the PRDs tab, `i` wizard, `z` zoom. Each project keeps
   its own cursor, which clamps when its run disappears. Without runs, and with the Files tab active, the
   pane shows the project (title `Project`): base branch, trust, prompts present/missing, hooks,
   knowledge (file → steps), allowed tools. Tab `Docker`: compose services in file order plus other
@@ -174,11 +179,15 @@ The native selection of the terminal works with Shift held while dragging.
 - **Explorer,** tab `PRDs` (default): two lines per PRD (phase symbol and `<area>/<name>`, then phase and
   branch), open PRDs by label, then `▸ n done · x.xx USD` which `l` unfolds. PRDs refresh every 5 s, runs
   every second. `L` opens the log tab of the selected PRD, without run the error `<label> has no run.`, on the
-  group row nothing. Tab `Files`: file tree without `.git`, `l` opens folders or files in `$VISUAL`/`$EDITOR`/`vi`
+  group row nothing. `f` opens the unblock dialog of a blocked run (see Blocked runs). Tab `Files`: file tree without `.git`, `l` opens folders or files in `$VISUAL`/`$EDITOR`/`vi`
   as a tab.
 
 Phase symbols: `○` planned, `◌` waiting, `●` setup/implement/review/merge, `◐` merge-queue, `✓` merged,
-`■` aborted, `✗` error/discarded.
+`■` aborted, `✗` error/discarded, `⊘` blocked (yellow `#d7af00`). Blocked PRDs are neither active nor done,
+they stay in the group of open PRDs.
+
+The footer of the PRDs tab and of the run list shows `f unblock` after `D dev` only while the selected run is
+in phase blocked.
 
 ### Log tab
 
@@ -193,7 +202,8 @@ Following lines and wrapped parts indent to the text column.
 
 The header shows the run, unfolded when the tab opens: phase symbol and phase with queue position,
 `branch → base`, port, cost, dev server; then the steps with mark, duration and cost (`✓` done, `●` running,
-`✗` failed, `○` not started); then the error or note in the warning color, and a separator. `z` folds it to
+`✗` failed, `○` not started); then the error (phase error or blocked) or note in the warning color, and a
+separator. `z` folds it to
 one line: phase, current step with duration, cost.
 
 `j/k` and `↓/↑` scroll one line, `ctrl+d/u` and `pgdown/pgup` half the height, `g`/`home` to the top,
@@ -320,7 +330,7 @@ hint line.
 
 Descriptions of the Discord entries:
 
-- Notifications: `Runners post to Discord when a PRD is merged, fails, gets aborted or waits for the main folder.`
+- Notifications: `Runners post to Discord when a PRD is merged, fails, gets blocked, gets aborted or waits for the main folder.`
 - Global URL: `Webhook URL for all projects. Stored in settings.json, never in a repository.`
 - Project switch: `Off mutes this project only.`
 - Project URL: `Replaces the global URL for this project. Empty uses the global URL.`
@@ -370,11 +380,15 @@ Steps in order, each recorded in the run state:
    branch without worktree is an error). An untracked PRD moves into the worktree and gets committed as
    `docs(prd): add <prd>`. Then the setup hook.
 2. **implement:** Claude with the PRD path. Success requires `## Ergebnis` `umgesetzt` and the PRD status
-   `umgesetzt (date)` in the worktree. `abgebrochen` fails with the first open question.
+   `umgesetzt (date)` in the worktree. `abgebrochen` with points under `## Offene Fragen` blocks the run (see
+   Blocked runs), `abgebrochen` without them fails with `implement aborted`. `## Hinweise` holds remarks
+   without a decision and changes nothing.
 3. **review:** Claude reviews and commits through the agent `committer`. The worktree must be clean.
-4. **merge:** wait for the project's merge slot (phase merge-queue), stop the dev server, require a clean
+4. **merge:** wait for the project's merge slot (phase merge-queue), stop the dev server. If the PRD is the
+   only uncommitted file in the worktree, commit it as `docs(prd): resolve blocker of <prd>`. Require a clean
    worktree, `git rebase <base>`; on conflict `rebase --abort` and Claude step merge (`bereit für
-   Fast-Forward`, base must be an ancestor, worktree clean). Check hook; if red, Claude step merge with the
+   Fast-Forward`, base must be an ancestor, worktree clean; `abgebrochen` with points under `## Offene Punkte`
+   blocks the run, without them it fails with `merge aborted`). Check hook; if red, Claude step merge with the
    error as context and the check again. Cost and implement model go into the PRD status line, committed as
    `docs(prd): record cost of <prd>`. Wait while the main folder is not on the base branch or has changes
    outside untracked `prd/` files and `.lazydev/` (phase merge-queue, note `main folder: …`, checked every
@@ -385,14 +399,45 @@ After implement, review and the Claude step merge, nothing under `.lazydev/` may
 in the worktree. A Claude step succeeds only with exit code 0, a last `result` event without error and its
 check. Merges always run automatically.
 
-- `s` on an existing run continues with the failed or next step. Merged, discarded, already running or
-  waiting PRDs refuse with a message. `s` asks `Start|Continue <prd>? (y/n)`.
+- `s` on an existing run continues with the failed, blocked or next step. Merged, discarded, already running
+  or waiting PRDs refuse with a message. A run whose PRD in the worktree still says `blockiert` refuses with
+  `<prd> is blocked. Resolve it with f first.`. `s` asks `Start|Continue <prd>? (y/n)`.
 - At most 3 runners work at the same time. Above that, the PRD gets phase waiting. A runner that ends starts
   waiting PRDs in start order.
 - Ports start at 3500, skipping ports of unmerged runs and ports something listens on (IPv4 and IPv6).
 - `x` stops a runner (phase aborted) or aborts a waiting PRD.
 - `X` asks, then stops the dev server, runs the teardown hook, puts a moved PRD back into the main folder with
-  status `geplant`, removes worktree and branch with force and deletes the run state and logs.
+  status `geplant` and without `## Blocker`, removes worktree and branch with force and deletes the run state
+  and logs.
+
+### Blocked runs
+
+Claude aborts implement or the Claude step merge on purpose when the PRD leaves a decision open. Such a run
+needs a decision of the user, not another attempt.
+
+- **When:** exit code 0, a last `result` without error, `## Ergebnis` `abgebrochen` and at least one point
+  under `## Offene Fragen` (implement) or `## Offene Punkte` (merge) that is not „keine“. Points are the
+  non-empty lines of the section without a leading `- `. Everything else stays phase error: another exit code,
+  missing `## Ergebnis`, `abgebrochen` without points, red checks, the status check, hooks, git errors. Review
+  never blocks.
+- **Run:** the runner sets the status line of the PRD in the worktree to `blockiert (<today>)`, writes
+  `## Blocker` with all points and commits the PRD alone, without Claude and trailer, as
+  `docs(prd): record blocker of <prd>`. Other uncommitted changes of the step stay uncommitted. The step
+  ends with `ok: false`, the run gets phase blocked, error `<step> blocked: <first point>` and PID 0. If writing
+  or the commit fails, the run gets phase error with that error.
+- **`f`:** in the PRDs tab and in the run list on a run in phase blocked, otherwise the error
+  `<prd> is not blocked.`. It runs `.lazydev/` init, builds the prompt of the step `unblock` with the PRD path
+  relative to the worktree as `$ARGUMENTS` and opens a center tab `unblock` running
+  `claude "<unblock prompt>" --agents <state>/agents.json` interactively in the worktree.
+- **Dialog:** the contract makes Claude ask the questions of `## Blocker` numbered with options A to D, wait
+  for the answers and work them into the PRD. Then it removes `## Blocker` and sets the status line to
+  `geplant` after `Schritt: implement`, to `umgesetzt (<today>)` after `Schritt: merge`. It changes only the
+  PRD, commits nothing and ends with `Weiter in lazydev mit s.`. The dialog runs outside the runner, the
+  next step checks `.lazydev/` anyway.
+- **Continue:** nothing starts by itself, `s` continues with the blocked step. While the PRD in the worktree
+  still says `blockiert`, the TUI refuses (see Run) and a runner ends with `<prd> is still blocked` without
+  changing run state, phase or log. After implement the review commits the changed PRD with the rest, before
+  the merge the runner commits it (see merge).
 
 ### Discord notifications
 
@@ -404,6 +449,7 @@ change in the menu applies to running runners too.
 |---|---|---|---|---|
 | `merged` | the PRD is merged | `✓ Merged: <area>/<name>` | `0x2ecc71` | merge |
 | `failed` | a step fails (phase error) | `✗ Failed: <area>/<name>` | `0xe74c3c` | the failed step |
+| `blocked` | a step blocks (phase blocked), no `failed` then | `⊘ Blocked: <area>/<name>` | `0xe67e22` | the blocked step |
 | `aborted` | `x` ends a running runner (phase aborted) | `■ Aborted: <area>/<name>` | `0x95a5a6` | the aborted step |
 | `main folder` | the merge starts to wait for the main folder | `◐ Waiting for main folder: <area>/<name>` | `0xf1c40f` | merge |
 
@@ -414,7 +460,8 @@ change in the menu applies to running runners too.
 - The payload is `{"username":"lazydev","embeds":[{"title":…,"color":…,"fields":[…],"timestamp":<RFC 3339>}]}`.
   The fields are all `inline: true`, in this order: `Project` (project ID), `Branch` (`<branch> → <base>`),
   `Cost` (`x.xx USD`), `Duration` (since the start of the run, `1h 2m 3s` without leading zero parts, e.g.
-  `4m 5s`), `Model` (implement model, `–` without). The embed holds no error text.
+  `4m 5s`), `Model` (implement model, `–` without). The embed holds no error text. `blocked` adds the field
+  `Blocker` (`inline: false`) with all open questions, one per line, cut to 1024 characters with `…` at the end.
 - HTTP `POST` with `Content-Type: application/json`, 10 s timeout per attempt, success is a 2xx status. One
   attempt plus 3 retries 5 s apart, every error retries, 4xx too. The delivery runs in the runner and delays
   it by about 55 s at most. An abort posts with its own context.
