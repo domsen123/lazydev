@@ -1,6 +1,6 @@
 # PRD: GitHub Releases, Installationsskript und Update-Hinweis
 
-> Status: umgesetzt (2026-10-22) · Template: einfach · Scope: Ein Tag `v*` baut per GoReleaser statische Binaries für linux/amd64 und linux/arm64 und legt ein GitHub Release mit Changelog aus den Conventional Commits an. `install.sh` installiert ein Release über `gh`. lazydev kennt seine Version (`lazydev version`) und zeigt in der TUI einen Hinweis, wenn ein neueres Release existiert.
+> Status: umgesetzt (2026-10-22) · Kosten: 2.09 USD · Modell: claude-opus-5-5 · Template: einfach · Scope: Ein Tag `v*` baut per GoReleaser statische Binaries für linux/amd64 und linux/arm64 und legt ein GitHub Release mit Changelog aus den Conventional Commits an. `install.sh` installiert ein Release über `gh`. lazydev kennt seine Version (`lazydev version`) und zeigt in der TUI einen Hinweis, wenn ein neueres Release existiert.
 
 ## Context
 
