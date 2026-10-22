@@ -254,7 +254,7 @@ hint line.
 
 | Tab | Right column |
 |---|---|
-| `General` | Entry `Color theme  ‹ <name> ›`, below it `Colors of borders, focus and selection. lazydev saves the choice in settings.json.`, a blank line and `lazydev <version>`. With a newer release known the line is `lazydev <version> · <latest> available, run install.sh again.` until lazydev ends (see Releases) |
+| `General` | Entry `Color theme  ‹ <name> ›`, below it `Colors of borders, focus and selection. lazydev saves the choice in settings.json.`, a blank line and `lazydev <version>`. With a newer release known the line is `lazydev <version> · <latest> available, alt+u updates.`, after the update `lazydev <version> · <tag> installed, restart lazydev.` (see Releases) |
 | `Discord` | Entries `Notifications  ‹ on/off ›` (global), `Global URL  <url>`, `<project name>  ‹ on/off ›`, `URL for <project name>  <url>`, `Send test`. Without a selected project the two project entries drop out. Below them the description of the selected entry |
 | `Git` | `Fetch, pull, push and commit the main folder of the selected project. Each action runs in a center tab. Also alt+g.` |
 | `Quit` | `Ends lazydev and its terminal tabs. Runners keep working in the background.` |
@@ -408,18 +408,32 @@ stop it.
 - The release notes come from the commits since the previous tag, grouped into `Features` (`feat`), `Fixes`
   (`fix`), `Performance` (`perf`) and `Other`. `docs`, `test`, `chore`, `ci`, `style` and `build` drop out.
   There is no `CHANGELOG.md`.
-- `install.sh` in the repository root installs a release with `gh release download`, the newest one or the
-  tag of its first argument. It needs `gh` with a login, `tar`, `sha256sum` and `uname`, Linux and `amd64`
-  or `arm64`, and checks the checksum. It installs `$PREFIX/bin/lazydev` (`PREFIX` defaults to
+- The repository is public. `install.sh` in the repository root downloads a release with `curl` from
+  `https://github.com/domsen123/lazydev/releases/download/<tag>/`, the newest one (`tag_name` of
+  `https://api.github.com/repos/domsen123/lazydev/releases/latest`) or the tag of its first argument. It
+  needs `curl`, `tar`, `sha256sum` and `uname`, Linux and `amd64` or `arm64`, and checks the checksum. It installs `$PREFIX/bin/lazydev` (`PREFIX` defaults to
   `$HOME/.local`) and prints `Installed lazydev <tag> to <path>. Restart lazydev to use it.`, plus
   `Add <dir> to PATH.` when the folder is not in `PATH`. Errors print one line `install.sh: …` to stderr and
   end with 1. Running it again updates. Running runners keep their copy in `bin/`.
 - Update check: once at the start of the TUI, in the background, only when `Version` has the format
-  `vMAJOR.MINOR.PATCH` without suffix. It runs `gh release view --repo domsen123/lazydev --json tagName
-  --jq .tagName` with `GH_PROMPT_DISABLED=1` and a 10 s timeout. A numerically higher tag sets the footer
-  note `lazydev <latest> available, you run <version>. Run install.sh again to update.` unless an error or
-  note shows already, and the version line of the menu tab `General`. Missing `gh`, no login, no network,
-  timeout or unreadable output show nothing.
+  `vMAJOR.MINOR.PATCH` without suffix. It reads `tag_name` of
+  `https://api.github.com/repos/domsen123/lazydev/releases/latest` with a 10 s timeout. A numerically higher
+  tag sets the footer note `lazydev <latest> available, you run <version>. alt+u updates.` in yellow unless an
+  error or note shows already, the version line of the menu tab `General`, and puts `alt+u update <latest> ·`
+  in yellow in front of the key help until the update is done. No network, timeout, a status other than 200
+  or unreadable output show nothing.
+- Update (`alt+u`, outside a terminal also `u`): with a newer release known it installs it in the background,
+  the footer note is `Updating lazydev to <latest> …`. It downloads `checksums.txt` and the archive of the
+  architecture, checks the SHA-256, takes `lazydev` from the archive and replaces the binary of the running
+  TUI (`os.Executable`, symlinks resolved) atomically through a temporary file in its folder, mode 0755. The
+  timeout is 2 min. Success: the yellow note `lazydev <tag> installed. Restart lazydev to use it.`, the TUI
+  keeps running the old code. Failure: the footer error `update: <error>`, the binary stays, `alt+u` tries
+  again. Without a known newer release the note is `No newer release of lazydev known.`, after the update
+  `alt+u` repeats the installed note. Running runners keep their copy in `bin/`, runners started later
+  copy the new binary.
+- `lazydev update` does the same on the command line: `lazydev <version> is no release build, update it from
+  source` for builds without release version (exit 1), `lazydev <version> is the newest release.` without a
+  newer one, else `Installed lazydev <tag> to <path>. Restart lazydev to use it.`.
 
 ## Data
 
@@ -436,5 +450,5 @@ State files are written atomically. Merged runs keep their state until discarded
 ## CLI
 
 `lazydev` starts the TUI. `start`, `stop`, `discard [--yes]`, `trust` take a project ID or path from the list;
-`run` and `git` are internal. `version`, `--version` and `-v` print `lazydev <version>` and end with 0. See
+`run` and `git` are internal. `update` installs the newest release over the binary (see Releases). `version`, `--version` and `-v` print `lazydev <version>` and end with 0. See
 `lazydev help`.

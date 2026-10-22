@@ -17,17 +17,17 @@ project's base branch. [SPEC.md](SPEC.md) describes the behavior in full.
 
 ## Install
 
-The repository is private, so `install.sh` downloads a release through `gh`. Log in once with
-`gh auth login`. The script needs `gh`, `tar`, `sha256sum` and `uname`.
+`install.sh` downloads a release from GitHub. It needs `curl`, `tar`, `sha256sum` and `uname`.
 
 ```sh
-gh api repos/domsen123/lazydev/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
+curl -fsSL https://raw.githubusercontent.com/domsen123/lazydev/main/install.sh | sh
 sh install.sh v0.2.0  # a specific release instead of the newest
 ```
 
-The script checks the checksum and installs `lazydev` to `$PREFIX/bin`, `PREFIX` defaults to `~/.local`. To
-update, run it again. `lazydev version` prints the installed version. On start the TUI checks for a newer
-release and shows a note in the footer and in the menu tab `General`.
+The script checks the checksum and installs `lazydev` to `$PREFIX/bin`, `PREFIX` defaults to `~/.local`.
+`lazydev version` prints the installed version. On start the TUI checks for a newer release and shows it in
+yellow in the footer and in the menu tab `General`. `alt+u` installs it over the running binary, `lazydev
+update` does the same from the shell. Running `install.sh` again works too.
 
 From source, with Go 1.27+:
 
@@ -80,6 +80,7 @@ git push origin v0.2.0
 | `alt+j/k`, `alt+1…9` | project, center tab |
 | `alt+t` / `alt+w` | new shell tab / close tab |
 | `alt+g` | git cockpit: fetch, pull, push, commit |
+| `alt+u` | install the newer release, if one is shown |
 | `alt+m` / `alt+q` | menu (theme, Discord, git) / quit |
 | `j/k`, `l`/`enter`, `h` | move, open, back (lists, tree) |
 | `a` / `d` / `i` | add / remove project / `.lazydev/` wizard (Projects) |

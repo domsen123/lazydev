@@ -18,18 +18,17 @@ Fast-Forward in den Ziel-Branch des Projekts. [SPEC.md](SPEC.md) beschreibt das 
 
 ## Installation
 
-Das Repository ist privat, deshalb lädt `install.sh` ein Release über `gh`. Melde dich einmal mit
-`gh auth login` an. Das Skript braucht `gh`, `tar`, `sha256sum` und `uname`.
+`install.sh` lädt ein Release von GitHub. Das Skript braucht `curl`, `tar`, `sha256sum` und `uname`.
 
 ```sh
-gh api repos/domsen123/lazydev/contents/install.sh -H 'Accept: application/vnd.github.raw' | sh
+curl -fsSL https://raw.githubusercontent.com/domsen123/lazydev/main/install.sh | sh
 sh install.sh v0.2.0  # ein bestimmtes Release statt des neuesten
 ```
 
 Das Skript prüft die Prüfsumme und installiert `lazydev` nach `$PREFIX/bin`, `PREFIX` ist standardmäßig
-`~/.local`. Zum Aktualisieren rufst du es erneut auf. `lazydev version` gibt die installierte Version aus.
-Beim Start prüft die TUI, ob ein neueres Release existiert, und zeigt einen Hinweis im Footer und im
-Menü-Tab `General`.
+`~/.local`. `lazydev version` gibt die installierte Version aus. Beim Start prüft die TUI, ob ein neueres
+Release existiert, und zeigt es gelb im Footer und im Menü-Tab `General`. `alt+u` installiert es über das
+laufende Binary, `lazydev update` macht dasselbe aus der Shell. `install.sh` erneut aufzurufen geht auch.
 
 Aus dem Quellcode, mit Go 1.27+:
 
@@ -82,6 +81,7 @@ git push origin v0.2.0
 | `alt+j/k`, `alt+1…9` | Projekt, Tab in der Mitte |
 | `alt+t` / `alt+w` | neuer Shell-Tab / Tab schließen |
 | `alt+g` | Git-Cockpit: Fetch, Pull, Push, Commit |
+| `alt+u` | neueres Release installieren, falls eines angezeigt wird |
 | `alt+m` / `alt+q` | Menü (Farbschema, Discord, Git) / beenden |
 | `j/k`, `l`/`enter`, `h` | bewegen, öffnen, zurück (Listen, Baum) |
 | `a` / `d` / `i` | Projekt hinzufügen / entfernen / Wizard für `.lazydev/` (Projects) |
