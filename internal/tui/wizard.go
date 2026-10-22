@@ -147,7 +147,8 @@ func (w *wizard) selectedBranch() string {
 func (w *wizard) toggle(f string) {
 	w.marked[f] = !w.marked[f]
 	if _, ok := w.steps[f]; !ok {
-		w.steps[f] = []bool{true, true, false, false}
+		w.steps[f] = make([]bool, len(repo.Steps))
+		w.steps[f][0], w.steps[f][1] = true, true
 	}
 }
 
@@ -162,7 +163,7 @@ func (w *wizard) markedFiles() []string {
 	return out
 }
 
-// knowledge builds the knowledge section. A file marked for all four steps goes under all.
+// knowledge builds the knowledge section. A file marked for all steps goes under all.
 func (w *wizard) knowledge() map[string][]string {
 	k := map[string][]string{}
 	for _, f := range w.markedFiles() {
@@ -251,7 +252,7 @@ func (m model) updateWizard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			w.stepCursor = clamp(w.stepCursor+1, len(marked))
 		case "k", "up":
 			w.stepCursor = clamp(w.stepCursor-1, len(marked))
-		case "1", "2", "3", "4":
+		case "1", "2", "3", "4", "5":
 			s := w.steps[marked[w.stepCursor]]
 			s[key[0]-'1'] = !s[key[0]-'1']
 		case "enter":
@@ -396,13 +397,13 @@ func (m model) viewWizard() string {
 			lines = append(lines, line(i == w.fileCursor, label))
 		}
 	case pageSteps:
-		heading(pageSteps, "Steps per file", "1 create · 2 implement · 3 review · 4 merge")
+		heading(pageSteps, "Steps per file", "1 create · 2 implement · 3 review · 4 merge · 5 unblock")
 		marked := w.markedFiles()
 		fileW := 0
 		for _, f := range marked {
 			fileW = max(fileW, ansi.StringWidth(f))
 		}
-		fileW = min(fileW, inner-2-4*4-2)
+		fileW = min(fileW, inner-2-len(repo.Steps)*4-2)
 		start, end := scrollWindow(w.stepCursor, len(marked), wizardRows)
 		for i := start; i < end; i++ {
 			f := marked[i]
@@ -458,7 +459,7 @@ func (w *wizard) keys() string {
 	case w.page == pageKnowledge:
 		return " j/k file · space mark · enter next · backspace back · esc cancel"
 	case w.page == pageSteps:
-		return " j/k file · 1-4 toggle step · enter next · backspace back · esc cancel"
+		return " j/k file · 1-5 toggle step · enter next · backspace back · esc cancel"
 	case w.page == pagePrompts:
 		return " j/k prompt · o edit · r reset to simple workflow · enter next · backspace back · esc cancel"
 	}

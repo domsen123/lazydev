@@ -87,20 +87,23 @@ func TestMergeConflictRunsClaude(t *testing.T) {
 	}
 }
 
-func TestMergeClaudeAborts(t *testing.T) {
+func TestMergeClaudeBlocked(t *testing.T) {
 	target := newProject(t, "", false)
 	failAtReview(t, target)
 	commitOnMain(t, target, "review.txt")
 	t.Setenv("FAKE_MERGE_MODE", "abort")
 	err := Run(context.Background(), target, prdName)
-	if err == nil || err.Error() != "merge aborted: Konflikt in review.txt" {
+	if err == nil || err.Error() != "merge blocked: Konflikt in review.txt" {
 		t.Fatalf("Run: %v", err)
 	}
 	r := loadRun(t)
-	if r.Phase != project.PhaseError || r.NextStep() != state.StepMerge {
+	if r.Phase != project.PhaseBlocked || r.Error == nil || *r.Error != err.Error() || r.PID != 0 || r.NextStep() != state.StepMerge {
 		t.Errorf("state: %+v", r)
 	}
-	// The rebase was aborted, the worktree is clean on the branch.
+	if last := r.LastStep(); last.OK || *last.ExitCode != 0 {
+		t.Errorf("merge step: %+v", last)
+	}
+	// The rebase was aborted, the worktree is clean on the branch with the blocker committed.
 	wt := WorktreePath("app", prdName)
 	if got := runGit(t, wt, "status", "--porcelain"); got != "" {
 		t.Errorf("worktree: %q", got)
@@ -108,16 +111,35 @@ func TestMergeClaudeAborts(t *testing.T) {
 	if got := runGit(t, wt, "branch", "--show-current"); got != "feat/new-token" {
 		t.Errorf("worktree on %q", got)
 	}
+	if got := runGit(t, wt, "log", "-1", "--format=%B"); got != "docs(prd): record blocker of new-token" {
+		t.Errorf("last commit: %q", got)
+	}
+	prd := read(t, filepath.Join(wt, prdPath))
+	if !strings.Contains(prd, "> Status: blockiert ("+today()+") · Scope: tokens") ||
+		!strings.HasSuffix(prd, "## Blocker\n\nSchritt: merge\n\n- Konflikt in review.txt\n") {
+		t.Errorf("PRD in the worktree:\n%s", prd)
+	}
 	if got := runGit(t, target.Dir, "log", "-1", "--format=%s"); got != "main: review.txt" {
 		t.Errorf("main moved: %q", got)
 	}
 
+	resolveBlocker(t, "umgesetzt ("+today()+")")
 	t.Setenv("FAKE_MERGE_MODE", "ok")
 	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
 	}
 	if r := loadRun(t); r.Phase != project.PhaseMerged {
 		t.Errorf("phase: %s", r.Phase)
+	}
+	got := runGit(t, target.Dir, "log", "--format=%s")
+	if !strings.Contains(got, "docs(prd): record cost of new-token\ndocs(prd): resolve blocker of new-token\ndocs(prd): record blocker of new-token\n") {
+		t.Errorf("main: %q", got)
+	}
+	if got := read(t, filepath.Join(target.Dir, prdPath)); strings.Contains(got, "## Blocker") || !strings.Contains(got, "> Status: umgesetzt ("+today()+")") {
+		t.Errorf("PRD on main:\n%s", got)
+	}
+	if log := read(t, state.LogPath("app", prdName, state.StepMerge)); !strings.Contains(log, "Commit: docs(prd): resolve blocker of new-token") {
+		t.Errorf("merge log:\n%s", log)
 	}
 }
 

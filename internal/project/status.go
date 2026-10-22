@@ -16,14 +16,22 @@ const (
 	StatusPlanned
 	StatusImplemented
 	StatusDiscarded
+	StatusBlocked
 )
 
 // Status values in PRD files. They stay German: lazydev's prompts, contracts and existing PRDs use
-// them. umgesetzt and verworfen get a date.
+// them. umgesetzt, verworfen and blockiert get a date.
 const (
 	ValuePlanned     = "geplant"
 	ValueImplemented = "umgesetzt"
 	ValueDiscarded   = "verworfen"
+	ValueBlocked     = "blockiert"
+)
+
+// The section the runner appends to a blocked PRD and its first line, German like the status values.
+const (
+	blockerHeading = "## Blocker"
+	blockerStep    = "Schritt:"
 )
 
 // Fields of the detail that the runner writes before the merge, German like the status values.
@@ -40,7 +48,8 @@ type Status struct {
 	Kind StatusKind
 	// Value is the part before "·", e.g. "umgesetzt (2026-10-14)".
 	Value string
-	// Date is the date of "umgesetzt (YYYY-MM-DD)" and "verworfen (YYYY-MM-DD)", empty otherwise.
+	// Date is the date of "umgesetzt (YYYY-MM-DD)", "verworfen (YYYY-MM-DD)" and
+	// "blockiert (YYYY-MM-DD)", empty otherwise.
 	Date string
 	// Detail is the text after "·", e.g. "Scope: backend only".
 	Detail string
@@ -48,7 +57,7 @@ type Status struct {
 
 var (
 	statusLineRe = regexp.MustCompile(`^>\s*Status:\s*(.*)$`)
-	statusDateRe = regexp.MustCompile(`^(?:umgesetzt|verworfen)\s*\((\d{4}-\d{2}-\d{2})\)`)
+	statusDateRe = regexp.MustCompile(`^(?:umgesetzt|verworfen|blockiert)\s*\((\d{4}-\d{2}-\d{2})\)`)
 )
 
 // ParseStatusLine recognizes a status line. ok is false for other lines.
@@ -66,6 +75,8 @@ func ParseStatusLine(line string) (s Status, ok bool) {
 		s.Kind = StatusImplemented
 	case strings.HasPrefix(s.Value, ValueDiscarded):
 		s.Kind = StatusDiscarded
+	case strings.HasPrefix(s.Value, ValueBlocked):
+		s.Kind = StatusBlocked
 	}
 	if d := statusDateRe.FindStringSubmatch(s.Value); d != nil {
 		s.Date = d[1]
@@ -96,6 +107,65 @@ func SetStatus(content, value string) (string, bool) {
 		return strings.Join(lines, ""), true
 	}
 	return content, false
+}
+
+// SetBlocker writes the section "## Blocker" with the step and the points of a blocked run: at the
+// end of content, or in place of an existing section up to the next "## " heading or the end.
+func SetBlocker(content, step string, points []string) string {
+	section := []string{blockerHeading, "", blockerStep + " " + step, ""}
+	for _, p := range points {
+		section = append(section, "- "+p)
+	}
+	lines := strings.Split(content, "\n")
+	start, end, ok := blockerSection(lines)
+	if !ok {
+		body := strings.TrimRight(content, "\r\n")
+		if body == "" {
+			return strings.Join(section, "\n") + "\n"
+		}
+		return body + "\n\n" + strings.Join(section, "\n") + "\n"
+	}
+	// The empty line ends the last point: before the next heading it leaves a blank line, at the
+	// end the final newline.
+	section = append(section, "")
+	return strings.Join(slices.Concat(lines[:start], section, lines[end:]), "\n")
+}
+
+// RemoveBlocker removes the section "## Blocker" with the blank lines before it. Without the
+// section content stays as it is.
+func RemoveBlocker(content string) string {
+	lines := strings.Split(content, "\n")
+	start, end, ok := blockerSection(lines)
+	if !ok {
+		return content
+	}
+	for start > 0 && strings.TrimSpace(lines[start-1]) == "" {
+		start--
+	}
+	before := strings.Join(lines[:start], "\n")
+	switch {
+	case end == len(lines) && start == 0:
+		return ""
+	case end == len(lines):
+		return before + "\n"
+	case start == 0:
+		return strings.Join(lines[end:], "\n")
+	}
+	return before + "\n\n" + strings.Join(lines[end:], "\n")
+}
+
+// blockerSection finds the lines of "## Blocker" up to the next "## " heading, end excluded.
+func blockerSection(lines []string) (start, end int, ok bool) {
+	start = slices.IndexFunc(lines, func(l string) bool { return strings.TrimSpace(l) == blockerHeading })
+	if start < 0 {
+		return 0, 0, false
+	}
+	for end = start + 1; end < len(lines); end++ {
+		if strings.HasPrefix(strings.TrimSpace(lines[end]), "## ") {
+			break
+		}
+	}
+	return start, end, true
 }
 
 // RunInfo reads cost and model from the first line of the detail, e.g.

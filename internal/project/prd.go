@@ -55,6 +55,8 @@ func (d PRD) Phase() Phase {
 		return PhaseMerged
 	case StatusDiscarded:
 		return PhaseDiscarded
+	case StatusBlocked:
+		return PhaseBlocked
 	}
 	return PhaseUnknown
 }
@@ -141,4 +143,13 @@ func Read(root, path string) (PRD, error) {
 	}
 	d.Cost, _, _ = RunInfo(d.Status)
 	return d, sc.Err()
+}
+
+// BlockedIn is true while the status line of the PRD at prd, relative to worktree, says blockiert.
+func BlockedIn(worktree, prd string) bool {
+	if worktree == "" || prd == "" {
+		return false
+	}
+	d, err := Read(worktree, filepath.Join(worktree, prd))
+	return err == nil && d.Status.Kind == StatusBlocked
 }

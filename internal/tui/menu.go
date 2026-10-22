@@ -57,7 +57,7 @@ var tabDescriptions = [menuTabs]string{
 
 // itemDescriptions describe the entries of the Discord tab.
 var itemDescriptions = map[menuItem]string{
-	itemNotifications: "Runners post to Discord when a PRD is merged, fails, gets aborted or waits for the main folder.",
+	itemNotifications: "Runners post to Discord when a PRD is merged, fails, gets blocked, gets aborted or waits for the main folder.",
 	itemGlobalURL:     "Webhook URL for all projects. Stored in settings.json, never in a repository.",
 	itemProject:       "Off mutes this project only.",
 	itemProjectURL:    "Replaces the global URL for this project. Empty uses the global URL.",

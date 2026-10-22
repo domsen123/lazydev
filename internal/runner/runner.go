@@ -95,6 +95,9 @@ func Start(t Target, prdName string) (started bool, err error) {
 	if err := t.CheckTrust(); err != nil {
 		return false, err
 	}
+	if err := checkBlocked(t, prdName); err != nil {
+		return false, err
+	}
 	unlock, err := state.Lock(startLock)
 	if err != nil {
 		return false, err
@@ -246,6 +249,9 @@ func Run(ctx context.Context, t Target, prdName string) error {
 	if err := t.CheckTrust(); err != nil {
 		return err
 	}
+	if err := checkBlocked(t, prdName); err != nil {
+		return err
+	}
 	unlock, err := state.Lock(startLock)
 	if err != nil {
 		return err
@@ -357,6 +363,20 @@ func runStep(ctx context.Context, t Target, prdName string, r *state.Run, step s
 		exitCode, err = claudeStep(ctx, t, prdName, r, step, log)
 	}
 
+	var blocked *blockedError
+	if ctx.Err() == nil && errors.As(err, &blocked) {
+		if recErr := recordBlocker(prdName, r, blocked, log); recErr != nil {
+			err = recErr
+		} else {
+			log.printf("Blocked: %v", err)
+			r.EndStep(0, false)
+			r.Block(err.Error())
+			r.PID = 0
+			saveErr := state.Save(t.ID, prdName, r)
+			notifyRun(t, r, notify.Blocked, log, blocked.points...)
+			return errors.Join(err, saveErr)
+		}
+	}
 	switch {
 	case ctx.Err() != nil:
 		log.printf("Aborted")

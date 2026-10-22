@@ -17,11 +17,12 @@ import (
 )
 
 // webhook is a Discord stand-in that answers every request with code and keeps the titles of the
-// embeds.
+// embeds and the values of the field Blocker.
 type webhook struct {
 	*httptest.Server
-	mu     sync.Mutex
-	titles []string
+	mu       sync.Mutex
+	titles   []string
+	blockers []string
 }
 
 func newWebhook(t *testing.T, code int) *webhook {
@@ -36,20 +37,33 @@ func newWebhook(t *testing.T, code int) *webhook {
 			Embeds []struct {
 				Title  string `json:"title"`
 				Fields []struct {
-					Name string `json:"name"`
+					Name   string `json:"name"`
+					Value  string `json:"value"`
+					Inline bool   `json:"inline"`
 				} `json:"fields"`
 			} `json:"embeds"`
 		}
 		json.Unmarshal(body, &p)
-		title := ""
+		title, blocker := "", ""
 		if len(p.Embeds) == 1 {
 			title = p.Embeds[0].Title
-			if len(p.Embeds[0].Fields) != 5 {
-				t.Errorf("fields of %q: %+v", title, p.Embeds[0].Fields)
+			fields := p.Embeds[0].Fields
+			want := 5
+			if strings.HasPrefix(title, "⊘ ") {
+				want = 6
+			}
+			if len(fields) != want {
+				t.Errorf("fields of %q: %+v", title, fields)
+			} else if want == 6 {
+				if f := fields[5]; f.Name != "Blocker" || f.Inline {
+					t.Errorf("field Blocker: %+v", f)
+				}
+				blocker = fields[5].Value
 			}
 		}
 		w.mu.Lock()
 		w.titles = append(w.titles, title)
+		w.blockers = append(w.blockers, blocker)
 		w.mu.Unlock()
 		rw.WriteHeader(code)
 	}))
@@ -98,6 +112,28 @@ func TestNotifyFailed(t *testing.T) {
 		t.Errorf("requests: %q", got)
 	}
 	if log := read(t, state.LogPath("app", prdName, state.StepImplement)); !strings.Contains(log, "Discord notification sent: failed") {
+		t.Errorf("implement log:\n%s", log)
+	}
+}
+
+func TestNotifyBlocked(t *testing.T) {
+	target := newProject(t, "", false)
+	w := newWebhook(t, http.StatusNoContent)
+	enableDiscord(t, config.Discord{Enabled: true, URL: w.URL})
+	t.Setenv("FAKE_CLAUDE_MODE", "abort")
+	if err := Run(context.Background(), target, prdName); err == nil {
+		t.Fatal("Run succeeded")
+	}
+	if got := w.got(); len(got) != 1 || got[0] != "⊘ Blocked: auth/new-token" {
+		t.Errorf("requests: %q", got)
+	}
+	w.mu.Lock()
+	blocker := w.blockers
+	w.mu.Unlock()
+	if len(blocker) != 1 || blocker[0] != "Feld fehlt im PRD\nZweite Frage" {
+		t.Errorf("blocker: %q", blocker)
+	}
+	if log := read(t, state.LogPath("app", prdName, state.StepImplement)); !strings.Contains(log, "Discord notification sent: blocked") {
 		t.Errorf("implement log:\n%s", log)
 	}
 }

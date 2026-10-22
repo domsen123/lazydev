@@ -132,7 +132,8 @@ func TestPRDPhase(t *testing.T) {
 		StatusPlanned:     PhasePlanned,
 		StatusImplemented: PhaseMerged,
 		StatusDiscarded:   PhaseDiscarded,
-		StatusUnknown:     PhaseUnknown,
+		StatusBlocked:     PhaseBlocked,
+		StatusUnknown:    PhaseUnknown,
 	} {
 		if got := (PRD{Status: Status{Kind: kind}}).Phase(); got != want {
 			t.Errorf("Phase(%v) = %s, want %s", kind, got, want)
@@ -157,6 +158,7 @@ func TestPhaseMethods(t *testing.T) {
 		{PhaseAborted, false, false, "■"},
 		{PhaseError, false, false, "✗"},
 		{PhaseDiscarded, true, false, "✗"},
+		{PhaseBlocked, false, false, "⊘"},
 		{PhaseUnknown, false, false, "?"},
 		{Phase("other"), false, false, "?"},
 	}

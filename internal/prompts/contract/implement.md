@@ -35,7 +35,10 @@ umgesetzt | abgebrochen
 - <befehl>: ok | Fehler (<erste Zeile>)
 
 ## Offene Fragen
-- <Frage oder Problem mit Datei und Stelle>, oder „keine“
+- <Entscheidung, die der Nutzer treffen muss, mit Datei und Stelle>, oder „keine“
+
+## Hinweise
+- <Bemerkung ohne Entscheidung>, oder „keine“
 
 ## Nicht geprüft
 - <Erfolgskriterium und Grund>, oder „nichts“
@@ -45,6 +48,9 @@ Regeln für `## Ergebnis`:
 
 - `umgesetzt` nur, wenn alle Prüfungen `ok` sind und `## Offene Fragen` „keine“ enthält.
 - Sonst `abgebrochen`. Die Statuszeile bleibt dann auf `geplant`.
-- `## Nicht geprüft` beeinflusst das Ergebnis nicht.
+- `## Offene Fragen` nur für Entscheidungen, die der Nutzer treffen muss. Jede offene Frage blockiert den
+  Lauf, bis der Nutzer sie im PRD klärt.
+- Bemerkungen ohne Entscheidung, z. B. ein versehentlich benutztes `cd`, gehören unter `## Hinweise`.
+- `## Hinweise` und `## Nicht geprüft` beeinflussen das Ergebnis nicht.
 
-lazydev wertet nur `## Ergebnis` aus. Halte die Überschriften und die beiden Werte genau so ein.
+lazydev wertet nur `## Ergebnis` und `## Offene Fragen` aus. Halte die Überschriften und die beiden Werte genau so ein.

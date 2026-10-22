@@ -94,6 +94,43 @@ func TestBuildWithoutKnowledge(t *testing.T) {
 	}
 }
 
+func TestBuildUnblock(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	dir, work := t.TempDir(), t.TempDir()
+	if err := repo.Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, work, "CLAUDE.md", "x\n")
+	cfg := repo.Config{Knowledge: map[string][]string{"unblock": {"CLAUDE.md"}}}
+	got, err := Build(dir, work, cfg, "unblock", Vars{Arguments: "prd/auth/token.md", Base: "main", Branch: "feat/token"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{
+		"# lazydev unblock: prd/auth/token.md\n",
+		"- `CLAUDE.md`\n",
+		"Kläre die Blocker des PRDs `prd/auth/token.md` mit dem Nutzer.",
+		"Du änderst ausschließlich das PRD `prd/auth/token.md`.",
+		"`## Blocker`",
+		"Weiter in lazydev mit s.",
+	} {
+		if !strings.Contains(got, s) {
+			t.Errorf("prompt lacks %q:\n%s", s, got)
+		}
+	}
+	if !strings.HasSuffix(got, "- Nenne zum Schluss: `Weiter in lazydev mit s.`\n") {
+		t.Error("the contract does not come last")
+	}
+}
+
+func TestImplementContractHasNotes(t *testing.T) {
+	c := contract(t, "implement")
+	q, n, u := strings.Index(c, "## Offene Fragen\n"), strings.Index(c, "## Hinweise\n"), strings.Index(c, "## Nicht geprüft\n")
+	if q < 0 || n < q || u < n {
+		t.Errorf("sections out of order: Offene Fragen %d, Hinweise %d, Nicht geprüft %d", q, n, u)
+	}
+}
+
 func TestBuildMissingPrompt(t *testing.T) {
 	_, err := Build(t.TempDir(), t.TempDir(), repo.Config{}, "merge", Vars{})
 	if err == nil || !strings.Contains(err.Error(), ".lazydev/merge.md") || !strings.Contains(err.Error(), "press i") {

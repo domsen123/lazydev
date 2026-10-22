@@ -50,7 +50,7 @@ func Discard(t Target, prdName string) error {
 }
 
 // restorePRD puts the PRD from the worktree back into the main folder if it is missing there, with
-// status geplant, because the implementation is gone with the worktree.
+// status geplant and without "## Blocker", because the implementation is gone with the worktree.
 func restorePRD(mainDir, wt, rel string) error {
 	src, dst := filepath.Join(wt, rel), filepath.Join(mainDir, rel)
 	if rel == "" || !fsutil.Exists(src) || fsutil.Exists(dst) {
@@ -64,5 +64,5 @@ func restorePRD(mainDir, wt, rel string) error {
 		return err
 	}
 	reset, _ := project.SetStatus(string(data), project.ValuePlanned)
-	return os.WriteFile(dst, []byte(reset), 0o644)
+	return os.WriteFile(dst, []byte(project.RemoveBlocker(reset)), 0o644)
 }

@@ -20,7 +20,11 @@ const (
 	Failed     Event = "failed"
 	Aborted    Event = "aborted"
 	MainFolder Event = "main folder"
+	Blocked    Event = "blocked"
 )
+
+// maxFieldValue is the longest value of an embed field Discord takes, in characters.
+const maxFieldValue = 1024
 
 // Timeout limits one attempt.
 var Timeout = 10 * time.Second
@@ -31,12 +35,14 @@ var RetryDelay = 5 * time.Second
 // attempts is the first attempt plus the retries of Deliver.
 const attempts = 4
 
-// Message is the content of a notification about a run. PRD is "<area>/<name>".
+// Message is the content of a notification about a run. PRD is "<area>/<name>". Blocker holds the
+// open questions of a blocked run, one per line, and shows for Blocked only.
 type Message struct {
 	Event                             Event
 	Project, PRD, Branch, Base, Model string
 	Cost                              float64
 	Duration                          time.Duration
+	Blocker                           string
 }
 
 // titles holds the title prefix and the color of each event.
@@ -48,6 +54,7 @@ var titles = map[Event]struct {
 	Failed:     {"✗ Failed: ", 0xe74c3c},
 	Aborted:    {"■ Aborted: ", 0x95a5a6},
 	MainFolder: {"◐ Waiting for main folder: ", 0xf1c40f},
+	Blocked:    {"⊘ Blocked: ", 0xe67e22},
 }
 
 // testColor is the color of the test message.
@@ -81,13 +88,26 @@ func Payload(m Message) ([]byte, error) {
 	if model == "" {
 		model = "–"
 	}
-	return build(t.prefix+m.PRD, t.color, []field{
+	fields := []field{
 		{"Project", m.Project, true},
 		{"Branch", m.Branch + " → " + m.Base, true},
 		{"Cost", fmt.Sprintf("%.2f USD", m.Cost), true},
 		{"Duration", FormatDuration(m.Duration), true},
 		{"Model", model, true},
-	})
+	}
+	if m.Event == Blocked {
+		fields = append(fields, field{"Blocker", truncate(m.Blocker, maxFieldValue), false})
+	}
+	return build(t.prefix+m.PRD, t.color, fields)
+}
+
+// truncate cuts s to at most n characters, the last one "…" if it cuts.
+func truncate(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n-1]) + "…"
 }
 
 // TestPayload is the body of the test message for project, "–" without a project.

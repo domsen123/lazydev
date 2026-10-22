@@ -54,8 +54,10 @@ echo "teardown $(pwd -P)" >> "$LAZYDEV_PROJECT/hooks.log"
 )
 
 // fakeScript imitates claude -p. It recognizes the step by the header "# lazydev <step>:" in the
-// first line of the prompt in $2 and appends its arguments to $FAKE_ARGS. FAKE_CLAUDE_MODE: ok,
-// exit, noresult, error, abort, status (status line stays), dirty (review does not commit),
+// first line of the prompt in $2 and appends its arguments to $FAKE_ARGS. FAKE_CLAUDE_MODE: ok
+// (with a note under Hinweise), exit, noresult, error, abort (two open questions, wip.txt stays
+// uncommitted), abortnone (abgebrochen without questions), status (status line stays), dirty
+// (review does not commit),
 // lazydev (implement creates .lazydev/neu.md), sleep (implement sleeps until a signal ends it).
 // FAKE_MERGE_MODE: ok (rebase -X theirs), noop (no rebase), abort.
 const fakeScript = `#!/bin/sh
@@ -71,7 +73,9 @@ case "$2" in
 	exit) echo '{"type":"result","is_error":true,"result":"kaputt"}'; exit 3 ;;
 	noresult) exit 0 ;;
 	error) echo '{"type":"result","is_error":true,"result":"Rate limit"}'; exit 0 ;;
-	abort) printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Feld fehlt im PRD\n"}'; exit 0 ;;
+	abort) echo wip > wip.txt
+		printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Feld fehlt im PRD\n- Zweite Frage\n\n## Hinweise\n- einmal cd benutzt\n"}'; exit 0 ;;
+	abortnone) printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- keine\n"}'; exit 0 ;;
 	status) ;;
 	sleep) exec sleep 30 ;;
 	lazydev) mkdir -p .lazydev && echo x > .lazydev/neu.md
@@ -79,7 +83,7 @@ case "$2" in
 	*) sed -i 's/^> Status: geplant/> Status: umgesetzt (2026-10-20)/' "$prd" ;;
 	esac
 	echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"x.ts"}}]}}'
-	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.5,"result":"## Ergebnis\numgesetzt\n\n## Offene Fragen\n- keine\n"}'
+	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.5,"result":"## Ergebnis\numgesetzt\n\n## Offene Fragen\n- keine\n\n## Hinweise\n- einmal cd benutzt\n"}'
 	;;
 "# lazydev review: "*)
 	echo change > review.txt

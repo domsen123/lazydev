@@ -47,14 +47,7 @@ func (m *model) createPRD(description string) {
 	if p == nil {
 		return
 	}
-	// Like the wizard, a deleted .lazydev/ comes back first.
-	if err := repo.Init(p.path); err != nil {
-		m.err = err.Error()
-		return
-	}
-	m.readLazydev()
-	if p.lazydev.Err != nil {
-		m.err = p.lazydev.Err.Error()
+	if !m.initLazydev(p) {
 		return
 	}
 	arguments := description
@@ -66,9 +59,34 @@ func (m *model) createPRD(description string) {
 		m.err = err.Error()
 		return
 	}
+	m.openClaudeTab("create", p.path, prompt)
+}
+
+// initLazydev runs .lazydev/ init in the main folder of p, so a deleted .lazydev/ comes back,
+// and reads it again. It is false with the error in the footer.
+func (m *model) initLazydev(p *projectEntry) bool {
+	if err := repo.Init(p.path); err != nil {
+		m.err = err.Error()
+		return false
+	}
+	m.readLazydev()
+	if p.lazydev.Err != nil {
+		m.err = p.lazydev.Err.Error()
+		return false
+	}
+	return true
+}
+
+// openClaudeTab opens Claude Code interactively with args in dir as a center tab of the selected
+// project with the fixed label.
+func (m *model) openClaudeTab(label, dir string, args ...string) {
+	p := m.current()
+	if p == nil {
+		return
+	}
 	n := len(p.tabs)
-	m.openTerminal(append(slices.Clone(claude.Command), prompt))
+	m.openTerminalIn(dir, append(slices.Clone(claude.Command), args...))
 	if t := p.activeTerminal(); t != nil && len(p.tabs) > n {
-		t.SetLabel("create")
+		t.SetLabel(label)
 	}
 }

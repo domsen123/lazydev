@@ -20,6 +20,9 @@ import (
 // colorOK marks running containers, present files and merged PRDs.
 var colorOK = lipgloss.Color("#5faf5f")
 
+// colorBlocked marks blocked runs, they wait for a decision of the user.
+var colorBlocked = lipgloss.Color("#d7af00")
+
 // phaseColor is the color of a phase symbol, nil for the text color.
 func phaseColor(p project.Phase, t theme) lipgloss.TerminalColor {
 	switch p {
@@ -27,6 +30,8 @@ func phaseColor(p project.Phase, t theme) lipgloss.TerminalColor {
 		return colorOK
 	case project.PhaseError, project.PhaseAborted:
 		return t.focus
+	case project.PhaseBlocked:
+		return colorBlocked
 	case project.PhaseSetup, project.PhaseImplement, project.PhaseReview, project.PhaseMerge, project.PhaseMergeQueue:
 		return t.title
 	}

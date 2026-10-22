@@ -1,5 +1,5 @@
 // Package repo reads and writes .lazydev/ in the main folder of a project: config.yaml and the
-// prompts of the four steps. The folder is versioned with the project, so everyone in the team
+// prompts of the steps. The folder is versioned with the project, so everyone in the team
 // works the same way. Adding a project creates it with the prompts of the simple workflow, and the
 // workflow reads prompts from there only.
 package repo
@@ -26,8 +26,9 @@ const Dir = ".lazydev"
 // DefaultBaseBranch applies without baseBranch in config.yaml.
 const DefaultBaseBranch = "main"
 
-// Steps are the steps with a prompt of their own, in order.
-var Steps = []string{"create", "implement", "review", "merge"}
+// Steps are the steps with a prompt of their own, in order. unblock is the dialog of f that
+// resolves a blocked run, no runner step.
+var Steps = []string{"create", "implement", "review", "merge", "unblock"}
 
 // KnowledgeAll is the knowledge key for files every step reads.
 const KnowledgeAll = "all"

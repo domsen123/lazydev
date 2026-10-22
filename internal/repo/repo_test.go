@@ -84,7 +84,7 @@ func TestWorkflowHasAllSteps(t *testing.T) {
 			t.Errorf("workflow prompt %s is empty", step)
 		}
 	}
-	if !slices.Equal(KnowledgeKeys, []string{"all", "create", "implement", "review", "merge"}) {
+	if !slices.Equal(KnowledgeKeys, []string{"all", "create", "implement", "review", "merge", "unblock"}) {
 		t.Errorf("KnowledgeKeys = %v", KnowledgeKeys)
 	}
 }
@@ -145,7 +145,7 @@ func TestInitWithoutGit(t *testing.T) {
 		t.Errorf("config.yaml = %q", got)
 	}
 	info := Read(dir, "p")
-	if !info.Initialized || !slices.Equal(info.Prompts, []bool{true, true, true, true}) {
+	if !info.Initialized || !slices.Equal(info.Prompts, []bool{true, true, true, true, true}) {
 		t.Errorf("Read = %+v", info)
 	}
 }
@@ -174,6 +174,25 @@ func TestInitKeepsAndRestores(t *testing.T) {
 	}
 }
 
+func TestInitAddsUnblock(t *testing.T) {
+	setupEnv(t)
+	dir := t.TempDir()
+	// A project set up before the step unblock existed.
+	for _, step := range []string{"create", "implement", "review", "merge"} {
+		writeFile(t, dir, ".lazydev/"+step+".md", "own\n")
+	}
+	writeFile(t, dir, ".lazydev/config.yaml", "")
+	if err := Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, PromptPath(dir, "unblock")); got != workflowPrompt(t, "unblock") {
+		t.Errorf("unblock.md = %q", got)
+	}
+	if got := readFile(t, PromptPath(dir, "merge")); got != "own\n" {
+		t.Errorf("merge.md overwritten: %q", got)
+	}
+}
+
 func TestWritePrompt(t *testing.T) {
 	setupEnv(t)
 	dir := t.TempDir()
@@ -192,7 +211,7 @@ func TestWritePrompt(t *testing.T) {
 func TestReadWithoutLazydev(t *testing.T) {
 	setupEnv(t)
 	info := Read(t.TempDir(), "p")
-	if info.Initialized || info.Err != nil || info.ID != "p" || !slices.Equal(info.Prompts, []bool{false, false, false, false}) {
+	if info.Initialized || info.Err != nil || info.ID != "p" || !slices.Equal(info.Prompts, []bool{false, false, false, false, false}) {
 		t.Errorf("Read = %+v", info)
 	}
 }
@@ -203,7 +222,7 @@ func TestReadPromptFlags(t *testing.T) {
 	writeFile(t, dir, ".lazydev/implement.md", "x")
 	writeFile(t, dir, ".lazydev/merge.md", "x")
 	info := Read(dir, "p")
-	if info.Initialized || !slices.Equal(info.Prompts, []bool{false, true, false, true}) {
+	if info.Initialized || !slices.Equal(info.Prompts, []bool{false, true, false, true, false}) {
 		t.Errorf("Read = %+v", info)
 	}
 }

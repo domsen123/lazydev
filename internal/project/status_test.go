@@ -22,6 +22,8 @@ func TestParseStatusLine(t *testing.T) {
 		{"> Status: umgesetzt", true, StatusImplemented, "umgesetzt", "", ""},
 		{"> Status: verworfen (2026-10-21)", true, StatusDiscarded, "verworfen (2026-10-21)", "2026-10-21", ""},
 		{"> Status: verworfen", true, StatusDiscarded, "verworfen", "", ""},
+		{"> Status: blockiert (2026-10-22) · Scope: x", true, StatusBlocked, "blockiert (2026-10-22)", "2026-10-22", "Scope: x"},
+		{"> Status: blockiert", true, StatusBlocked, "blockiert", "", ""},
 		{"> Status: in progress · a · b", true, StatusUnknown, "in progress", "", "a · b"},
 		{"> Status: geplant (2026-10-14)", true, StatusUnknown, "geplant (2026-10-14)", "", ""},
 		{"> Status: umgesetzt (14.10.2026)", true, StatusImplemented, "umgesetzt (14.10.2026)", "", ""},
@@ -113,6 +115,51 @@ func TestSetStatusKeepsCRLF(t *testing.T) {
 		if strings.Count(got, "\r\n") != strings.Count(in, "\r\n") {
 			t.Errorf("SetStatus(%q) = %q, line ending changed", in, got)
 		}
+	}
+}
+
+func TestSetBlocker(t *testing.T) {
+	const section = "## Blocker\n\nSchritt: implement\n\n- Feld fehlt\n- Zweite Frage\n"
+	points := []string{"Feld fehlt", "Zweite Frage"}
+	tests := []struct {
+		name, in, want string
+	}{
+		{"append", "# PRD: X\n\n> Status: geplant\n\nbody\n", "# PRD: X\n\n> Status: geplant\n\nbody\n\n" + section},
+		{"append without final newline", "# PRD: X\n\nbody", "# PRD: X\n\nbody\n\n" + section},
+		{"append after blank lines", "body\n\n\n", "body\n\n" + section},
+		{"empty", "", section},
+		{"replace at the end", "body\n\n## Blocker\n\nSchritt: merge\n\n- alt\n", "body\n\n" + section},
+		{"replace before a heading", "body\n\n## Blocker\n\nSchritt: merge\n\n- alt\n\n## Notes\n\ntext\n", "body\n\n" + section + "\n## Notes\n\ntext\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := SetBlocker(tt.in, "implement", points); got != tt.want {
+				t.Errorf("SetBlocker = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRemoveBlocker(t *testing.T) {
+	tests := []struct {
+		name, in, want string
+	}{
+		{"at the end", "body\n\n## Blocker\n\nSchritt: implement\n\n- a\n", "body\n"},
+		{"before a heading", "body\n\n## Blocker\n\nSchritt: implement\n\n- a\n\n## Notes\n\ntext\n", "body\n\n## Notes\n\ntext\n"},
+		{"only the section", "## Blocker\n\nSchritt: merge\n", ""},
+		{"without section", "body\n\n## Notes\n", "body\n\n## Notes\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := RemoveBlocker(tt.in); got != tt.want {
+				t.Errorf("RemoveBlocker = %q, want %q", got, tt.want)
+			}
+		})
+	}
+	// Set and remove give the PRD back.
+	in := "# PRD: X\n\n> Status: geplant\n\nbody\n"
+	if got := RemoveBlocker(SetBlocker(in, "merge", []string{"a"})); got != in {
+		t.Errorf("round trip: %q", got)
 	}
 }
 

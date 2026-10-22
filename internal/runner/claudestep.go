@@ -135,8 +135,19 @@ func checkSummary(s claude.Summary, exitCode int) error {
 	return nil
 }
 
-// checkReport checks "## Ergebnis" in the report of a step. If it differs from want, the error
-// names the first point of the section questions.
+// blockedError is a step that Claude aborted on purpose with open questions. It needs a decision of
+// the user, not another attempt: the run ends in phase blocked.
+type blockedError struct {
+	step   string
+	points []string
+}
+
+func (e *blockedError) Error() string {
+	return fmt.Sprintf("%s blocked: %s", e.step, e.points[0])
+}
+
+// checkReport checks "## Ergebnis" in the report of a step. If it is abgebrochen with points in the
+// section questions, the error is a *blockedError.
 func checkReport(report, step, want, questions string) error {
 	res, ok := claude.Section(report, "Ergebnis")
 	if !ok {
@@ -147,13 +158,25 @@ func checkReport(report, step, want, questions string) error {
 		return nil
 	case resultAborted:
 		q, _ := claude.Section(report, questions)
-		if q := claude.FirstLine(q); q != "" && q != "keine" && q != "- keine" {
-			return fmt.Errorf("%s aborted: %s", step, strings.TrimPrefix(q, "- "))
+		if points := reportPoints(q); len(points) > 0 {
+			return &blockedError{step: step, points: points}
 		}
 		return fmt.Errorf("%s aborted", step)
 	default:
 		return fmt.Errorf("unknown result %q in the report of %s", v, step)
 	}
+}
+
+// reportPoints are the lines of a report section without "- ", empty lines and „keine“.
+func reportPoints(section string) []string {
+	var points []string
+	for line := range strings.SplitSeq(section, "\n") {
+		p := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- "))
+		if p != "" && p != "keine" {
+			points = append(points, p)
+		}
+	}
+	return points
 }
 
 // checkLazydevUntouched makes sure Claude changed nothing under .lazydev/ in the worktree, neither

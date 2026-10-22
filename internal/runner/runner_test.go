@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"lazydev/internal/claude"
 	"lazydev/internal/fsutil"
@@ -212,27 +213,63 @@ func TestRunTrackedPRD(t *testing.T) {
 	}
 }
 
-func TestRunImplementAbortedContinues(t *testing.T) {
+// today is the date the runner writes into status lines.
+func today() string { return time.Now().Format("2006-01-02") }
+
+// resolveBlocker does what the dialog of f does: it sets the status line of the PRD in the
+// worktree to value and removes "## Blocker", without commit.
+func resolveBlocker(t *testing.T, value string) {
+	t.Helper()
+	path := filepath.Join(WorktreePath("app", prdName), prdPath)
+	content, ok := project.SetStatus(read(t, path), value)
+	if !ok {
+		t.Fatal("no status line")
+	}
+	write(t, WorktreePath("app", prdName), prdPath, project.RemoveBlocker(content))
+}
+
+func TestRunImplementBlockedContinues(t *testing.T) {
 	target := newProject(t, hooksConfig, true)
 	t.Setenv("FAKE_CLAUDE_MODE", "abort")
 	err := Run(context.Background(), target, prdName)
-	if err == nil || err.Error() != "implement aborted: Feld fehlt im PRD" {
+	if err == nil || err.Error() != "implement blocked: Feld fehlt im PRD" {
 		t.Fatalf("Run: %v", err)
 	}
 	r := loadRun(t)
-	if r.Phase != project.PhaseError || r.Error == nil || *r.Error != err.Error() || r.PID != 0 {
+	if r.Phase != project.PhaseBlocked || r.Error == nil || *r.Error != err.Error() || r.PID != 0 {
 		t.Errorf("state: %+v", r)
 	}
 	if r.NextStep() != state.StepImplement || len(r.Steps) != 2 || r.Steps[1].OK || *r.Steps[1].ExitCode != 0 {
 		t.Errorf("steps: %+v", r.Steps)
 	}
-	if !fsutil.Exists(WorktreePath("app", prdName)) {
-		t.Error("worktree removed after the error")
+	wt := WorktreePath("app", prdName)
+	want := "# PRD: Token\n\n> Status: blockiert (" + today() + ") · Scope: tokens\n\nbody\n\n" +
+		"## Blocker\n\nSchritt: implement\n\n- Feld fehlt im PRD\n- Zweite Frage\n"
+	if got := read(t, filepath.Join(wt, prdPath)); got != want {
+		t.Errorf("PRD in the worktree:\n%s", got)
 	}
-	if log := read(t, state.LogPath("app", prdName, state.StepImplement)); !strings.Contains(log, "Error: implement aborted: Feld fehlt im PRD") {
+	if got := runGit(t, wt, "log", "-1", "--format=%B"); got != "docs(prd): record blocker of new-token" {
+		t.Errorf("last commit: %q", got)
+	}
+	// Other changes of implement stay uncommitted.
+	if got := runGit(t, wt, "status", "--porcelain"); got != "?? wip.txt" {
+		t.Errorf("worktree: %q", got)
+	}
+	log := read(t, state.LogPath("app", prdName, state.StepImplement))
+	if !strings.Contains(log, "Blocked: implement blocked: Feld fehlt im PRD") || strings.Contains(log, "Error:") {
 		t.Errorf("implement log:\n%s", log)
 	}
 
+	// Still blocked, nothing changes.
+	before, logBefore := read(t, state.Path("app", prdName)), log
+	if err := Run(context.Background(), target, prdName); err == nil || err.Error() != "new-token is still blocked" {
+		t.Fatalf("Run while blocked: %v", err)
+	}
+	if read(t, state.Path("app", prdName)) != before || read(t, state.LogPath("app", prdName, state.StepImplement)) != logBefore {
+		t.Error("state or log changed while blocked")
+	}
+
+	resolveBlocker(t, project.ValuePlanned)
 	t.Setenv("FAKE_CLAUDE_MODE", "ok")
 	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
@@ -255,6 +292,7 @@ func TestRunStepFailures(t *testing.T) {
 		mode, step, err string
 	}{
 		{"exit", state.StepImplement, "claude ended with exit code 3: kaputt"},
+		{"abortnone", state.StepImplement, "implement aborted"},
 		{"noresult", state.StepImplement, "claude ended without result event"},
 		{"error", state.StepImplement, "claude reports an error: Rate limit"},
 		{"status", state.StepImplement, `status line of prd/auth/new-token.md is "geplant" instead of „umgesetzt (date)“`},

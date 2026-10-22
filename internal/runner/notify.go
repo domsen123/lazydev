@@ -12,8 +12,9 @@ import (
 
 // notifyRun posts event of run r to the Discord webhook of the project and logs the outcome. It
 // reads settings.json every time, so a change applies to running runners too. Without a webhook it
-// does nothing. A failed delivery changes neither the run nor the step.
-func notifyRun(t Target, r *state.Run, event notify.Event, log *logger) {
+// does nothing. A failed delivery changes neither the run nor the step. blocker holds the open
+// questions of a blocked run.
+func notifyRun(t Target, r *state.Run, event notify.Event, log *logger, blocker ...string) {
 	url := config.LoadSettings().Discord.Target(t.Dir)
 	if url == "" {
 		return
@@ -31,6 +32,7 @@ func notifyRun(t Target, r *state.Run, event notify.Event, log *logger) {
 		Model:    r.ImplementModel(),
 		Cost:     r.Cost(),
 		Duration: duration,
+		Blocker:  strings.Join(blocker, "\n"),
 	})
 	if err == nil {
 		err = notify.Deliver(url, body)

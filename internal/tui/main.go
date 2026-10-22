@@ -412,14 +412,23 @@ func (m *model) ensureTerminal() {
 
 // openTerminal adds a tab running args in the selected project and focuses it.
 func (m *model) openTerminal(args []string) {
+	m.openTerminalIn("", args)
+}
+
+// openTerminalIn is openTerminal with dir as working directory, e.g. the worktree of a run. An
+// empty dir is the main folder. The tab belongs to the selected project.
+func (m *model) openTerminalIn(dir string, args []string) {
 	p := m.current()
 	if p == nil {
 		m.err = "Add a folder first: a in the left column"
 		return
 	}
+	if dir == "" {
+		dir = p.path
+	}
 	w, h := m.termSize()
 	m.nextID++
-	t, err := terminal.Start(m.nextID, w, h, p.path, args, m.bus.send)
+	t, err := terminal.Start(m.nextID, w, h, dir, args, m.bus.send)
 	if err != nil {
 		m.err = err.Error()
 		return

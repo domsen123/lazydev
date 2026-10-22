@@ -5,6 +5,7 @@ import (
 
 	"slices"
 
+	"lazydev/internal/project"
 	"lazydev/internal/terminal"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -340,6 +341,8 @@ func (m model) updatePRDs(key string) (next tea.Model, cmd tea.Cmd, ok bool) {
 		return m, m.toggleDev(selectedName(p)), true
 	case "X":
 		m.discardPRD(selectedName(p))
+	case "f":
+		m.unblockPRD(selectedName(p))
 	case "c":
 		// The run owns the status line until it ends or gets discarded.
 		if d := p.selectedPRD(); d != nil && p.runs[d.Name] != nil {
@@ -424,6 +427,8 @@ func (m model) updateRunList(key string) (next tea.Model, cmd tea.Cmd, ok bool) 
 		return m, m.toggleDev(p.selectedRun()), true
 	case "X":
 		m.discardPRD(p.selectedRun())
+	case "f":
+		m.unblockPRD(p.selectedRun())
 	default:
 		return m, nil, false
 	}
@@ -434,6 +439,14 @@ func (m model) updateRunList(key string) (next tea.Model, cmd tea.Cmd, ok bool) 
 func selectedName(p *projectEntry) string {
 	if d := p.selectedPRD(); d != nil {
 		return d.Name
+	}
+	return ""
+}
+
+// unblockKey is " · f unblock" while the run of the PRD called name is blocked, empty otherwise.
+func (m model) unblockKey(name string) string {
+	if r := m.current().runs[name]; r != nil && r.Effective() == project.PhaseBlocked {
+		return " · f unblock"
 	}
 	return ""
 }
@@ -450,13 +463,13 @@ func (m model) footerKeys() string {
 	case m.focus == colLeft || m.current() == nil:
 		return " j/k select · l open · a add · d remove · i edit .lazydev · alt+←/→ pane · alt+shift+←/→ tab · t terminal · alt+g git · m menu · q quit"
 	case m.focus == colBottom && m.runListVisible():
-		return " j/k move · l log · s start · x stop · X discard · D dev · i edit .lazydev · z zoom · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · alt+g git · m menu · q quit"
+		return " j/k move · l log · s start · x stop · X discard · D dev" + m.unblockKey(m.current().selectedRun()) + " · i edit .lazydev · z zoom · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · alt+g git · m menu · q quit"
 	case m.focus == colBottom && m.bottomTab == bottomDetails:
 		return " i edit .lazydev · z zoom · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · alt+g git · m menu · q quit"
 	case m.focus == colBottom && m.bottomTab == bottomDocker:
 		return " j/k move · l logs · z zoom · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · t terminal · alt+g git · m menu · q quit"
 	case m.focus == colRight && m.rightTab == rightPRDs:
-		return " j/k move · l open · L log · n new · s start · x stop · X discard · D dev · c status · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+g git · m menu · q quit"
+		return " j/k move · l open · L log · n new · s start · x stop · X discard · D dev" + m.unblockKey(selectedName(m.current())) + " · c status · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+g git · m menu · q quit"
 	case m.focus == colRight && m.rightTab == rightFiles:
 		return " j/k move · l open · h back · alt+←/→ pane · alt+shift+←/→ tab · alt+j/k project · alt+g git · m menu · q quit"
 	}

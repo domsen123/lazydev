@@ -280,7 +280,7 @@ func (lv *logView) headerLines(t theme) []string {
 		" " + strings.Join(stepMarks(r, t), dot),
 	}
 	switch {
-	case ph == project.PhaseError && r.Error != nil:
+	case (ph == project.PhaseError || ph == project.PhaseBlocked) && r.Error != nil:
 		lines = append(lines, " "+warn.Render(claude.FirstLine(*r.Error)))
 	case r.Note != "":
 		lines = append(lines, " "+warn.Render(r.Note))

@@ -41,6 +41,9 @@ func merge(ctx context.Context, t Target, prdName string, r *state.Run, log *log
 		}
 	}
 	wt := r.Worktree
+	if err := commitResolvedPRD(prdName, r, log); err != nil {
+		return err
+	}
 	if err := requireClean(wt, "worktree"); err != nil {
 		return err
 	}

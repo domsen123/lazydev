@@ -180,6 +180,11 @@ func (r *Run) Fail(err error) {
 	r.Error, r.Phase = &msg, project.PhaseError
 }
 
+// Block ends the run in phase blocked: a step waits for a decision of the user.
+func (r *Run) Block(msg string) {
+	r.Error, r.Phase = &msg, project.PhaseBlocked
+}
+
 // Cost adds up the cost of all steps in USD.
 func (r *Run) Cost() float64 {
 	total := 0.0

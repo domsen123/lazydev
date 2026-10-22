@@ -57,6 +57,23 @@ func TestDiscardAfterFailedRun(t *testing.T) {
 	}
 }
 
+func TestDiscardBlockedRemovesBlocker(t *testing.T) {
+	target := newProject(t, "", false)
+	t.Setenv("FAKE_CLAUDE_MODE", "abort")
+	if err := Run(context.Background(), target, prdName); err == nil {
+		t.Fatal("Run without error")
+	}
+	if r := loadRun(t); r.Phase != project.PhaseBlocked {
+		t.Fatalf("phase: %s", r.Phase)
+	}
+	if err := Discard(target, prdName); err != nil {
+		t.Fatal(err)
+	}
+	if got := read(t, filepath.Join(target.Dir, prdPath)); got != prdContent {
+		t.Errorf("PRD in the main folder:\n%s", got)
+	}
+}
+
 func TestDiscardKeepsExistingPRD(t *testing.T) {
 	target := newProject(t, "", false)
 	t.Setenv("FAKE_CLAUDE_MODE", "abort")

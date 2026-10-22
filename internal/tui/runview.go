@@ -196,6 +196,9 @@ func (m *model) startPRD(name string) tea.Cmd {
 	case r != nil && r.NextStep() == "":
 		m.err = "Nothing left to do for " + label + "."
 		return nil
+	case p.blockedInWorktree(name):
+		m.err = label + " is blocked. Resolve it with f first."
+		return nil
 	}
 	t := m.selectedTarget()
 	start := func(*model) tea.Cmd {
@@ -477,7 +480,7 @@ func (m model) runListView(p *projectEntry, width, height int, focused bool, t t
 		}
 		last := runCell{claude.FirstLine(m.last[name].Text), muted}
 		switch {
-		case ph == project.PhaseError && r.Error != nil:
+		case (ph == project.PhaseError || ph == project.PhaseBlocked) && r.Error != nil:
 			last = runCell{claude.FirstLine(*r.Error), text.Foreground(t.focus)}
 		case r.Note != "":
 			last = runCell{r.Note, text.Foreground(t.focus)}

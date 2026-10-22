@@ -15,6 +15,7 @@ const (
 	PhaseMerged     Phase = "merged"
 	PhaseAborted    Phase = "aborted"
 	PhaseError      Phase = "error"
+	PhaseBlocked    Phase = "blocked"
 	PhaseDiscarded  Phase = "discarded"
 	PhaseUnknown    Phase = "unknown"
 )
@@ -35,6 +36,8 @@ func (p Phase) Symbol() string {
 		return "■"
 	case PhaseError, PhaseDiscarded:
 		return "✗"
+	case PhaseBlocked:
+		return "⊘"
 	}
 	return "?"
 }

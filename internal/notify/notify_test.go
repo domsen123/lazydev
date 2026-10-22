@@ -95,6 +95,7 @@ func TestPayloadTitles(t *testing.T) {
 		{Failed, "✗ Failed: a/b", 0xe74c3c},
 		{Aborted, "■ Aborted: a/b", 0x95a5a6},
 		{MainFolder, "◐ Waiting for main folder: a/b", 0xf1c40f},
+		{Blocked, "⊘ Blocked: a/b", 0xe67e22},
 	} {
 		body, err := Payload(Message{Event: tc.event, PRD: "a/b"})
 		if err != nil {
@@ -108,6 +109,36 @@ func TestPayloadTitles(t *testing.T) {
 	}
 	if _, err := Payload(Message{Event: "other"}); err == nil {
 		t.Error("no error for an unknown event")
+	}
+}
+
+func TestPayloadBlocker(t *testing.T) {
+	fields := func(m Message) []field {
+		t.Helper()
+		body, err := Payload(m)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var p payload
+		json.Unmarshal(body, &p)
+		return p.Embeds[0].Fields
+	}
+	f := fields(Message{Event: Blocked, PRD: "a/b", Blocker: "Erste Frage\nZweite Frage"})
+	if len(f) != 6 || f[5] != (field{"Blocker", "Erste Frage\nZweite Frage", false}) {
+		t.Errorf("fields: %+v", f)
+	}
+	// Other events show no blocker, also with one given.
+	if f := fields(Message{Event: Failed, PRD: "a/b", Blocker: "x"}); len(f) != 5 {
+		t.Errorf("fields of failed: %+v", f)
+	}
+	long := strings.Repeat("ä", 1030)
+	f = fields(Message{Event: Blocked, PRD: "a/b", Blocker: long})
+	if v := []rune(f[5].Value); len(v) != 1024 || string(v[1023]) != "…" || string(v[:1023]) != strings.Repeat("ä", 1023) {
+		t.Errorf("truncated to %d characters: %q", len(v), f[5].Value)
+	}
+	exact := strings.Repeat("x", 1024)
+	if f := fields(Message{Event: Blocked, Blocker: exact}); f[5].Value != exact {
+		t.Error("1024 characters cut")
 	}
 }
 

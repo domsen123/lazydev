@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"errors"
 	"net"
 	"os"
 	"path/filepath"
@@ -158,11 +159,14 @@ func TestCheckReport(t *testing.T) {
 		{"no section", "umgesetzt", "implement", resultImplemented, impl, "report of implement without „## Ergebnis“"},
 		{"empty", "", "review", resultImplemented, impl, "report of review without „## Ergebnis“"},
 		{"empty section", "## Ergebnis\n\n## Offene Fragen\n- x\n", "implement", resultImplemented, impl, `unknown result "" in the report of implement`},
-		{"aborted with question", "## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Feld fehlt im PRD\n- zweite\n", "implement", resultImplemented, impl, "implement aborted: Feld fehlt im PRD"},
+		{"aborted with question", "## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Feld fehlt im PRD\n- zweite\n", "implement", resultImplemented, impl, "implement blocked: Feld fehlt im PRD"},
+		{"keine before a question", "## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- keine\n- Feld fehlt\n", "implement", resultImplemented, impl, "implement blocked: Feld fehlt"},
+		{"notes do not block", "## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- keine\n\n## Hinweise\n- einmal cd benutzt\n", "implement", resultImplemented, impl, "implement aborted"},
+		{"notes with a result", "## Ergebnis\numgesetzt\n\n## Offene Fragen\n- keine\n\n## Hinweise\n- einmal cd benutzt\n", "implement", resultImplemented, impl, ""},
 		{"aborted with keine", "## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- keine\n", "implement", resultImplemented, impl, "implement aborted"},
 		{"aborted with bare keine", "## Ergebnis\nAbgebrochen\n\n## Offene Fragen\nkeine\n", "implement", resultImplemented, impl, "implement aborted"},
 		{"aborted without questions", "## Ergebnis\nabgebrochen\n", "implement", resultImplemented, impl, "implement aborted"},
-		{"aborted reads the given section", "## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- falsch\n\n## Offene Punkte\n- Konflikt in x\n", "merge", resultMergeReady, merge, "merge aborted: Konflikt in x"},
+		{"aborted reads the given section", "## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- falsch\n\n## Offene Punkte\n- Konflikt in x\n", "merge", resultMergeReady, merge, "merge blocked: Konflikt in x"},
 		{"unknown", "## Ergebnis\nteilweise umgesetzt\n", "implement", resultImplemented, impl, `unknown result "teilweise umgesetzt" in the report of implement`},
 		{"other result of another step", "## Ergebnis\numgesetzt\n", "merge", resultMergeReady, merge, `unknown result "umgesetzt" in the report of merge`},
 	}
@@ -175,6 +179,11 @@ func TestCheckReport(t *testing.T) {
 		if got != c.err {
 			t.Errorf("%s: %q, want %q", c.name, got, c.err)
 		}
+	}
+	err := checkReport("## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Erste\n\n  Zweite  \n- keine\n", "implement", resultImplemented, "Offene Fragen")
+	var blocked *blockedError
+	if !errors.As(err, &blocked) || blocked.step != "implement" || strings.Join(blocked.points, "|") != "Erste|Zweite" {
+		t.Errorf("blocked: %#v", err)
 	}
 }
 

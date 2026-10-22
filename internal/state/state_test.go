@@ -156,6 +156,10 @@ func TestLastStepAndFail(t *testing.T) {
 	if r.Phase != project.PhaseError || r.Error == nil || *r.Error != "boom" {
 		t.Errorf("Fail: %+v", r)
 	}
+	r.Block("implement blocked: x")
+	if r.Phase != project.PhaseBlocked || r.Error == nil || *r.Error != "implement blocked: x" {
+		t.Errorf("Block: %+v", r)
+	}
 }
 
 func TestEffective(t *testing.T) {
@@ -164,7 +168,7 @@ func TestEffective(t *testing.T) {
 	if r.Running() || r.Effective() != project.PhaseAborted {
 		t.Errorf("active without runner: running %v, %s", r.Running(), r.Effective())
 	}
-	for _, p := range []project.Phase{project.PhaseWaiting, project.PhaseMergeQueue, project.PhaseMerged, project.PhaseError} {
+	for _, p := range []project.Phase{project.PhaseWaiting, project.PhaseMergeQueue, project.PhaseMerged, project.PhaseError, project.PhaseBlocked} {
 		if got := (&Run{Phase: p}).Effective(); got != p {
 			t.Errorf("%s became %s", p, got)
 		}
