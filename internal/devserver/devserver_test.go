@@ -16,7 +16,8 @@ import (
 func TestStartStop(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
 	dir := t.TempDir()
-	pid, err := Start("p", "x", dir, []string{"sleep", "30"}, []string{"LAZYDEV_PORT=3005"})
+	// The server prints its env to the dev log, then exec keeps the PID for the checks below.
+	pid, err := Start("p", "x", dir, []string{"sh", "-c", `echo "port=$LAZYDEV_PORT"; exec sleep 30`}, []string{"LAZYDEV_PORT=3005"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -24,9 +25,15 @@ func TestStartStop(t *testing.T) {
 	if got := PID("p", "x"); got != pid {
 		t.Errorf("PID: %d, want %d", got, pid)
 	}
-	environ, _ := os.ReadFile("/proc/" + strconv.Itoa(pid) + "/environ")
-	if !strings.Contains(string(environ), "\x00LAZYDEV_PORT=3005\x00") && !strings.HasPrefix(string(environ), "LAZYDEV_PORT=3005\x00") {
-		t.Error("env missing in dev server")
+	var log []byte
+	for range 50 {
+		if log, _ = os.ReadFile(state.DevLogPath("p", "x")); strings.Contains(string(log), "\n") {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if string(log) != "port=3005\n" {
+		t.Errorf("env missing in dev server, log %q", log)
 	}
 	if cwd, _ := os.Readlink("/proc/" + strconv.Itoa(pid) + "/cwd"); cwd != dir {
 		t.Errorf("cwd: %s", cwd)
