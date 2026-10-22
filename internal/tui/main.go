@@ -113,6 +113,8 @@ type model struct {
 	bottomZoom bool
 	// note is a message for the footer that is no error, cleared by the next key.
 	note string
+	// latest is a release newer than the running version, empty while none is known.
+	latest string
 	// adding is true while the input for a new folder is open.
 	adding bool
 	input  textinput.Model
@@ -151,7 +153,7 @@ func newModel(bus *sender) model {
 
 func (m model) Init() tea.Cmd {
 	return tea.Batch(fetchGitInfo(m.projects), fetchPRDs(m.projects), gitTick(), m.fetchRuns(), runTick(),
-		loadDocker(m.projects, nil), waitDockerEvent(m.dockerEvents), dockerTick())
+		loadDocker(m.projects, nil), waitDockerEvent(m.dockerEvents), dockerTick(), checkUpdate())
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -190,6 +192,11 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = "discord: " + msg.err.Error()
 		} else {
 			m.note = "discord: test sent"
+		}
+	case updateMsg:
+		m.latest = msg.latest
+		if m.err == "" && m.note == "" {
+			m.note = updateNote(msg.latest)
 		}
 	case gitInfoMsg:
 		for _, p := range m.projects {

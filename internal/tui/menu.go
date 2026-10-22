@@ -377,6 +377,13 @@ func (m model) viewMenu() string {
 	for _, line := range strings.Split(wrapped, "\n") {
 		right = append(right, text.Faint(true).Render(pad(line, rightWidth)))
 	}
+	if m.menu.tab == tabGeneral {
+		right = append(right, "")
+		wrapped := lipgloss.NewStyle().Width(rightWidth).Render(m.versionLine())
+		for _, line := range strings.Split(wrapped, "\n") {
+			right = append(right, text.Render(pad(line, rightWidth)))
+		}
+	}
 
 	divider := lipgloss.NewStyle().Foreground(t.divider).Render("│")
 	var lines []string
