@@ -147,7 +147,7 @@ hooks:                       # scripts, relative to the main folder
 - After an error or `x`, `s` continues with the failed step. `X` throws away worktree, branch and its
   commits, the PRD goes back with status `geplant` and without `## Blocker`.
 - The merge waits while the main folder is not on the base branch or has changes outside `prd/` and
-  `.lazydev/`.
+  `.lazydev/`. If the base branch moved meanwhile, it rebases again.
 - PRD status values stay German (`geplant`, `umgesetzt (date)`, `verworfen (date)`, `blockiert (date)`), like
   the prompts.
 - Phases: `○` planned, `◌` waiting, `●` setup/implement/review/merge, `◐` merge-queue, `✓` merged, `■`

@@ -47,30 +47,21 @@ func merge(ctx context.Context, t Target, prdName string, r *state.Run, log *log
 	if err := requireClean(wt, "worktree"); err != nil {
 		return err
 	}
-	log.printf("$ git rebase %s", r.Base)
-	if _, err := git.Run(wt, "rebase", r.Base); err != nil {
-		log.printf("Conflict in the rebase: %v", err)
-		if _, err := git.Run(wt, "rebase", "--abort"); err != nil {
-			log.printf("git rebase --abort: %v", err)
-		}
-		if err := mergeClaude(ctx, t, prdName, r, "", log); err != nil {
+	for {
+		if err := rebaseAndCheck(ctx, t, prdName, r, log); err != nil {
 			return err
 		}
-	}
-	if err := runHook(t, r, log, "check"); err != nil {
-		log.printf("Check red: %v", err)
-		if err := mergeClaude(ctx, t, prdName, r, "Prüfung nach dem Rebase fehlgeschlagen: "+err.Error(), log); err != nil {
+		if err := recordRunInfo(prdName, r, log); err != nil {
 			return err
 		}
-		if err := runHook(t, r, log, "check"); err != nil {
-			return fmt.Errorf("check still red after the Claude step merge: %w", err)
+		if err := waitMainClean(ctx, t, prdName, r, log); err != nil {
+			return err
 		}
-	}
-	if err := recordRunInfo(prdName, r, log); err != nil {
-		return err
-	}
-	if err := waitMainClean(ctx, t, prdName, r, log); err != nil {
-		return err
+		// While the runner waited for the main folder, commits may have landed on the base branch.
+		if _, err := git.Run(wt, "merge-base", "--is-ancestor", r.Base, "HEAD"); err == nil {
+			break
+		}
+		log.printf("%s moved while waiting, rebasing again", r.Base)
 	}
 	log.printf("$ git merge --ff-only %s", r.Branch)
 	if _, err := git.Run(t.Dir, "merge", "--ff-only", r.Branch); err != nil {
@@ -88,6 +79,31 @@ func merge(ctx context.Context, t Target, prdName string, r *state.Run, log *log
 	if err := errors.Join(errs...); err != nil {
 		log.printf("Cleanup incomplete: %v", err)
 		r.Note = "cleanup incomplete: " + err.Error()
+	}
+	return nil
+}
+
+// rebaseAndCheck brings the branch onto the base branch and runs the check hook. A conflict or a
+// red check goes to the Claude step merge.
+func rebaseAndCheck(ctx context.Context, t Target, prdName string, r *state.Run, log *logger) error {
+	log.printf("$ git rebase %s", r.Base)
+	if _, err := git.Run(r.Worktree, "rebase", r.Base); err != nil {
+		log.printf("Conflict in the rebase: %v", err)
+		if _, err := git.Run(r.Worktree, "rebase", "--abort"); err != nil {
+			log.printf("git rebase --abort: %v", err)
+		}
+		if err := mergeClaude(ctx, t, prdName, r, "", log); err != nil {
+			return err
+		}
+	}
+	if err := runHook(t, r, log, "check"); err != nil {
+		log.printf("Check red: %v", err)
+		if err := mergeClaude(ctx, t, prdName, r, "Prüfung nach dem Rebase fehlgeschlagen: "+err.Error(), log); err != nil {
+			return err
+		}
+		if err := runHook(t, r, log, "check"); err != nil {
+			return fmt.Errorf("check still red after the Claude step merge: %w", err)
+		}
 	}
 	return nil
 }

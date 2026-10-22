@@ -216,6 +216,32 @@ func TestMergeWaitsForCleanMainFolder(t *testing.T) {
 	}
 }
 
+func TestMergeRebasesAgainWhenBaseMovedDuringWait(t *testing.T) {
+	target := newProject(t, "", false)
+	write(t, target.Dir, "todo.txt", "notes\n")
+	done := make(chan error, 1)
+	go func() { done <- Run(context.Background(), target, prdName) }()
+	waitFor(t, "the merge queue", func() bool {
+		r, err := state.Load("app", prdName)
+		return err == nil && r.Note == "main folder: changed: todo.txt"
+	})
+	// Committing the file cleans the main folder and moves main past the rebased branch.
+	runGit(t, target.Dir, "add", "todo.txt")
+	runGit(t, target.Dir, "commit", "-q", "-m", "todo")
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if r := loadRun(t); r.Phase != project.PhaseMerged {
+		t.Errorf("state: %+v", r)
+	}
+	if got := runGit(t, target.Dir, "log", "--format=%s"); got != "docs(prd): record cost of new-token\nfeat: review\ndocs(prd): add new-token\ntodo\ninit" {
+		t.Errorf("main: %q", got)
+	}
+	if log := read(t, state.LogPath("app", prdName, state.StepMerge)); !strings.Contains(log, "main moved while waiting, rebasing again") {
+		t.Errorf("merge log:\n%s", log)
+	}
+}
+
 func TestMergeAbortedInQueueContinues(t *testing.T) {
 	target := newProject(t, "", false)
 	runGit(t, target.Dir, "switch", "-q", "-c", "other")

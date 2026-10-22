@@ -72,7 +72,8 @@ Every step lands in `steps` of the run state and must be repeatable, `s` continu
   `blocked`, `## Blocker` and status `blockiert` in the PRD of the worktree (`blocker.go`). `f` in the TUI
   opens the dialog `unblock` in the worktree, `s` continues after it.
 - Merge (`merge.go`): `flock` per project, `git rebase <base>`, on conflict `rebase --abort` and the Claude
-  step merge, check hook, cost into the PRD, wait for a clean main folder, `git merge --ff-only`, cleanup.
+  step merge, check hook, cost into the PRD, wait for a clean main folder (rebase again if the base moved),
+  `git merge --ff-only`, cleanup.
   Merges always run right after the review.
 - Hooks are scripts from `config.yaml` only, there are no presets.
 

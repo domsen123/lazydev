@@ -392,7 +392,8 @@ Steps in order, each recorded in the run state:
    error as context and the check again. Cost and implement model go into the PRD status line, committed as
    `docs(prd): record cost of <prd>`. Wait while the main folder is not on the base branch or has changes
    outside untracked `prd/` files and `.lazydev/` (phase merge-queue, note `main folder: …`, checked every
-   5 s). `git merge --ff-only feat/<prd>` in the main folder, teardown hook, `git worktree remove` and
+   5 s). If the base branch moved during the wait, rebase and check again from `git rebase <base>`.
+   `git merge --ff-only feat/<prd>` in the main folder, teardown hook, `git worktree remove` and
    `git branch -d`. Cleanup errors only become a note.
 
 After implement, review and the Claude step merge, nothing under `.lazydev/` may differ from the base branch

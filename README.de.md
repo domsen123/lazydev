@@ -149,7 +149,7 @@ hooks:                       # Skripte, relativ zum Hauptordner
 - Nach einem Fehler oder `x` setzt `s` beim gescheiterten Schritt fort. `X` verwirft Worktree, Branch und
   dessen Commits, das PRD kommt mit Status `geplant` und ohne `## Blocker` zurück.
 - Der Merge wartet, solange der Hauptordner nicht auf dem Ziel-Branch steht oder Änderungen außerhalb von
-  `prd/` und `.lazydev/` hat.
+  `prd/` und `.lazydev/` hat. Ist der Ziel-Branch inzwischen weitergezogen, rebased er erneut.
 - Die Statuswerte im PRD bleiben deutsch (`geplant`, `umgesetzt (Datum)`, `verworfen (Datum)`,
   `blockiert (Datum)`), wie die Prompts.
 - Phasen: `○` planned, `◌` waiting, `●` setup/implement/review/merge, `◐` merge-queue, `✓` merged, `■`
