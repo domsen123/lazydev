@@ -32,6 +32,8 @@ Not goals: remote runs, pull requests, issue trackers, editing PRDs inside lazyd
     `false` mutes this project only. The URL is the project URL if not empty, otherwise the global URL.
     `.lazydev/config.yaml` has no Discord field, no URL lands in a repository. Removing a project with `d`
     keeps its entry.
+  - `skill`: `false` stops the TUI from writing the Claude Code skill at its start (see Claude Code
+    skill). Missing or `true` means it writes it.
 
   lazydev writes `settings.json` with the rights `0600`, also when it saves the theme. An existing file with
   other rights gets `0600` with the next save.
@@ -553,6 +555,42 @@ stop it.
   take `locks/<id>.merge` without waiting.
 - On SIGTERM a runner ends its context first, so the step records an abort, then signals its process group.
 
+### Claude Code skill
+
+lazydev installs a skill `lazydev` for Claude Code, so a normal Claude Code session outside lazydev knows
+what lazydev is, how PRDs work and that `lazydev prompt create` prints the create prompt of a project. The
+skill replaces no MCP server and no slash command.
+
+- **Place:** `$CLAUDE_CONFIG_DIR/skills/lazydev/`, without the variable `$HOME/.claude/skills/lazydev/`.
+  Global for the user, never in a project. The content belongs to the version of the binary.
+- **Files:** `SKILL.md` (German like the prompts: frontmatter `name: lazydev` and `description` with the
+  triggers, a comment that lazydev manages the file, what lazydev is, the rules for PRDs, a table of
+  tasks, under 80 lines) and `references/spec.md`, a byte-equal copy of `SPEC.md`. Nothing else. The copy
+  lives in `internal/skill/files/references/spec.md`, `go generate ./internal/skill` refreshes it and a
+  test fails when it differs from `SPEC.md`. The files carry no version and no timestamp.
+- **Writing:** every embedded file is written only when it is missing or its content differs, atomically
+  through a temporary file, mode `0644`, folders `0755`. Files under `skills/lazydev/` that the binary
+  does not have get deleted, empty subfolders after them. Nothing outside `skills/lazydev/` changes.
+- **When:** the TUI writes the skill at its start in the background, like `lazydev skill install`, so it
+  stays current after `lazydev update`, `install.sh` and `make install`. Success and an up-to-date skill
+  show nothing. An error sets the footer note `skill install failed: <error>` unless an error or note
+  shows already. Runners, `lazydev git` and the other commands write nothing. `"skill": false` in
+  `settings.json` switches the automatic write off, `lazydev skill install` works regardless. Removing
+  the skill is manual: delete the folder and set `"skill": false`.
+- **`lazydev skill install`:** writes the skill and prints `Installed skill lazydev to <dir>.`, or
+  `Skill lazydev in <dir> is up to date.` when nothing changed. Exit code 0, errors as `lazydev: <error>`
+  with 1.
+- **`lazydev prompt create [<description>]`:** prints the create prompt of the project on stdout, the same
+  one `n` builds. The project folder is `git rev-parse --show-toplevel` of the working directory, without
+  a git repository the working directory itself. All arguments join with spaces to `$ARGUMENTS`, without
+  arguments it is `Die Aufgabe ergibt sich aus dem bisherigen Gespräch mit dem Nutzer.`. `$BASE` is the
+  base branch of `config.yaml`, `$BRANCH` the checked out branch. Knowledge files must exist in the
+  project folder. The command creates nothing: a folder without `.lazydev/` ends with
+  `lazydev: <dir> has no .lazydev/, add the project in lazydev first` and 1. Errors of `config.yaml`, a
+  missing knowledge file or a missing `create.md` end with the error and 1. Other steps end with
+  `unknown step: <step>` and the usage, exit code 2.
+- lazydev changes no `CLAUDE.md` of a project.
+
 ### Releases
 
 - `internal/version.Version` is the version of the binary, `dev` by default. `make build` and `make install`
@@ -600,11 +638,14 @@ stop it.
 | `…/runs/<id>/<prd>.runner.log`, `.devpid`, `.dev.log` | Runner output, dev server PID and folder, dev server output |
 | `$XDG_STATE_HOME/lazydev/trust/<id>.json`, `usage.json`, `agents.json`, `bin/` | Trust, limits, agents, runner binary |
 | `$XDG_DATA_HOME/lazydev/worktrees/<id>/<prd>/` | Worktrees |
+| `$CLAUDE_CONFIG_DIR/skills/lazydev/` (without the variable `~/.claude/skills/lazydev/`) | Claude Code skill: `SKILL.md`, `references/spec.md` |
 
 State files are written atomically. Merged runs keep their state until discarded.
 
 ## CLI
 
 `lazydev` starts the TUI. `start`, `stop`, `discard [--yes]`, `trust` take a project ID or path from the list;
-`run` and `git` are internal. `update` installs the newest release over the binary (see Releases). `version`, `--version` and `-v` print `lazydev <version>` and end with 0. See
-`lazydev help`.
+`run` and `git` are internal. `update` installs the newest release over the binary (see Releases).
+`prompt create [<description>]` prints the create prompt of the project in the current folder and
+`skill install` writes the Claude Code skill (see Claude Code skill). `version`, `--version` and `-v` print
+`lazydev <version>` and end with 0. See `lazydev help`.

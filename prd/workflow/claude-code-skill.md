@@ -1,6 +1,6 @@
 # PRD: Claude-Code-Skill und `lazydev prompt create`
 
-> Status: geplant · Scope: lazydev installiert einen Skill `lazydev` nach `~/.claude/skills/lazydev/`, der Claude Code erklärt, wie lazydev und
+> Status: umgesetzt (2026-10-23) · Scope: lazydev installiert einen Skill `lazydev` nach `~/.claude/skills/lazydev/`, der Claude Code erklärt, wie lazydev und
 > seine PRDs funktionieren. Der Befehl `lazydev prompt create` gibt den Create-Prompt des Projekts aus, damit eine normale Claude-Code-Session
 > ein PRD genauso schreibt wie `n` in lazydev. Die TUI hält den Skill beim Start aktuell.
 

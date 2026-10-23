@@ -156,7 +156,8 @@ func newModel(bus *sender) model {
 
 func (m model) Init() tea.Cmd {
 	return tea.Batch(fetchGitInfo(m.projects), fetchPRDs(m.projects), gitTick(), m.fetchRuns(), runTick(),
-		loadDocker(m.projects, nil), waitDockerEvent(m.dockerEvents), dockerTick(), checkUpdate())
+		loadDocker(m.projects, nil), waitDockerEvent(m.dockerEvents), dockerTick(), checkUpdate(),
+		installSkill(config.LoadSettings()))
 }
 
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
@@ -200,6 +201,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.latest = msg.latest
 		if m.err == "" && m.note == "" {
 			m.note = updateNote(msg.latest)
+		}
+	case skillMsg:
+		if msg.err != nil && m.err == "" && m.note == "" {
+			m.note = "skill install failed: " + msg.err.Error()
 		}
 	case installMsg:
 		m.updating = false

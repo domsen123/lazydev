@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -228,6 +229,18 @@ func TestSettingsMode(t *testing.T) {
 		want := `settings.json: unknown permissionMode "` + in + `", allowed: acceptEdits, auto`
 		if err == nil || err.Error() != want {
 			t.Errorf("Mode(%q): %v", in, err)
+		}
+	}
+}
+
+func TestSettingsSkillEnabled(t *testing.T) {
+	for in, want := range map[string]bool{`{}`: true, `{"skill": false}`: false, `{"skill": true}`: true} {
+		var s Settings
+		if err := json.Unmarshal([]byte(in), &s); err != nil {
+			t.Fatal(err)
+		}
+		if got := s.SkillEnabled(); got != want {
+			t.Errorf("SkillEnabled(%s) = %v, want %v", in, got, want)
 		}
 	}
 }

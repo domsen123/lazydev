@@ -38,6 +38,19 @@ go run ./cmd/lazydev  # without installing
 
 Runners keep the code they started with. After an update, restart lazydev.
 
+## Claude Code skill
+
+lazydev installs a skill `lazydev` for Claude Code into `~/.claude/skills/lazydev/`. With it, a normal
+Claude Code session outside lazydev knows what lazydev is, how PRDs and `.lazydev/` work, and how to write
+a PRD. Discuss a feature in any Claude Code session in a lazydev project and say "make this a lazydev
+PRD": Claude runs `lazydev prompt create` in the main folder, gets the same prompt `n` builds, asks its
+numbered questions with options A to D and writes `prd/<area>/<name>.md`. Questions about lazydev go to
+the specification the skill carries along.
+
+The TUI writes the skill at its start when it is missing or out of date, so it follows every update.
+`lazydev skill install` does the same from the shell. `"skill": false` in `settings.json` switches the
+automatic write off. To remove the skill, delete the folder and set `"skill": false`.
+
 ## Release
 
 Push a tag `vX.Y.Z`. A GitHub Action runs `make test`, builds `linux/amd64` and `linux/arm64` with
@@ -231,20 +244,24 @@ lazydev start <project> <prd>            # start or continue in the background
 lazydev stop <project> <prd>
 lazydev discard [--yes] <project> <prd>
 lazydev trust <project>
+lazydev prompt create [<description>]    # print the create prompt of the project in the current folder
+lazydev skill install                    # install the Claude Code skill into ~/.claude/skills/lazydev/
 lazydev version                          # also --version, -v
 ```
 
 `<project>` is the ID (folder name) or path of a project in the list, `<prd>` the file name without `.md`.
+`prompt create` works in any folder of a project with `.lazydev/`, the project needs no entry in the list.
 
 ## Files
 
 | Path | Content |
 |---|---|
-| `~/.config/lazydev/` | `projects.json`, `settings.json` (`theme`, `allowedTools`, `permissionMode`, `discord`), rights `0600` |
+| `~/.config/lazydev/` | `projects.json`, `settings.json` (`theme`, `allowedTools`, `permissionMode`, `discord`, `skill`), rights `0600` |
 | `~/.local/state/lazydev/` | `runs/<id>/<prd>.json` and step logs, `trust/`, `locks/`, `usage.json`, `bin/` |
 | `~/.local/share/lazydev/worktrees/<id>/<prd>/` | Worktrees |
+| `~/.claude/skills/lazydev/` | Claude Code skill: `SKILL.md`, `references/spec.md` |
 
-`XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_DATA_HOME` apply.
+`XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_DATA_HOME` apply, `CLAUDE_CONFIG_DIR` replaces `~/.claude`.
 
 `allowedTools` in `settings.json` apply to every Claude step of all projects, after the built-in tools and
 before `allowedTools` from `config.yaml`. They need no trust. `permissionMode` is `acceptEdits` (default) or

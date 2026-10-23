@@ -10,10 +10,14 @@ import (
 	"strings"
 
 	"lazydev/internal/config"
+	"lazydev/internal/fsutil"
+	"lazydev/internal/git"
 	"lazydev/internal/gitcmd"
 	"lazydev/internal/project"
+	"lazydev/internal/prompts"
 	"lazydev/internal/repo"
 	"lazydev/internal/runner"
+	"lazydev/internal/skill"
 	"lazydev/internal/state"
 	"lazydev/internal/tui"
 	"lazydev/internal/version"
@@ -26,6 +30,8 @@ const usage = `Usage:
   lazydev discard [--yes] <project> <prd>  throw away the run: worktree, branch and its commits
   lazydev trust <project>                  check and trust hooks and allowed tools of .lazydev/config.yaml
   lazydev update                           install the newest release over this binary
+  lazydev prompt create [<description>]    print the create prompt of the project in the current folder
+  lazydev skill install                    install the Claude Code skill lazydev into ~/.claude/skills/
   lazydev version                          print the version, also --version and -v
 
 <project> is the project ID (its folder name) or its path, <prd> the PRD file name without .md.
@@ -84,6 +90,33 @@ func main() {
 		}
 		if err := trust(rest[0]); err != nil {
 			fail(err)
+		}
+		return
+	case "prompt":
+		// Only the create prompt is printed: a normal Claude Code session writes a PRD with it.
+		if len(rest) == 0 {
+			usageError()
+		}
+		if rest[0] != "create" {
+			fmt.Fprintf(os.Stderr, "unknown step: %s\n\n", rest[0])
+			usageError()
+		}
+		if err := promptCreate(rest[1:]); err != nil {
+			fail(err)
+		}
+		return
+	case "skill":
+		if len(rest) != 1 || rest[0] != "install" {
+			usageError()
+		}
+		changed, err := skill.Install()
+		if err != nil {
+			fail(err)
+		}
+		if changed {
+			fmt.Printf("Installed skill %s to %s.\n", skill.Name, skill.Dir())
+		} else {
+			fmt.Printf("Skill %s in %s is up to date.\n", skill.Name, skill.Dir())
 		}
 		return
 	case "start", "stop", "discard":
@@ -156,6 +189,36 @@ func update() error {
 		return err
 	}
 	fmt.Printf("Installed lazydev %s to %s. Restart lazydev to use it.\n", latest, path)
+	return nil
+}
+
+// promptCreate prints the create prompt of the project the working directory belongs to, the same
+// prompt n builds in the TUI. args join to $ARGUMENTS, without them the task comes from the
+// conversation. The command creates nothing, a project without .lazydev/ is an error.
+func promptCreate(args []string) error {
+	dir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	if top, err := git.Run(dir, "rev-parse", "--show-toplevel"); err == nil {
+		dir = top
+	}
+	if !fsutil.IsDir(filepath.Join(dir, repo.Dir)) {
+		return fmt.Errorf("%s has no %s/, add the project in lazydev first", dir, repo.Dir)
+	}
+	info := repo.Read(dir, filepath.Base(dir))
+	if info.Err != nil {
+		return info.Err
+	}
+	arguments := strings.Join(args, " ")
+	if arguments == "" {
+		arguments = "Die Aufgabe ergibt sich aus dem bisherigen Gespräch mit dem Nutzer."
+	}
+	prompt, err := prompts.Build(dir, dir, info.Config, "create", prompts.Vars{Arguments: arguments, Base: info.Config.Base(), Branch: git.CurrentBranch(dir)})
+	if err != nil {
+		return err
+	}
+	fmt.Print(prompt)
 	return nil
 }
 

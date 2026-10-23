@@ -71,6 +71,14 @@ type Settings struct {
 	PermissionMode string `json:"permissionMode,omitempty"`
 	// Discord holds the webhook of the runner's notifications.
 	Discord Discord `json:"discord,omitzero"`
+	// Skill nil and true let the TUI write the Claude Code skill lazydev at its start, false
+	// switches that off. lazydev skill install works either way.
+	Skill *bool `json:"skill,omitempty"`
+}
+
+// SkillEnabled reports whether the TUI writes the Claude Code skill at its start.
+func (s Settings) SkillEnabled() bool {
+	return s.Skill == nil || *s.Skill
 }
 
 // Discord is the webhook runners post their notifications to, global and per project.

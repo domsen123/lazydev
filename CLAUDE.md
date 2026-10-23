@@ -18,7 +18,11 @@ make build                                  # bin/lazydev
 make install                                # ~/.local/bin/lazydev, PREFIX overridable
 go run ./cmd/lazydev                        # TUI without installing
 go test ./internal/runner -run TestRunMerges  # single test
+go generate ./internal/skill                # copy SPEC.md into the skill, run it after every change to SPEC.md
 ```
+
+`internal/skill/files/references/spec.md` must equal `SPEC.md`. `TestSpecCopy` in `internal/skill` fails
+when it does not, `make test` runs no `go generate`.
 
 Linux only: lazydev uses `/proc`, `setsid` and `flock`. Go 1.27 or later. `x/cellbuf` is pinned to v0.0.15,
 older versions do not build against the newer `x/ansi`.
@@ -41,6 +45,7 @@ older versions do not build against the newer `x/ansi`.
 | `notify` | Discord webhook: payload and delivery with retry |
 | `gitcmd` | Actions of the git cockpit (fetch, pull, push, commit) behind `lazydev git`, pull and push under the merge lock |
 | `version` | Version of the binary (ldflags), release format, newest release and self-update over HTTPS |
+| `skill` | Claude Code skill: embedded files, install into `~/.claude/skills/lazydev/` |
 | `docker`, `devserver`, `usage`, `git`, `fsutil` | Containers, detached dev servers, Claude limits, git binary, atomic writes |
 
 ### Process model
