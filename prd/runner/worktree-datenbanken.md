@@ -1,6 +1,6 @@
 # PRD: Postgres-Datenbanken pro Worktree
 
-> Status: umgesetzt (2026-10-28) · Scope: Neuer Abschnitt `databases` in `.lazydev/config.yaml`. Pro Eintrag legt das Setup eine leere Postgres-Datenbank `<basis>_<slug>` im Compose-Service an und schreibt ihren Namen in eine Env-Datei des Worktrees, der Merge legt sie nach einem Rebase neu an, Merge und `X` löschen sie. Der Wizard bekommt eine Seite „Databases“, die Postgres-Services aus der Compose-Datei erkennt.
+> Status: umgesetzt (2026-10-28) · Kosten: 7.42 USD · Modell: claude-opus-5-5 · Scope: Neuer Abschnitt `databases` in `.lazydev/config.yaml`. Pro Eintrag legt das Setup eine leere Postgres-Datenbank `<basis>_<slug>` im Compose-Service an und schreibt ihren Namen in eine Env-Datei des Worktrees, der Merge legt sie nach einem Rebase neu an, Merge und `X` löschen sie. Der Wizard bekommt eine Seite „Databases“, die Postgres-Services aus der Compose-Datei erkennt.
 
 ## Context
 
