@@ -258,8 +258,9 @@ func (lv *logView) body() []string {
 	return lines
 }
 
-// headerLines shows the run: unfolded phase, branch, port, cost and dev, then the steps, then an
-// error or note, and a separator. Folded, one line with phase, current step and cost.
+// headerLines shows the run: unfolded phase, branch, port, cost and dev, then the databases of the
+// worktree, then the steps, then an error or note, and a separator. Folded, one line with phase,
+// current step and cost.
 func (lv *logView) headerLines(t theme) []string {
 	text := lipgloss.NewStyle().Foreground(t.text)
 	muted := text.Faint(true)
@@ -285,8 +286,15 @@ func (lv *logView) headerLines(t theme) []string {
 			field("port", text.Render(fmt.Sprint(r.Port))) + dot +
 			field("cost", cost) + dot +
 			field("dev", dev),
-		" " + strings.Join(stepMarks(r, t), dot),
 	}
+	if len(r.Databases) > 0 {
+		var dbs []string
+		for _, db := range r.Databases {
+			dbs = append(dbs, text.Render(db.Name)+muted.Render(" ("+db.Service+")"))
+		}
+		lines = append(lines, " "+field("databases", strings.Join(dbs, dot)))
+	}
+	lines = append(lines, " "+strings.Join(stepMarks(r, t), dot))
 	switch {
 	case (ph == project.PhaseError || ph == project.PhaseBlocked) && r.Error != nil:
 		lines = append(lines, " "+warn.Render(claude.FirstLine(*r.Error)))

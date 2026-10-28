@@ -42,6 +42,7 @@ older versions do not build against the newer `x/ansi`.
 | `prompts` | Prompt = header + knowledge + `.lazydev/<step>.md` + built-in contract (`contract/`) |
 | `claude` | `claude -p` stream-json, summary, log descriptions, built-in agents (`agents/`) |
 | `config` | `projects.json`, `settings.json`, project IDs, path helpers |
+| `database` | Postgres database per worktree: env files, base name, `createdb`/`dropdb` per `docker exec` |
 | `notify` | Discord webhook: payload and delivery with retry |
 | `gitcmd` | Actions of the git cockpit (fetch, pull, push, commit) behind `lazydev git`, pull and push under the merge lock |
 | `version` | Version of the binary (ldflags), release format, newest release and self-update over HTTPS |
@@ -81,6 +82,10 @@ Every step lands in `steps` of the run state and must be repeatable, `s` continu
   `git merge --ff-only`, cleanup.
   Merges always run right after the review.
 - Hooks are scripts from `config.yaml` only, there are no presets.
+- `databases` in `config.yaml` (`internal/database`): the setup writes the env files of the worktree and
+  creates an empty Postgres database `<name>_<slug>` per entry before the setup hook, the merge recreates them
+  after a rebase onto a moved base, merge and `X` drop them after the teardown hook. They need trust like
+  hooks. Runner tests replace `docker.Binary` with a fake docker script (`fakeDocker` in `helpers_test.go`).
 
 ### Paths
 
@@ -94,7 +99,7 @@ logs in `~/.local/state/lazydev/runs/<id>/`, worktrees in `~/.local/share/lazyde
 - Runner tests run `runner.Run` in the foreground against temporary repos with a fake `claude` script
   (`claude.Command`). It recognizes the step by the header `# lazydev <step>:` in `$2`. To test new runner
   scenarios, extend that script. No test spawns a detached runner.
-- Tests with hooks or allowed tools in `.lazydev/config.yaml` trust the hash with `state.Trust`.
+- Tests with hooks, allowed tools or databases in `.lazydev/config.yaml` trust the hash with `state.Trust`.
 
 ## Conventions
 

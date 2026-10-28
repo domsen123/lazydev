@@ -22,6 +22,9 @@ const (
 	labelService    = "com.docker.compose.service"
 )
 
+// Binary is the docker command. Tests replace it with a fake.
+var Binary = "docker"
+
 // composeFiles are the file names docker compose finds without -f.
 var composeFiles = []string{"compose.yaml", "compose.yml", "docker-compose.yaml", "docker-compose.yml"}
 
@@ -114,7 +117,7 @@ func Load(paths []string, known map[string][]string) Info {
 	for _, p := range paths {
 		if s, ok := known[p]; ok {
 			info.Services[p] = s
-		} else if hasCompose(p) {
+		} else if HasCompose(p) {
 			info.Services[p], _ = composeServices(p)
 		}
 	}
@@ -123,7 +126,7 @@ func Load(paths []string, known map[string][]string) Info {
 
 // all lists all containers, stopped ones too.
 func all() ([]Container, error) {
-	cmd := exec.Command("docker", "ps", "-a", "--no-trunc", "--format", "{{json .}}")
+	cmd := exec.Command(Binary, "ps", "-a", "--no-trunc", "--format", "{{json .}}")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
@@ -147,7 +150,8 @@ func all() ([]Container, error) {
 	return list, nil
 }
 
-func hasCompose(dir string) bool {
+// HasCompose is true if dir has a compose file that docker compose finds without -f.
+func HasCompose(dir string) bool {
 	for _, f := range composeFiles {
 		if _, err := os.Stat(filepath.Join(dir, f)); err == nil {
 			return true
@@ -158,7 +162,7 @@ func hasCompose(dir string) bool {
 
 // composeServices lists the services of the compose file in dir in file order.
 func composeServices(dir string) ([]string, error) {
-	cmd := exec.Command("docker", "compose", "config", "--services")
+	cmd := exec.Command(Binary, "compose", "config", "--services")
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
@@ -169,7 +173,7 @@ func composeServices(dir string) ([]string, error) {
 
 // Events reports every container change until ctx ends. It returns nil without docker.
 func Events(ctx context.Context) <-chan struct{} {
-	cmd := exec.CommandContext(ctx, "docker", "events", "--format", "{{json .}}", "--filter", "type=container")
+	cmd := exec.CommandContext(ctx, Binary, "events", "--format", "{{json .}}", "--filter", "type=container")
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
 		return nil

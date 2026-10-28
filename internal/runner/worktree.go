@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 
+	"lazydev/internal/database"
 	"lazydev/internal/devserver"
 	"lazydev/internal/fsutil"
 	"lazydev/internal/git"
@@ -88,8 +89,8 @@ func portFree(port int) bool {
 	return true
 }
 
-// setup is repeatable: an existing worktree and an already moved PRD stay.
-func setup(t Target, r *state.Run, log *logger) error {
+// setup is repeatable: an existing worktree, an already moved PRD and existing databases stay.
+func setup(t Target, prdName string, r *state.Run, log *logger) error {
 	if fsutil.Exists(r.Worktree) {
 		log.printf("Worktree %s exists already", r.Worktree)
 	} else {
@@ -109,7 +110,74 @@ func setup(t Target, r *state.Run, log *logger) error {
 			return err
 		}
 	}
+	if err := prepareDatabases(t, prdName, r, log); err != nil {
+		return err
+	}
 	return runHook(t, r, log, "setup")
+}
+
+// databaseEntries reads databases of config.yaml again, like runHook, so a list changed during a
+// run does nothing without trust. what names the action for the trust error.
+func databaseEntries(t Target, what string) ([]repo.Database, error) {
+	info := repo.Read(t.Dir, t.ID)
+	if info.Err != nil {
+		return nil, info.Err
+	}
+	dbs := info.Config.Databases
+	if len(dbs) > 0 && info.Trust == repo.TrustPending {
+		return nil, fmt.Errorf("databases not %s, databases in %s/config.yaml are not trusted", what, repo.Dir)
+	}
+	return dbs, nil
+}
+
+// prepareDatabases writes the env files of the worktree and creates its databases.
+func prepareDatabases(t Target, prdName string, r *state.Run, log *logger) error {
+	dbs, err := databaseEntries(t, "created")
+	if err != nil || len(dbs) == 0 {
+		return err
+	}
+	created, err := database.Prepare(t.Dir, r.Worktree, r.Slug, dbs, log.printf)
+	if err != nil {
+		return err
+	}
+	r.Databases = created
+	return state.Save(t.ID, prdName, r)
+}
+
+// recreateDatabases drops and creates the databases of the worktree again and runs the setup
+// hook, so the migrations run on the rebased code.
+func recreateDatabases(t Target, prdName string, r *state.Run, log *logger) error {
+	dbs, err := databaseEntries(t, "recreated")
+	if err != nil {
+		return err
+	}
+	log.printf("%s moved, recreating databases", r.Base)
+	created, err := database.Recreate(t.Dir, r.Worktree, r.Slug, dbs, log.printf)
+	if err != nil {
+		return err
+	}
+	r.Databases = created
+	if err := state.Save(t.ID, prdName, r); err != nil {
+		return err
+	}
+	return runHook(t, r, log, "setup")
+}
+
+// dropDatabases drops the databases of the run, without run state those of config.yaml. A stopped
+// service keeps its database.
+func dropDatabases(t Target, r *state.Run, log *logger) error {
+	info := repo.Read(t.Dir, t.ID)
+	if info.Err != nil {
+		return info.Err
+	}
+	dbs := info.Config.Databases
+	switch {
+	case len(r.Databases) == 0 && len(dbs) == 0:
+		return nil
+	case info.Trust == repo.TrustPending:
+		return fmt.Errorf("databases not dropped, databases in %s/config.yaml are not trusted", repo.Dir)
+	}
+	return database.DropAll(t.Dir, r.Slug, r.Databases, dbs, log.printf)
 }
 
 // movePRD moves an untracked PRD from the main folder into the worktree and commits it there. The

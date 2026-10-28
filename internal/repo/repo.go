@@ -14,6 +14,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
@@ -52,6 +54,22 @@ type Hooks struct {
 	Dev string `yaml:"dev,omitempty"`
 }
 
+// Database is a Postgres database per worktree: the setup creates an empty database
+// "<base name>_<slug>" in the compose service and writes its name into the env file of the worktree.
+type Database struct {
+	Service string `yaml:"service"`
+	// Compose is the compose file relative to the main folder, empty for the default file.
+	Compose string      `yaml:"compose,omitempty"`
+	Env     DatabaseEnv `yaml:"env"`
+}
+
+// DatabaseEnv names the env file, relative to the main folder, and the key holding the database
+// name or URL.
+type DatabaseEnv struct {
+	File string `yaml:"file"`
+	Key  string `yaml:"key"`
+}
+
 // Config is .lazydev/config.yaml. Unknown fields, like the preset of the old lazydev, are ignored.
 type Config struct {
 	BaseBranch string `yaml:"baseBranch,omitempty"`
@@ -59,6 +77,7 @@ type Config struct {
 	Knowledge    map[string][]string `yaml:"knowledge,omitempty"`
 	AllowedTools []string            `yaml:"allowedTools,omitempty"`
 	Hooks        Hooks               `yaml:"hooks,omitempty"`
+	Databases    []Database          `yaml:"databases,omitempty"`
 }
 
 // Base is BaseBranch, DefaultBaseBranch without one.
@@ -69,19 +88,37 @@ func (c Config) Base() string {
 	return c.BaseBranch
 }
 
-// trusted are the sections that run code or widen Claude's rights.
+// trusted are the sections that run code, widen Claude's rights or create and drop databases.
 type trusted struct {
-	AllowedTools []string `yaml:"allowedTools,omitempty"`
-	Hooks        Hooks    `yaml:"hooks,omitempty"`
+	AllowedTools []string   `yaml:"allowedTools,omitempty"`
+	Hooks        Hooks      `yaml:"hooks,omitempty"`
+	Databases    []Database `yaml:"databases,omitempty"`
 }
 
-// TrustSections are allowedTools and hooks as YAML, empty without both.
+// TrustSections are allowedTools, hooks and databases as YAML, empty without all three.
 func (c Config) TrustSections() string {
-	if len(c.AllowedTools) == 0 && c.Hooks == (Hooks{}) {
+	if len(c.AllowedTools) == 0 && c.Hooks == (Hooks{}) && len(c.Databases) == 0 {
 		return ""
 	}
-	data, _ := yaml.Marshal(trusted{AllowedTools: c.AllowedTools, Hooks: c.Hooks})
+	data, _ := yaml.Marshal(trusted{AllowedTools: c.AllowedTools, Hooks: c.Hooks, Databases: c.Databases})
 	return string(data)
+}
+
+// validateDatabases checks the required fields and paths of databases.
+func validateDatabases(dbs []Database) error {
+	for i, db := range dbs {
+		for _, f := range []struct{ name, value string }{{"service", db.Service}, {"env.file", db.Env.File}, {"env.key", db.Env.Key}} {
+			if f.value == "" {
+				return fmt.Errorf("config.yaml: databases[%d]: %s missing", i, f.name)
+			}
+		}
+		for _, f := range []struct{ name, value string }{{"compose", db.Compose}, {"env.file", db.Env.File}} {
+			if f.value != "" && (!filepath.IsLocal(f.value) || slices.Contains(strings.Split(f.value, "/"), "..")) {
+				return fmt.Errorf("config.yaml: databases[%d]: %s must be a relative path inside the project", i, f.name)
+			}
+		}
+	}
+	return nil
 }
 
 // TrustHash is the SHA-256 over TrustSections. Comments and other fields do not change it.
@@ -94,7 +131,8 @@ func (c Config) TrustHash() string {
 	return hex.EncodeToString(sum[:])
 }
 
-// TrustState says whether the runner may start hooks and allowed tools of config.yaml.
+// TrustState says whether the runner may start hooks, allowed tools and databases of
+// config.yaml.
 type TrustState int
 
 const (
@@ -136,6 +174,10 @@ func Read(dir, id string) Info {
 	info.Initialized = true
 	if err := yaml.Unmarshal(data, &info.Config); err != nil {
 		info.Err = fmt.Errorf("config.yaml: %w", err)
+		return info
+	}
+	if err := validateDatabases(info.Config.Databases); err != nil {
+		info.Err = err
 		return info
 	}
 	if hash := info.Config.TrustHash(); hash != "" {

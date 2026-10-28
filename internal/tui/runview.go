@@ -177,8 +177,8 @@ func (m model) selectedTarget() runner.Target {
 	return runner.Target{ID: projectIDs(m.projects)[m.selected], Dir: m.current().path}
 }
 
-// startPRD starts or continues the PRD called name. Untrusted hooks or allowed tools need a yes
-// first.
+// startPRD starts or continues the PRD called name. Untrusted hooks, allowed tools or databases
+// need a yes first.
 func (m *model) startPRD(name string) tea.Cmd {
 	p := m.current()
 	d, r := p.prdNamed(name), p.runs[name]
@@ -236,7 +236,8 @@ func (m *model) startPRD(name string) tea.Cmd {
 	return nil
 }
 
-// trustSummary names what config.yaml lets run: the hook scripts and the number of allowed tools.
+// trustSummary names what config.yaml lets run: the hook scripts, the number of allowed tools and
+// the number of databases.
 func trustSummary(r repo.Config) string {
 	var parts []string
 	for _, h := range []struct{ name, script string }{{"setup", r.Hooks.Setup}, {"teardown", r.Hooks.Teardown}, {"check", r.Hooks.Check}, {"dev", r.Hooks.Dev}} {
@@ -246,6 +247,9 @@ func trustSummary(r repo.Config) string {
 	}
 	if n := len(r.AllowedTools); n > 0 {
 		parts = append(parts, fmt.Sprintf("%d allowed tools", n))
+	}
+	if n := len(r.Databases); n > 0 {
+		parts = append(parts, fmt.Sprintf("%d databases", n))
 	}
 	return strings.Join(parts, ", ")
 }

@@ -72,6 +72,9 @@ func merge(ctx context.Context, t Target, prdName string, r *state.Run, log *log
 	if err := runHook(t, r, log, "teardown"); err != nil {
 		errs = append(errs, err)
 	}
+	if err := dropDatabases(t, r, log); err != nil {
+		errs = append(errs, err)
+	}
 	log.printf("Removing worktree %s and branch %s", r.Worktree, r.Branch)
 	if err := removeWorktree(t.Dir, r.Worktree, r.Branch, false); err != nil {
 		errs = append(errs, err)
@@ -84,8 +87,10 @@ func merge(ctx context.Context, t Target, prdName string, r *state.Run, log *log
 }
 
 // rebaseAndCheck brings the branch onto the base branch and runs the check hook. A conflict or a
-// red check goes to the Claude step merge.
+// red check goes to the Claude step merge. If the base branch moved, the databases of the worktree
+// get created again before the check, so the migrations of the base branch apply.
 func rebaseAndCheck(ctx context.Context, t Target, prdName string, r *state.Run, log *logger) error {
+	_, onBase := git.Run(r.Worktree, "merge-base", "--is-ancestor", r.Base, "HEAD")
 	log.printf("$ git rebase %s", r.Base)
 	if _, err := git.Run(r.Worktree, "rebase", r.Base); err != nil {
 		log.printf("Conflict in the rebase: %v", err)
@@ -94,6 +99,17 @@ func rebaseAndCheck(ctx context.Context, t Target, prdName string, r *state.Run,
 		}
 		if err := mergeClaude(ctx, t, prdName, r, "", log); err != nil {
 			return err
+		}
+	}
+	if onBase != nil {
+		cfg, err := t.Repo()
+		if err != nil {
+			return err
+		}
+		if len(cfg.Databases) > 0 {
+			if err := recreateDatabases(t, prdName, r, log); err != nil {
+				return err
+			}
 		}
 	}
 	if err := runHook(t, r, log, "check"); err != nil {

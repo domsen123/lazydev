@@ -16,14 +16,15 @@ import (
 )
 
 // The wizard edits .lazydev/ of the selected project: base branch, knowledge files, steps per file,
-// prompts and a summary. Adding a project creates .lazydev/, and the wizard brings back missing
-// files. It writes baseBranch and knowledge only and keeps other fields, order and comments of
-// config.yaml.
+// databases, prompts and a summary. Adding a project creates .lazydev/, and the wizard brings back
+// missing files. It writes baseBranch, knowledge and databases only and keeps other fields, order
+// and comments of config.yaml.
 
 const (
 	pageBranch = iota
 	pageKnowledge
 	pageSteps
+	pageDatabases
 	pagePrompts
 	pageSummary
 	wizardPages
@@ -57,6 +58,15 @@ type wizard struct {
 	stepCursor int
 	// untracked are files from knowledge that are no candidates.
 	untracked map[string]bool
+
+	// databases are the entries in the order they were added, dbServices the rows of services.
+	databases  []repo.Database
+	dbServices []dbService
+	dbCursor   int
+	// dbMessage explains a missing compose file, a broken one or one without Postgres service.
+	dbMessage string
+	// dbPick is the open choice of env file or key, nil without one.
+	dbPick *dbPick
 
 	// prompts is true per step whose .lazydev/<step>.md exists.
 	prompts      []bool
@@ -131,6 +141,7 @@ func newWizard(dir string, cfg repo.Config) *wizard {
 			}
 		}
 	}
+	w.loadDatabases(cfg.Databases)
 	w.refreshPrompts()
 	return w
 }
@@ -193,7 +204,7 @@ func (w *wizard) promptPath(step string) string {
 	return repo.PromptPath(w.path, step)
 }
 
-// lastChoicePage is the page before the prompts: steps if files are marked, otherwise knowledge.
+// lastChoicePage is the page before the databases: steps if files are marked, otherwise knowledge.
 func (w *wizard) lastChoicePage() int {
 	if len(w.markedFiles()) > 0 {
 		return pageSteps
@@ -210,6 +221,11 @@ func (m model) updateWizard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		if key == "y" || key == "j" {
 			m.writePrompt(repo.Steps[w.promptCursor])
 		}
+		return m, nil
+	}
+	if w.dbPick != nil && key == "esc" {
+		// esc in a choice goes back to the list without a change.
+		w.dbPick = nil
 		return m, nil
 	}
 	if key == "esc" || key == "ctrl+c" {
@@ -238,7 +254,7 @@ func (m model) updateWizard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		case "enter":
 			w.stepCursor = 0
-			w.page = pagePrompts
+			w.page = pageDatabases
 			if len(w.markedFiles()) > 0 {
 				w.page = pageSteps
 			}
@@ -256,10 +272,12 @@ func (m model) updateWizard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			s := w.steps[marked[w.stepCursor]]
 			s[key[0]-'1'] = !s[key[0]-'1']
 		case "enter":
-			w.page = pagePrompts
+			w.page = pageDatabases
 		case "backspace":
 			w.page = pageKnowledge
 		}
+	case pageDatabases:
+		m.updateDatabasesPage(key)
 	case pagePrompts:
 		w.refreshPrompts()
 		switch key {
@@ -280,11 +298,11 @@ func (m model) updateWizard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// .lazydev/ may be gone since the wizard opened. Init brings it back first.
 			w.err = repo.Init(w.path)
 			if w.err == nil {
-				w.preview, w.changed, w.err = repo.Settings(w.path, w.selectedBranch(), w.knowledge())
+				w.preview, w.changed, w.err = repo.Settings(w.path, w.selectedBranch(), w.knowledge(), w.databaseList())
 			}
 			w.page = pageSummary
 		case "backspace":
-			w.page = w.lastChoicePage()
+			w.page = pageDatabases
 		}
 	case pageSummary:
 		switch key {
@@ -416,6 +434,47 @@ func (m model) viewWizard() string {
 			}
 			lines = append(lines, line(i == w.stepCursor, pad(f, fileW)+"  "+strings.Join(fields, " ")))
 		}
+	case pageDatabases:
+		heading(pageDatabases, "Databases", "Each worktree gets an empty database. Migrate in the setup hook.")
+		if p := w.dbPick; p != nil {
+			title := "Env file for " + w.dbServices[p.service].name
+			if p.file != "" {
+				title = "Key in " + p.file
+			}
+			lines = append(lines, text.Render(title))
+			if len(p.options) == 0 {
+				lines = append(lines, muted.Render("No keys in "+p.file+"."))
+			}
+			start, end := scrollWindow(p.cursor, len(p.options), wizardRows)
+			for i := start; i < end; i++ {
+				lines = append(lines, line(i == p.cursor, p.options[i]))
+			}
+			break
+		}
+		if w.dbMessage != "" {
+			for _, l := range strings.Split(ansi.Wrap(w.dbMessage, inner, ""), "\n") {
+				lines = append(lines, muted.Render(l))
+			}
+		}
+		nameW := 0
+		for _, s := range w.dbServices {
+			nameW = max(nameW, ansi.StringWidth(s.name))
+		}
+		rows := w.dbRows()
+		start, end := scrollWindow(w.dbCursor, len(rows), wizardRows)
+		for i := start; i < end; i++ {
+			r := rows[i]
+			s := w.dbServices[r.service]
+			label := pad(s.name, nameW) + "  " + s.image
+			switch {
+			case r.entry >= 0:
+				db := w.databases[r.entry]
+				label = "  → " + db.Env.File + " " + db.Env.Key
+			case s.missing:
+				label = s.name + " (not in compose file)"
+			}
+			lines = append(lines, line(i == w.dbCursor, label))
+		}
 	case pagePrompts:
 		heading(pagePrompts, "Prompts", "Edits apply right away. The workflow reads only these.")
 		for i, step := range repo.Steps {
@@ -460,6 +519,10 @@ func (w *wizard) keys() string {
 		return " j/k file · space mark · enter next · backspace back · esc cancel"
 	case w.page == pageSteps:
 		return " j/k file · 1-5 toggle step · enter next · backspace back · esc cancel"
+	case w.page == pageDatabases && w.dbPick != nil:
+		return " ↑↓ select · enter choose · esc back"
+	case w.page == pageDatabases:
+		return " ↑↓ select · a add · d remove · enter next · backspace back · esc cancel"
 	case w.page == pagePrompts:
 		return " j/k prompt · o edit · r reset to simple workflow · enter next · backspace back · esc cancel"
 	}

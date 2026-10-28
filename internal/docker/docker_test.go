@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -123,12 +124,108 @@ func TestProjectServicesStoppedContainer(t *testing.T) {
 
 func TestHasCompose(t *testing.T) {
 	dir := t.TempDir()
-	if hasCompose(dir) {
+	if HasCompose(dir) {
 		t.Error("compose file found in empty folder")
 	}
 	os.WriteFile(filepath.Join(dir, "docker-compose.yml"), nil, 0o644)
-	if !hasCompose(dir) {
+	if !HasCompose(dir) {
 		t.Error("docker-compose.yml not found")
+	}
+}
+
+func TestIsPostgres(t *testing.T) {
+	for image, want := range map[string]bool{
+		"postgres":                             true,
+		"postgres:16-alpine":                   true,
+		"docker.io/library/postgres:16":        true,
+		"library/postgres":                     true,
+		"postgis/postgis:16-3.4":               true,
+		"pgvector/pgvector:pg16":               true,
+		"timescale/timescaledb:latest-pg16":    true,
+		"ghcr.io/acme/postgres@sha256:abc":     true,
+		"localhost:5000/postgres:16":           true,
+		"bitnami/postgresql:16":                false,
+		"redis:7":                              false,
+		"mysql":                                false,
+		"postgres-exporter":                    false,
+		"":                                     false,
+		"registry.example.com:5000/x/pgvector": true,
+	} {
+		if got := IsPostgres(ComposeService{Image: image}); got != want {
+			t.Errorf("IsPostgres(%q) = %v, want %v", image, got, want)
+		}
+	}
+	if !IsPostgres(ComposeService{Image: "custom/db", Environment: map[string]string{"POSTGRES_PASSWORD": ""}}) {
+		t.Error("POSTGRES_ variable not recognized")
+	}
+	if IsPostgres(ComposeService{Image: "custom/db", Environment: map[string]string{"PGDATA": "/d"}}) {
+		t.Error("custom/db without POSTGRES_ recognized")
+	}
+}
+
+func TestParseComposeConfig(t *testing.T) {
+	data := `{"name":"app","services":{
+		"db":{"image":"postgres:16","environment":{"POSTGRES_USER":"app","POSTGRES_PASSWORD":null}},
+		"web":{"build":{"context":"."},"ports":[{"target":3000}]}
+	}}`
+	got, err := parseComposeConfig([]byte(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if db := got["db"]; db.Image != "postgres:16" || db.Environment["POSTGRES_USER"] != "app" || db.Environment["POSTGRES_PASSWORD"] != "" || len(db.Environment) != 2 {
+		t.Errorf("db = %+v", db)
+	}
+	if web, ok := got["web"]; !ok || web.Image != "" || len(web.Environment) != 0 {
+		t.Errorf("web = %+v", web)
+	}
+	if _, err := parseComposeConfig([]byte("services: x")); err == nil {
+		t.Error("no error for broken JSON")
+	}
+}
+
+// fakeDocker answers ps with one running container of /p and records its arguments.
+const fakeDocker = `#!/bin/sh
+printf '%s\n' "$*" >> "$FAKE_DOCKER_ARGS"
+case "$1" in
+ps) echo '{"Names":"p-db-1","State":"running","Labels":"com.docker.compose.service=db,com.docker.compose.project.working_dir=/p"}'
+	echo '{"Names":"p-old-1","State":"exited","Labels":"com.docker.compose.service=old,com.docker.compose.project.working_dir=/p"}' ;;
+exec) shift 2; [ "$1" = fail ] && { echo "boom" >&2; echo "second" >&2; exit 1; }; echo "out $*" ;;
+compose) echo '{"services":{"db":{"image":"postgres"}}}' ;;
+esac
+`
+
+func TestFakeBinary(t *testing.T) {
+	dir := t.TempDir()
+	fake := filepath.Join(dir, "docker")
+	os.WriteFile(fake, []byte(fakeDocker), 0o755)
+	t.Setenv("FAKE_DOCKER_ARGS", filepath.Join(dir, "args"))
+	old := Binary
+	Binary = fake
+	t.Cleanup(func() { Binary = old })
+
+	if name, ok, err := RunningContainer("/p", "db"); err != nil || !ok || name != "p-db-1" {
+		t.Errorf("RunningContainer(db) = %q, %v, %v", name, ok, err)
+	}
+	for _, tc := range []struct{ dir, service string }{{"/p", "old"}, {"/q", "db"}, {"/p", "web"}} {
+		if _, ok, err := RunningContainer(tc.dir, tc.service); err != nil || ok {
+			t.Errorf("RunningContainer(%s, %s) = %v, %v", tc.dir, tc.service, ok, err)
+		}
+	}
+	if out, err := Exec("p-db-1", "psql", "-c", "x"); err != nil || out != "out psql -c x\n" {
+		t.Errorf("Exec = %q, %v", out, err)
+	}
+	if _, err := Exec("p-db-1", "fail"); err == nil || err.Error() != "docker exec: boom" {
+		t.Errorf("Exec error = %v", err)
+	}
+	if err := Up(t.TempDir(), "dev.yml", "db"); err != nil {
+		t.Error(err)
+	}
+	if s, err := ComposeConfig(t.TempDir(), ""); err != nil || s["db"].Image != "postgres" {
+		t.Errorf("ComposeConfig = %+v, %v", s, err)
+	}
+	data, _ := os.ReadFile(filepath.Join(dir, "args"))
+	if !strings.Contains(string(data), "compose -f dev.yml up -d db\n") || !strings.Contains(string(data), "compose config --format json\n") {
+		t.Errorf("args:\n%s", data)
 	}
 }
 

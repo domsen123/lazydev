@@ -127,7 +127,7 @@ func TestSettings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := settingsDir(t, tt.in)
-			out, changed, err := Settings(dir, tt.base, tt.knowledge)
+			out, changed, err := Settings(dir, tt.base, tt.knowledge, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -170,7 +170,7 @@ extra:
   nested: true
 `
 	dir := settingsDir(t, in)
-	out, changed, err := Settings(dir, "next", map[string][]string{"all": {"CLAUDE.md"}, "implement": {"docs/db.md"}})
+	out, changed, err := Settings(dir, "next", map[string][]string{"all": {"CLAUDE.md"}, "implement": {"docs/db.md"}}, nil)
 	if err != nil || !changed {
 		t.Fatalf("Settings = %v, %v", changed, err)
 	}
@@ -192,14 +192,57 @@ extra:
 	}
 }
 
+func TestSettingsDatabases(t *testing.T) {
+	db := Database{Service: "db", Env: DatabaseEnv{File: ".env", Key: "DATABASE_URL"}}
+	test := Database{Service: "db-test", Compose: "docker-compose.dev.yml", Env: DatabaseEnv{File: ".env.test", Key: "DB_NAME"}}
+	in := "# lazydev\nhooks:\n  # migrate\n  setup: ./setup.sh\n"
+
+	// Add: the list goes to the end, comments and hooks stay.
+	dir := settingsDir(t, in)
+	out, changed, err := Settings(dir, "main", nil, []Database{db, test})
+	if err != nil || !changed {
+		t.Fatalf("Settings = %v, %v", changed, err)
+	}
+	want := in + "databases:\n  - service: db\n    env:\n      file: .env\n      key: DATABASE_URL\n" +
+		"  - service: db-test\n    compose: docker-compose.dev.yml\n    env:\n      file: .env.test\n      key: DB_NAME\n"
+	if string(out) != want {
+		t.Errorf("add =\n%s\nwant\n%s", out, want)
+	}
+
+	// Unchanged: no write, the file keeps its formatting.
+	same := "# lazydev\ndatabases: # per worktree\n  - {service: db, env: {file: .env, key: DATABASE_URL}}\nhooks:\n  setup: ./setup.sh\n"
+	dir = settingsDir(t, same)
+	if out, changed, err := Settings(dir, "main", nil, []Database{db}); err != nil || changed || string(out) != same {
+		t.Errorf("unchanged = %q, %v, %v", out, changed, err)
+	}
+
+	// Remove: an empty list deletes the key, hooks and comments stay.
+	if out, changed, err := Settings(dir, "main", nil, nil); err != nil || !changed || string(out) != "# lazydev\nhooks:\n  setup: ./setup.sh\n" {
+		t.Errorf("remove = %q, %v, %v", out, changed, err)
+	}
+
+	// Replace in place, in the order given.
+	if out, changed, err := Settings(dir, "main", nil, []Database{test, db}); err != nil || !changed {
+		t.Errorf("replace = %v, %v", changed, err)
+	} else {
+		var c Config
+		if err := yaml.Unmarshal(out, &c); err != nil || len(c.Databases) != 2 || c.Databases[0] != test || c.Databases[1] != db || c.Hooks.Setup != "./setup.sh" {
+			t.Errorf("replace reads as %+v, %v:\n%s", c, err, out)
+		}
+		if !strings.Contains(string(out), "# lazydev\ndatabases:") {
+			t.Errorf("replace moved the key:\n%s", out)
+		}
+	}
+}
+
 func TestSettingsErrors(t *testing.T) {
 	setupEnv(t)
-	if _, _, err := Settings(t.TempDir(), "main", nil); err == nil {
+	if _, _, err := Settings(t.TempDir(), "main", nil, nil); err == nil {
 		t.Error("no error without config.yaml")
 	}
-	for _, in := range []string{"baseBranch: [x\n", "- a\n- b\n", "plain\n", "knowledge: [a.md]\n"} {
+	for _, in := range []string{"baseBranch: [x\n", "- a\n- b\n", "plain\n", "knowledge: [a.md]\n", "databases: db\n"} {
 		dir := settingsDir(t, in)
-		if _, _, err := Settings(dir, "develop", map[string][]string{"all": {"a.md"}}); err == nil || !strings.Contains(err.Error(), "config.yaml") {
+		if _, _, err := Settings(dir, "develop", map[string][]string{"all": {"a.md"}}, nil); err == nil || !strings.Contains(err.Error(), "config.yaml") {
 			t.Errorf("Settings(%q) error = %v", in, err)
 		}
 	}

@@ -28,7 +28,7 @@ const usage = `Usage:
   lazydev start <project> <prd>            start or continue the runner of a PRD in the background
   lazydev stop <project> <prd>             stop the runner, the worktree stays
   lazydev discard [--yes] <project> <prd>  throw away the run: worktree, branch and its commits
-  lazydev trust <project>                  check and trust hooks and allowed tools of .lazydev/config.yaml
+  lazydev trust <project>                  check and trust hooks, allowed tools and databases of .lazydev/config.yaml
   lazydev update                           install the newest release over this binary
   lazydev prompt create [<description>]    print the create prompt of the project in the current folder
   lazydev skill install                    install the Claude Code skill lazydev into ~/.claude/skills/
@@ -222,7 +222,8 @@ func promptCreate(args []string) error {
 	return nil
 }
 
-// trust shows hooks and allowed tools of .lazydev/config.yaml and saves their hash after "y".
+// trust shows hooks, allowed tools and databases of .lazydev/config.yaml and saves their hash
+// after "y".
 func trust(idOrPath string) error {
 	t, err := runner.Find(idOrPath)
 	if err != nil {
@@ -234,10 +235,10 @@ func trust(idOrPath string) error {
 	}
 	hash := info.Config.TrustHash()
 	if hash == "" {
-		fmt.Printf("%s sets no hooks or allowed tools in %s/config.yaml, nothing to trust.\n", t.ID, repo.Dir)
+		fmt.Printf("%s sets no hooks, allowed tools or databases in %s/config.yaml, nothing to trust.\n", t.ID, repo.Dir)
 		return nil
 	}
-	fmt.Printf("%s/config.yaml of %s sets hooks or allowed tools:\n\n%s\n", repo.Dir, t.ID, info.Config.TrustSections())
+	fmt.Printf("%s/config.yaml of %s sets hooks, allowed tools or databases:\n\n%s\n", repo.Dir, t.ID, info.Config.TrustSections())
 	if !confirm("Trust them? (y/n) ") {
 		fmt.Println("Cancelled.")
 		return nil

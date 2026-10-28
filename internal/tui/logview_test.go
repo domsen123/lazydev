@@ -170,6 +170,35 @@ func TestOpenLogFocusesExisting(t *testing.T) {
 	checkSize(t, m.View(), 160, 40)
 }
 
+func TestLogViewHeaderDatabases(t *testing.T) {
+	lv := newLogView(1, "p", "checkout")
+	lv.ctx.run = &state.Run{Branch: "feat/checkout", Base: "main", Port: 3500, Phase: project.PhaseImplement}
+	lv.Resize(120, 12)
+	header := func() []string {
+		var out []string
+		for _, l := range lv.headerLines(lv.theme()) {
+			out = append(out, ansi.Strip(l))
+		}
+		return out
+	}
+	// Without databases the header has no databases line.
+	for _, l := range header() {
+		if strings.Contains(l, "databases") {
+			t.Errorf("databases line without databases: %q", l)
+		}
+	}
+	lv.ctx.run.Databases = []state.Database{{Service: "db", Name: "app_checkout"}, {Service: "db-test", Name: "app_test_checkout"}}
+	got := header()
+	if !strings.Contains(got[0], "branch feat/checkout → main") || got[1] != " databases app_checkout (db) · app_test_checkout (db-test)" {
+		t.Errorf("header: %q", got)
+	}
+	// Folded, the header stays one line.
+	lv.update("z")
+	if got := header(); len(got) != 1 || strings.Contains(got[0], "databases") {
+		t.Errorf("folded header: %q", got)
+	}
+}
+
 func TestLogTabClosesOnMergeAndDiscard(t *testing.T) {
 	for _, tc := range []struct {
 		name string

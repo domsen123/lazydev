@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"lazydev/internal/claude"
+	"lazydev/internal/docker"
 	"lazydev/internal/repo"
 	"lazydev/internal/state"
 )
@@ -103,6 +104,56 @@ case "$2" in
 esac
 `
 
+// fakeDockerScript imitates docker with files in $FAKE_DOCKER: up/<service> holds the working dir
+// of a running container c-<service>, dbs/<container>/<name> a database. calls logs every call.
+// It answers ps, compose config --format json, compose up, exec pg_isready, exec psql (existence),
+// createdb and dropdb.
+const fakeDockerScript = `#!/bin/sh
+d="$FAKE_DOCKER"
+printf '%s\n' "$*" >> "$d/calls"
+case "$1" in
+ps)
+	for f in "$d"/up/*; do
+		[ -f "$f" ] || continue
+		s=$(basename "$f")
+		printf '{"Names":"c-%s","State":"running","Labels":"com.docker.compose.service=%s,com.docker.compose.project.working_dir=%s"}\n' "$s" "$s" "$(cat "$f")"
+	done ;;
+compose)
+	shift
+	wd="$PWD"
+	if [ "$1" = -f ]; then wd=$(cd "$(dirname "$2")" && pwd); shift 2; fi
+	case "$1" in
+	config) echo '{"services":{"db":{"image":"postgres:16","environment":{"POSTGRES_USER":"app"}}}}' ;;
+	up) eval s=\${$#}; mkdir -p "$d/up"; printf '%s' "$wd" > "$d/up/$s" ;;
+	esac ;;
+exec)
+	c="$2"; shift 2
+	eval last=\${$#}
+	mkdir -p "$d/dbs/$c"
+	case "$1" in
+	pg_isready) exit 0 ;;
+	psql) n=$(printf '%s' "$last" | sed "s/.*datname = '\(.*\)'\$/\1/"); [ -f "$d/dbs/$c/$n" ] && echo 1; exit 0 ;;
+	createdb) touch "$d/dbs/$c/$last" ;;
+	dropdb) rm -f "$d/dbs/$c/$last" ;;
+	esac ;;
+esac
+`
+
+// fakeDocker replaces docker.Binary with fakeDockerScript and returns its state folder.
+func fakeDocker(t *testing.T) string {
+	t.Helper()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "docker")
+	if err := os.WriteFile(bin, []byte(fakeDockerScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_DOCKER", dir)
+	old := docker.Binary
+	docker.Binary = bin
+	t.Cleanup(func() { docker.Binary = old })
+	return dir
+}
+
 // isolate points state, data and config at temporary folders, sets the git identity and replaces
 // claude with the fake. Runners never spawn: Executable fails.
 func isolate(t *testing.T) {
@@ -140,7 +191,7 @@ func newProject(t *testing.T, configYAML string, trust bool) Target {
 	isolate(t)
 	dir := filepath.Join(t.TempDir(), "app")
 	write(t, dir, "CLAUDE.md", "# app\n")
-	write(t, dir, ".gitignore", "hooks.log\n.checked\n")
+	write(t, dir, ".gitignore", "hooks.log\n.checked\n.env*\n")
 	for name, script := range map[string]string{"setup.sh": setupScript, "check.sh": checkScript, "teardown.sh": teardownScript} {
 		write(t, dir, name, script)
 		if err := os.Chmod(filepath.Join(dir, name), 0o755); err != nil {

@@ -48,7 +48,7 @@ Folder in the main folder of a project, versioned with it. Nothing can be overri
 
 | File | Content |
 |---|---|
-| `config.yaml` | `baseBranch` (default `main`), `knowledge`, `allowedTools`, `hooks` (`setup`, `teardown`, `check`, `dev`) |
+| `config.yaml` | `baseBranch` (default `main`), `knowledge`, `allowedTools`, `hooks` (`setup`, `teardown`, `check`, `dev`), `databases` (see Databases) |
 | `<step>.md` | Prompt of `create`, `implement`, `review`, `merge`, `unblock` |
 
 - Unknown fields in `config.yaml` are ignored, e.g. `preset` of older versions. Broken YAML is an error shown in
@@ -79,29 +79,63 @@ branch plus an optional error context. Prompts, contracts and PRD status values 
 
 ### Trust
 
-`hooks` and `allowedTools` run code or widen Claude's rights. Their SHA-256 over the YAML of just these two
-sections is trusted per project ID in `$XDG_STATE_HOME/lazydev/trust/<id>.json`. Comments and other fields do
-not change it. Without both sections there is nothing to trust. `s` on an untrusted project asks
-`.lazydev/config.yaml sets <hooks, n allowed tools>. Trust it and start <prd>? (y/n)`. `lazydev trust`
-prints both sections and asks. Runners check trust before every start and again before every hook, so a
-hook changed during a run does not run. `D` needs trust too. `X` on an untrusted project cleans up without
-the teardown hook and reports `teardown hook not run`.
+`hooks`, `allowedTools` and `databases` run code, widen Claude's rights or create and drop databases. Their
+SHA-256 over the YAML of just these three sections is trusted per project ID in
+`$XDG_STATE_HOME/lazydev/trust/<id>.json`. Comments and other fields do not change it. Without all three
+sections there is nothing to trust. `s` on an untrusted project asks
+`.lazydev/config.yaml sets <hooks, n allowed tools, n databases>. Trust it and start <prd>? (y/n)`, e.g.
+`.lazydev/config.yaml sets setup scripts/setup.sh, 2 databases. Trust it and start login-form? (y/n)`.
+`lazydev trust` prints the three sections and asks. Runners check trust before every start and again before
+every hook and every database action, so a hook or a database list changed during a run does not run. `D`
+needs trust too. `X` on an untrusted project cleans up without the teardown hook and reports
+`teardown hook not run`, drops no database and reports
+`databases not dropped, databases in .lazydev/config.yaml are not trusted`.
 
 `allowedTools` in `~/.config/lazydev/settings.json` belong to the user. They need no trust and are not part
 of the hash.
 
 ### Wizard (`i`)
 
-Pages: base branch (local branches without `feat/`) → knowledge files (tracked `.md` outside `prd/` and
-`.lazydev/`, `space` marks) → steps per file (`1`–`5` toggle create, implement, review, merge, unblock, new
-files get create and implement) → prompts (`o` opens one in the editor as a center tab and hides the wizard until the
-editor ends, `r` resets it to the simple workflow, an existing one after `y`) → summary with the resulting `config.yaml`, `enter`
-saves.
+Six pages, numbered `1/6` to `6/6`: base branch (local branches without `feat/`) → knowledge files (tracked
+`.md` outside `prd/` and `.lazydev/`, `space` marks) → steps per file (`1`–`5` toggle create, implement,
+review, merge, unblock, new files get create and implement) → databases (see below) → prompts (`o` opens one
+in the editor as a center tab and hides the wizard until the editor ends, `r` resets it to the simple
+workflow, an existing one after `y`) → summary with the resulting `config.yaml`, `enter` saves. Without
+marked knowledge files `enter` goes from knowledge straight to databases, and `backspace` on databases goes
+back to knowledge.
 
 - Without knowledge in `config.yaml`, `CLAUDE.md`, `ARCHITECTURE.md` and `_ARCHITECTURE.md` are preselected.
 - A file marked for all five steps goes under `all`.
-- Saving writes `baseBranch` (left out for `main`) and `knowledge` only and keeps other fields, order and
-  comments. No change means no write.
+- Saving writes `baseBranch` (left out for `main`), `knowledge` and `databases` only and keeps other fields,
+  order and comments. No change means no write. An unchanged `databases` stays untouched, an empty list
+  removes the key. A changed `databases` changes the trust hash, so the next `s` asks for trust.
+
+**Page Databases:** heading `Databases`, hint `Each worktree gets an empty database. Migrate in the setup
+hook.` When the wizard opens it reads `databases` of `config.yaml` and the services of the default compose
+file of the main folder plus every file from `compose` of the entries (`docker compose [-f <file>] config
+--format json`). A service is Postgres if its image name without registry and tag is `postgres` or ends in
+`/postgres`, `/postgis`, `/pgvector` or `/timescaledb` (e.g. `postgis/postgis`, `pgvector/pgvector`,
+`timescale/timescaledb`), or if its `environment` has a key starting with `POSTGRES_`.
+
+- Rows: each Postgres service as `<service>  <image>`, sorted by name, the default file first. Below a
+  service, indented, its entries as `→ <file> <key>`. Entries whose service no compose file has as Postgres
+  service show below their service with ` (not in compose file)` and stay. An entry found under a file from
+  `compose` keeps its `compose`, new entries of services of the default file get none.
+- Without compose file the page shows `No compose.yaml or docker-compose.yml in the main folder. Set
+  compose: in config.yaml for other files.`, without Postgres service `No Postgres service in the compose
+  file.`. If `docker compose config` cannot read a file, the page shows the first line of the error. `enter`
+  goes on in every case.
+- `a` on a service row opens the choice of the env file: all regular files in the main folder whose name
+  starts with `.env` and that git ignores, sorted. Without one the wizard shows the error `No ignored .env
+  file in the main folder.`. `enter` picks the file, then the choice of the key follows: all keys of the file,
+  first the ones whose name contains `DATABASE`, `DB_NAME` or `_URL` (any case), otherwise in file order.
+  `enter` adds the entry, `esc` in a choice goes back to the list without a change. An entry that exists
+  already (same service, file and key) is not added twice.
+- `d` on an entry row removes it from the wizard right away, saving happens in the summary.
+- Keys: `j`/`k` select, `a` add, `d` remove, `enter` next, `backspace` back, `esc` closes the wizard. Footer
+  ` ↑↓ select · a add · d remove · enter next · backspace back · esc cancel`, in a choice
+  ` ↑↓ select · enter choose · esc back`.
+- Saving writes the entries in the order of the page.
 
 ## PRDs
 
@@ -180,7 +214,8 @@ The native selection of the terminal works with Shift held while dragging.
   log tab, `s`, `x`, `X`, `D`, `f` act on the selected run like in the PRDs tab, `i` wizard, `z` zoom. Each project keeps
   its own cursor, which clamps when its run disappears. Without runs, and with the Files tab active, the
   pane shows the project (title `Project`): base branch, trust, prompts present/missing, hooks,
-  knowledge (file → steps), allowed tools. Tab `Docker`: compose services in file order plus other
+  databases (`<service> → <file> <key>` per entry, `–` without), knowledge (file → steps), allowed tools.
+  Its columns drop from the right too. Tab `Docker`: compose services in file order plus other
   containers of the project (label `com.docker.compose.project.working_dir`), with state, status, ports,
   image, age; `l` follows `docker logs -f --tail 200` in a tab. Docker refreshes on `docker events` and
   every 10 s.
@@ -209,7 +244,8 @@ Subagent entries indent by two spaces. Text wider than the tab wraps, words wide
 Following lines and wrapped parts indent to the text column.
 
 The header shows the run, unfolded when the tab opens: phase symbol and phase with queue position,
-`branch → base`, port, cost, dev server; then the steps with mark, duration and cost (`✓` done, `●` running,
+`branch → base`, port, cost, dev server; then, only when the run state has databases, the line
+`databases <name> (<service>) · <name> (<service>)`; then the steps with mark, duration and cost (`✓` done, `●` running,
 `✗` failed, `○` not started); then the error (phase error or blocked) or note in the warning color, and a
 separator. `z` folds it to
 one line: phase, current step with duration, cost.
@@ -428,7 +464,8 @@ Steps in order, each recorded in the run state:
 
 1. **setup:** `git worktree add -b feat/<prd> <worktree> <base>` (an existing worktree stays, an existing
    branch without worktree is an error). An untracked PRD moves into the worktree and gets committed as
-   `docs(prd): add <prd>`. Then the setup hook.
+   `docs(prd): add <prd>`. Then the databases (env files, containers, databases, see Databases), then the
+   setup hook.
 2. **implement:** Claude with the PRD path. Success requires `## Ergebnis` `umgesetzt` and the PRD status
    `umgesetzt (date)` in the worktree. `abgebrochen` with points under `## Offene Fragen` blocks the run (see
    Blocked runs), `abgebrochen` without them fails with `implement aborted`. `## Hinweise` holds remarks
@@ -438,13 +475,15 @@ Steps in order, each recorded in the run state:
    only uncommitted file in the worktree, commit it as `docs(prd): resolve blocker of <prd>`. Require a clean
    worktree, `git rebase <base>`; on conflict `rebase --abort` and Claude step merge (`bereit für
    Fast-Forward`, base must be an ancestor, worktree clean; `abgebrochen` with points under `## Offene Punkte`
-   blocks the run, without them it fails with `merge aborted`). Check hook; if red, Claude step merge with the
+   blocks the run, without them it fails with `merge aborted`). If the branch was not on the base branch
+   before the rebase and `databases` are configured, the databases get created again and the setup hook
+   runs again (see Databases). Check hook; if red, Claude step merge with the
    error as context and the check again. Cost and implement model go into the PRD status line, committed as
    `docs(prd): record cost of <prd>`. Wait while the main folder is not on the base branch or has changes
    outside untracked `prd/` files and `.lazydev/` (phase merge-queue, note `main folder: …`, checked every
    5 s). If the base branch moved during the wait, rebase and check again from `git rebase <base>`.
-   `git merge --ff-only feat/<prd>` in the main folder, teardown hook, `git worktree remove` and
-   `git branch -d`. Cleanup errors only become a note.
+   `git merge --ff-only feat/<prd>` in the main folder, teardown hook, dropping the databases,
+   `git worktree remove` and `git branch -d`. Cleanup errors only become a note `cleanup incomplete: …`.
 
 After implement, review and the Claude step merge, nothing under `.lazydev/` may differ from the base branch
 in the worktree. A Claude step succeeds only with exit code 0, a last `result` event without error and its
@@ -457,7 +496,8 @@ check. Merges always run automatically.
   waiting PRDs in start order.
 - Ports start at 3500, skipping ports of unmerged runs and ports something listens on (IPv4 and IPv6).
 - `x` stops a runner (phase aborted) or aborts a waiting PRD.
-- `X` asks, then stops the dev server, runs the teardown hook, puts a moved PRD back into the main folder with
+- `X` asks, then stops the dev server, runs the teardown hook, drops the databases (also without worktree,
+  errors go into the error list), puts a moved PRD back into the main folder with
   status `geplant` and without `## Blocker`, removes worktree and branch with force and deletes the run state
   and logs.
 
@@ -542,6 +582,78 @@ characters, at most 40 bytes.
 `D` starts `hooks.dev` detached in the worktree of a PRD with a run, with the hook variables and `PORT`, or
 stops it (SIGTERM to its group, SIGKILL after 5 s). Its log is `runs/<id>/<prd>.dev.log`. The merge and `X`
 stop it.
+
+### Databases
+
+`databases` in `config.yaml` gives every worktree its own empty Postgres database in a Docker Compose
+service. Only Postgres, no copy of the main database, no seeds. Migrations stay in the setup hook of the
+project, which runs after the creation and after every recreation. There are no new hook variables: hooks
+and the dev server read the name from the rewritten env file in the worktree.
+
+```yaml
+databases:
+  - service: db
+    env:
+      file: .env
+      key: DATABASE_URL
+  - service: db-test
+    compose: docker-compose.dev.yml
+    env:
+      file: .env.test
+      key: NUXT_DATABASE_NAME
+```
+
+- **Fields:** `service` (required), `compose` (optional, relative to the main folder), `env.file` (required,
+  relative to the main folder) and `env.key` (required). `repo.Read` checks every entry: a missing field is
+  the config error `config.yaml: databases[<i>]: <field> missing`, an absolute path or a path with `..` in
+  `compose` or `env.file` `config.yaml: databases[<i>]: <field> must be a relative path inside the project`.
+  Like broken YAML it shows in the details pane and runs refuse to start.
+- **Compose file:** without `compose` the default file `docker compose` finds in the main folder without
+  `-f` (`compose.yaml`, `compose.yml`, `docker-compose.yaml`, `docker-compose.yml`). With `compose` lazydev
+  runs `docker compose -f <compose>` in the main folder. lazydev looks for no other files by itself.
+- **User:** `POSTGRES_USER` of the `environment` of the service in `docker compose config --format json`,
+  `postgres` without it. lazydev needs no password, every command runs through `docker exec` in the
+  container.
+- **Container:** the running container with the labels `com.docker.compose.project.working_dir` equal to the
+  folder of the compose file (the main folder for the default file) and `com.docker.compose.service` equal to
+  `service`. If none runs (setup, recreation), lazydev runs `docker compose [-f <compose>] up -d <service>` in
+  the main folder and waits up to 60 s until `pg_isready -q -U <user>` succeeds in the container, otherwise
+  the error `postgres in service <service> not ready after 60s`.
+- **Name:** the base name is the value of `env.key` in `env.file` of the main folder. A value containing
+  `://` is a URL, its base name is its path without the leading `/`. Otherwise the whole value is the base
+  name. The database of the worktree is `<base name>_<slug>`, above 63 bytes the error
+  `database name <name> is longer than 63 bytes`.
+- **Env file:** every setup copies each file of `env.file` from the main folder into the worktree and
+  replaces the keys of all entries with this file, as `KEY="value"` with `"` escaped as `\"`. In a URL only
+  the path changes, scheme, user, password, host, port and query stay. A plain value gets replaced. All other
+  lines stay. The file gets mode `0600`. Errors: `<file> missing in the main folder`,
+  `<file>: <key> is not set` (missing or empty), `<file>: <key> has no database name` (URL without path), and
+  `<file> is not ignored by git, a worktree copy would dirty the worktree` if `git check-ignore -q` fails in
+  the worktree. The check runs before writing.
+- **Setup:** after the PRD moved and before the setup hook: env files, containers, databases. Without trust
+  the setup creates nothing and fails with `databases not created, databases in .lazydev/config.yaml are not
+  trusted`. An existing database stays (`Database <name> in <container> exists already`), so `s` goes on
+  after an error in the setup hook. Several entries with the same service and name create it once. The run
+  state saves the databases as `databases: [{service, name}]`.
+- **Recreation:** if the branch is not on the base branch before the rebase of the merge
+  (`git merge-base --is-ancestor <base> HEAD` fails), lazydev logs `<base> moved, recreating databases` after
+  the rebase and a Claude step merge, drops and creates every database of `databases` again, runs the setup
+  hook again, and only then the check hook. This applies to the rebase again after waiting for the main
+  folder too. Without `databases` nothing changes.
+- **Dropping:** after a merge after the teardown hook and before the worktree goes; an error becomes part of
+  `cleanup incomplete: …` and the merge stays successful. On `X` after the teardown hook, also without
+  worktree; errors go into the error list of the discard. lazydev drops the databases of the run state, and
+  without run state or with an empty list those computed from `config.yaml` and the env files of the main
+  folder. What cannot be computed (file or key missing) reports `<file>: database not determinable`. A
+  stopped service starts nothing and fails nothing: `Service <service> is not running, database <name>
+  stays`.
+- **Protection:** lazydev drops only names ending in `_<slug>` with a non-empty slug, otherwise the error
+  `database <name> does not belong to the worktree, not dropping it`. It drops with
+  `dropdb --if-exists --force`. Names go into SQL only in `SELECT 1 FROM pg_database WHERE datname = '<name>'`
+  with doubled `'`, `createdb` and `dropdb` get them as an argument, never through a shell.
+- **Step log:** each action gets a runner line: `<file>: <key> → <name>`,
+  `Starting service <service>: docker compose … up -d <service>`, `Database <name> in <container> created`,
+  `Database <name> in <container> dropped`.
 
 ## Processes
 
@@ -633,7 +745,7 @@ skill replaces no MCP server and no slash command.
 
 | Path | Content |
 |---|---|
-| `$XDG_STATE_HOME/lazydev/runs/<id>/<prd>.json` | Run state: projectDir, prd, branch, base, worktree, port, slug, phase, pid, startedAt, steps (name, sessionId, model, exitCode, ok, costUsd, startedAt, endedAt), error, note |
+| `$XDG_STATE_HOME/lazydev/runs/<id>/<prd>.json` | Run state: projectDir, prd, branch, base, worktree, port, slug, phase, pid, startedAt, steps (name, sessionId, model, exitCode, ok, costUsd, startedAt, endedAt), error, note, databases (service, name) |
 | `…/runs/<id>/<prd>.<step>.jsonl` | Step log: stream-json with `ts` and runner lines `{"type":"lazydev","time","text"}` |
 | `…/runs/<id>/<prd>.runner.log`, `.devpid`, `.dev.log` | Runner output, dev server PID and folder, dev server output |
 | `$XDG_STATE_HOME/lazydev/trust/<id>.json`, `usage.json`, `agents.json`, `bin/` | Trust, limits, agents, runner binary |

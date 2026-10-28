@@ -5,6 +5,7 @@ import (
 
 	"slices"
 
+	"lazydev/internal/docker"
 	"lazydev/internal/project"
 	"lazydev/internal/terminal"
 
@@ -413,7 +414,7 @@ func (m model) updateBottom(key string) (next tea.Model, cmd tea.Cmd, ok bool) {
 	case "l", "right", "enter":
 		// The logs of a container follow in a new tab of the center column.
 		if i := p.dockerCursor; i < len(services) && services[i].Container != nil {
-			m.openTerminal([]string{"docker", "logs", "-f", "--tail", "200", services[i].Container.Names})
+			m.openTerminal([]string{docker.Binary, "logs", "-f", "--tail", "200", services[i].Container.Names})
 		} else {
 			m.err = "This service has no container."
 		}

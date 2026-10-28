@@ -321,7 +321,7 @@ func TestTrustHash(t *testing.T) {
 		}
 	}
 	if (Config{BaseBranch: "x"}).TrustHash() != "" || (Config{}).TrustSections() != "" {
-		t.Error("hash or sections without hooks and allowed tools")
+		t.Error("hash or sections without hooks, allowed tools and databases")
 	}
 	if s := (Config{AllowedTools: []string{"Bash(x)"}}).TrustSections(); s != "allowedTools:\n    - Bash(x)\n" {
 		t.Errorf("TrustSections = %q", s)
@@ -345,5 +345,83 @@ func TestTrustHashIgnoresComments(t *testing.T) {
 func TestBase(t *testing.T) {
 	if (Config{}).Base() != "main" || (Config{BaseBranch: "next"}).Base() != "next" {
 		t.Error("Base")
+	}
+}
+
+func TestReadDatabases(t *testing.T) {
+	setupEnv(t)
+	dir := t.TempDir()
+	writeFile(t, dir, ".lazydev/config.yaml", `databases:
+  - service: db
+    env:
+      file: .env
+      key: DATABASE_URL
+  - service: db-test
+    compose: docker-compose.dev.yml
+    env:
+      file: .env.test
+      key: NUXT_DATABASE_NAME
+`)
+	info := Read(dir, "p")
+	if info.Err != nil {
+		t.Fatal(info.Err)
+	}
+	want := []Database{
+		{Service: "db", Env: DatabaseEnv{File: ".env", Key: "DATABASE_URL"}},
+		{Service: "db-test", Compose: "docker-compose.dev.yml", Env: DatabaseEnv{File: ".env.test", Key: "NUXT_DATABASE_NAME"}},
+	}
+	if !slices.Equal(info.Config.Databases, want) {
+		t.Errorf("Databases = %+v", info.Config.Databases)
+	}
+	// Databases need trust.
+	if info.Trust != TrustPending {
+		t.Errorf("Trust = %v, want pending", info.Trust)
+	}
+}
+
+func TestReadDatabasesInvalid(t *testing.T) {
+	setupEnv(t)
+	for content, want := range map[string]string{
+		"databases:\n  - env: {file: .env, key: K}\n":                                                      "config.yaml: databases[0]: service missing",
+		"databases:\n  - service: db\n    env: {key: K}\n":                                                 "config.yaml: databases[0]: env.file missing",
+		"databases:\n  - {service: db, env: {file: .env, key: K}}\n  - {service: db, env: {file: .env}}\n": "config.yaml: databases[1]: env.key missing",
+		"databases:\n  - {service: db, compose: /abs.yml, env: {file: .env, key: K}}\n":                    "config.yaml: databases[0]: compose must be a relative path inside the project",
+		"databases:\n  - {service: db, compose: ../x.yml, env: {file: .env, key: K}}\n":                    "config.yaml: databases[0]: compose must be a relative path inside the project",
+		"databases:\n  - {service: db, env: {file: a/../.env, key: K}}\n":                                  "config.yaml: databases[0]: env.file must be a relative path inside the project",
+		"databases:\n  - {service: db, env: {file: /etc/.env, key: K}}\n":                                  "config.yaml: databases[0]: env.file must be a relative path inside the project",
+	} {
+		dir := t.TempDir()
+		writeFile(t, dir, ".lazydev/config.yaml", content)
+		if info := Read(dir, "p"); info.Err == nil || info.Err.Error() != want {
+			t.Errorf("Read(%q) error = %v, want %s", content, info.Err, want)
+		}
+	}
+}
+
+func TestTrustHashDatabases(t *testing.T) {
+	base := Config{Hooks: Hooks{Setup: "./s.sh"}}
+	h := base.TrustHash()
+	with := base
+	with.Databases = []Database{{Service: "db", Env: DatabaseEnv{File: ".env", Key: "DATABASE_URL"}}}
+	hw := with.TrustHash()
+	if hw == h {
+		t.Error("databases do not change the hash")
+	}
+	other := with
+	other.Databases = []Database{{Service: "db", Env: DatabaseEnv{File: ".env", Key: "DB_NAME"}}}
+	if other.TrustHash() == hw {
+		t.Error("a changed key does not change the hash")
+	}
+	// Databases alone need trust.
+	if (Config{Databases: with.Databases}).TrustHash() == "" {
+		t.Error("no hash with databases only")
+	}
+
+	setupEnv(t)
+	a, b := t.TempDir(), t.TempDir()
+	writeFile(t, a, ".lazydev/config.yaml", "databases: [{service: db, env: {file: .env, key: DATABASE_URL}}]\n")
+	writeFile(t, b, ".lazydev/config.yaml", "# dbs\ndatabases:\n  # main\n  - service: db # db\n    env:\n      file: .env\n      key: DATABASE_URL\n")
+	if ha, hb := Read(a, "p").Config.TrustHash(), Read(b, "p").Config.TrustHash(); ha == "" || ha != hb {
+		t.Errorf("hashes differ: %q, %q", ha, hb)
 	}
 }

@@ -66,14 +66,14 @@ func (t Target) Repo() (repo.Config, error) {
 	return info.Config, info.Err
 }
 
-// CheckTrust makes sure hooks and allowed tools of config.yaml are trusted.
+// CheckTrust makes sure hooks, allowed tools and databases of config.yaml are trusted.
 func (t Target) CheckTrust() error {
 	info := repo.Read(t.Dir, t.ID)
 	switch {
 	case info.Err != nil:
 		return info.Err
 	case info.Trust == repo.TrustPending:
-		return fmt.Errorf("hooks or allowed tools in %s/config.yaml are not trusted, confirm them with s in the TUI or lazydev trust %s", repo.Dir, t.ID)
+		return fmt.Errorf("hooks, allowed tools or databases in %s/config.yaml are not trusted, confirm them with s in the TUI or lazydev trust %s", repo.Dir, t.ID)
 	}
 	return nil
 }
@@ -352,7 +352,7 @@ func runStep(ctx context.Context, t Target, prdName string, r *state.Run, step s
 	exitCode := 0
 	switch step {
 	case state.StepSetup:
-		if err = setup(t, r, log); err != nil {
+		if err = setup(t, prdName, r, log); err != nil {
 			exitCode = 1
 		}
 	case state.StepMerge:

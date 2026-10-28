@@ -10,10 +10,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Settings returns config.yaml of the project at dir with baseBranch and knowledge set. The
-// default base branch main is left out. Other fields, order and comments stay. changed is false if
-// nothing differs.
-func Settings(dir, base string, knowledge map[string][]string) (out []byte, changed bool, err error) {
+// Settings returns config.yaml of the project at dir with baseBranch, knowledge and databases set.
+// The default base branch main is left out, an empty databases list removes the key. Other fields,
+// order and comments stay. changed is false if nothing differs.
+func Settings(dir, base string, knowledge map[string][]string, databases []Database) (out []byte, changed bool, err error) {
 	path := ConfigPath(dir)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -41,17 +41,29 @@ func Settings(dir, base string, knowledge map[string][]string) (out []byte, chan
 			return nil, false, fmt.Errorf("config.yaml: %w", err)
 		}
 	}
+	var oldDatabases []Database
+	if i := keyIndex(root, "databases"); i >= 0 {
+		if err := root.Content[i+1].Decode(&oldDatabases); err != nil {
+			return nil, false, fmt.Errorf("config.yaml: %w", err)
+		}
+	}
 	if base == "" {
 		base = DefaultBaseBranch
 	}
 	knowledge, oldKnowledge = compactKnowledge(knowledge), compactKnowledge(oldKnowledge)
 	sameKnowledge := equalKnowledge(oldKnowledge, knowledge)
-	if base == oldBase && sameKnowledge {
+	sameDatabases := slices.Equal(oldDatabases, databases)
+	if base == oldBase && sameKnowledge && sameDatabases {
 		return data, false, nil
 	}
 	setBaseBranchNode(root, base)
 	if !sameKnowledge {
 		setKnowledgeNode(root, knowledge)
+	}
+	if !sameDatabases {
+		if err := setDatabasesNode(root, databases); err != nil {
+			return nil, false, err
+		}
 	}
 	var buf bytes.Buffer
 	enc := yaml.NewEncoder(&buf)
@@ -164,6 +176,30 @@ func setKnowledgeNode(root *yaml.Node, knowledge map[string][]string) {
 	key := &yaml.Node{}
 	key.SetString("knowledge")
 	root.Content = append(root.Content, key, value)
+}
+
+// setDatabasesNode replaces the value of databases in root, in the given order. The key keeps its
+// comment, a new key goes to the end. An empty list removes the key.
+func setDatabasesNode(root *yaml.Node, databases []Database) error {
+	idx := keyIndex(root, "databases")
+	if len(databases) == 0 {
+		if idx >= 0 {
+			deleteKey(root, idx)
+		}
+		return nil
+	}
+	value := &yaml.Node{}
+	if err := value.Encode(databases); err != nil {
+		return err
+	}
+	if idx >= 0 {
+		root.Content[idx+1] = value
+		return nil
+	}
+	key := &yaml.Node{}
+	key.SetString("databases")
+	root.Content = append(root.Content, key, value)
+	return nil
 }
 
 // deleteKey removes key and value at idx of root. A comment above the field moves to the next one.

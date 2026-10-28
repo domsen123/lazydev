@@ -26,8 +26,8 @@ type column struct {
 const detailsGap = 3
 
 // projectDetailsView renders the lazydev setup as columns side by side: project, prompts, hooks,
-// knowledge and allowed tools. Columns that do not fit drop from the right, rows that do not fit
-// fold into "+n more".
+// databases, knowledge and allowed tools. Columns that do not fit drop from the right, rows that do
+// not fit fold into "+n more".
 func projectDetailsView(info repo.Info, width, height int, t theme) string {
 	text := lipgloss.NewStyle().Foreground(t.text)
 	muted := text.Faint(true)
@@ -77,6 +77,14 @@ func projectDetailsView(info repo.Info, width, height int, t theme) string {
 		hooks.rows = append(hooks.rows, field(hook.name, 10, value))
 	}
 
+	databases := column{title: "Databases", max: 40}
+	for _, db := range info.Config.Databases {
+		databases.rows = append(databases.rows, text.Render(db.Service)+muted.Render(" → ")+text.Render(db.Env.File+" "+db.Env.Key))
+	}
+	if len(databases.rows) == 0 {
+		databases.rows = []string{muted.Render("–")}
+	}
+
 	// Knowledge lists each file once with the steps that read it.
 	knowledge := column{title: "Knowledge", max: 48}
 	var files []string
@@ -108,7 +116,7 @@ func projectDetailsView(info repo.Info, width, height int, t theme) string {
 		tools.rows = []string{muted.Render("–")}
 	}
 
-	return renderColumns([]column{project, prompts, hooks, knowledge, tools}, width, height, t)
+	return renderColumns([]column{project, prompts, hooks, databases, knowledge, tools}, width, height, t)
 }
 
 // renderColumns lays out columns left to right with their titles in the first row.

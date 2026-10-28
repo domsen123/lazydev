@@ -81,6 +81,14 @@ type Run struct {
 	Error      *string       `json:"error"`
 	// Note is a hint for humans, e.g. that the main folder blocks the merge.
 	Note string `json:"note,omitempty"`
+	// Databases are the databases the setup created for the worktree.
+	Databases []Database `json:"databases,omitempty"`
+}
+
+// Database is a database of a worktree in a compose service.
+type Database struct {
+	Service string `json:"service"`
+	Name    string `json:"name"`
 }
 
 // Load returns fs.ErrNotExist without a run.

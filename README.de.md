@@ -139,7 +139,7 @@ Liegt versioniert im Projekt, für alle gleich. Hinzufügen und Wizard legen feh
 
 | Datei | Inhalt |
 |---|---|
-| `config.yaml` | `baseBranch`, `knowledge`, `allowedTools`, `hooks` |
+| `config.yaml` | `baseBranch`, `knowledge`, `allowedTools`, `hooks`, `databases` |
 | `create.md`, `implement.md`, `review.md`, `merge.md`, `unblock.md` | Prompts der Schritte. Der Workflow liest sie nur von hier |
 
 ```yaml
@@ -160,14 +160,55 @@ hooks:                       # Skripte, relativ zum Hauptordner
   kann ein Projekt nicht ändern.
 - Hooks bekommen `LAZYDEV_PROJECT`, `LAZYDEV_WORKTREE`, `LAZYDEV_BRANCH`, `LAZYDEV_PORT`, `LAZYDEV_SLUG`.
   Der Dev-Server bekommt zusätzlich `PORT`.
-- Hooks und `allowedTools` brauchen Vertrauen. `s` fragt, oder `lazydev trust <projekt>`. Ändern sie sich,
-  fragt lazydev erneut.
+- Hooks, `allowedTools` und `databases` brauchen Vertrauen. `s` fragt, oder `lazydev trust <projekt>`.
+  Ändern sie sich, fragt lazydev erneut.
+
+### Datenbanken pro Worktree
+
+Für Projekte mit Postgres in Docker Compose gibt `databases` jedem Worktree eine eigene leere Datenbank
+`<name>_<slug>`. Der Wizard (`i`) findet Postgres-Services in der Compose-Datei und schreibt den Abschnitt.
+
+```yaml
+databases:
+  - service: db                        # Compose-Service
+    env:
+      file: .env                       # relativ zum Hauptordner, muss von Git ignoriert sein
+      key: DATABASE_URL
+  - service: db-test
+    compose: docker-compose.dev.yml    # ohne die Standarddatei compose.yaml oder docker-compose.yml
+    env:
+      file: .env.test
+      key: NUXT_DATABASE_NAME
+```
+
+- Mit `DATABASE_URL="postgres://app:secret@localhost:5432/app?sslmode=disable"` im Hauptordner und dem Slug
+  `login_form` bekommt der Worktree `DATABASE_URL="postgres://app:secret@localhost:5432/app_login_form?sslmode=disable"`.
+  In einer URL ändert sich nur der Pfad, ein einfacher Wert wie `app_test` wird zu `app_test_login_form`.
+- Das Setup kopiert die Env-Dateien in den Worktree, startet einen gestoppten Service mit
+  `docker compose up -d`, legt die leeren Datenbanken an und führt dann den Setup-Hook aus. Eine vorhandene
+  Datenbank bleibt stehen.
+- Der User ist `POSTGRES_USER` des Service, ohne ihn `postgres`. lazydev führt alles per `docker exec` aus.
+- Ist der Ziel-Branch vor dem Merge weitergezogen, legt lazydev die Datenbanken nach dem Rebase neu an und
+  führt den Setup-Hook vor dem Check-Hook erneut aus.
+- Merge und `X` löschen die Datenbanken nach dem Teardown-Hook. lazydev löscht nur Namen, die auf
+  `_<slug>` enden, die Haupt-Datenbanken bleiben.
+
+Migrationen und Seeds bleiben im Setup-Hook, z. B.:
+
+```sh
+#!/bin/sh
+# scripts/lazydev-setup.sh: die .env des Worktrees nennt schon ihre eigene Datenbank.
+set -e
+pnpm install --frozen-lockfile --prefer-offline
+pnpm db:migrate
+```
 
 ## Läufe
 
-- Schritte: setup (Worktree auf `feat/<prd>`, ungetracktes PRD verschoben und committet, Setup-Hook) →
-  implement → review → merge (Rebase, Claude bei Konflikten, Check-Hook, Kosten in die Statuszeile,
-  Fast-Forward, Teardown-Hook, Aufräumen).
+- Schritte: setup (Worktree auf `feat/<prd>`, ungetracktes PRD verschoben und committet, Datenbanken,
+  Setup-Hook) → implement → review → merge (Rebase, Claude bei Konflikten, Datenbanken neu bei bewegtem
+  Ziel-Branch, Check-Hook, Kosten in die Statuszeile, Fast-Forward, Teardown-Hook, Datenbanken löschen,
+  Aufräumen).
 - Höchstens 3 Runner gleichzeitig, der Rest wartet. Ports ab 3500.
 - Nach einem Fehler oder `x` setzt `s` beim gescheiterten Schritt fort. `X` verwirft Worktree, Branch und
   dessen Commits, das PRD kommt mit Status `geplant` und ohne `## Blocker` zurück.
