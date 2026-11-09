@@ -106,8 +106,13 @@ func TestAllAndProjectRuns(t *testing.T) {
 
 func TestNextStep(t *testing.T) {
 	r := &Run{}
-	if got := r.NextStep(); got != StepSetup {
+	if got := r.NextStep(); got != StepPlan {
 		t.Errorf("without steps: %q", got)
+	}
+	r.StartStep(StepPlan)
+	r.EndStep(0, true)
+	if got := r.NextStep(); got != StepSetup {
+		t.Errorf("after plan: %q", got)
 	}
 	r.StartStep(StepSetup)
 	if got := r.NextStep(); got != StepSetup {

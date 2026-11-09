@@ -34,6 +34,11 @@ type Item struct {
 	Cost     float64 `json:"cost,omitempty"`
 	Error    string  `json:"error,omitempty"`
 	Note     string  `json:"note,omitempty"`
+	// After are the PRDs the run waits for before its setup, AfterReason why, WaitsFor those of
+	// them not merged yet.
+	After       []string `json:"after,omitempty"`
+	AfterReason string   `json:"afterReason,omitempty"`
+	WaitsFor    []string `json:"waitsFor,omitempty"`
 	// Blocker holds the open questions of a blocked run.
 	Blocker *Blocker `json:"blocker,omitempty"`
 	DevPID  int      `json:"devPid,omitempty"`
@@ -91,6 +96,10 @@ func fillRun(it *Item, id string, r *state.Run, queue []string) {
 	it.Phase = r.Effective()
 	it.Queue = slices.Index(queue, id+"/"+it.PRD) + 1
 	it.Branch, it.Worktree, it.Port, it.Note = r.Branch, r.Worktree, r.Port, r.Note
+	it.After, it.AfterReason = r.After, r.AfterReason
+	if r.NextStep() == state.StepSetup {
+		it.WaitsFor = PendingAfter(id, r)
+	}
 	if r.Error != nil {
 		it.Error = *r.Error
 	}

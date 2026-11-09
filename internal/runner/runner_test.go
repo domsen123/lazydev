@@ -29,7 +29,7 @@ func TestRunMerges(t *testing.T) {
 	if r.Worktree != wt || r.Branch != "feat/new-token" || r.Base != "main" || r.Slug != "new_token" || r.PRD != prdPath || r.Port < PortBase {
 		t.Errorf("run fields: %+v", r)
 	}
-	if len(r.Steps) != 4 {
+	if len(r.Steps) != 5 {
 		t.Fatalf("steps: %+v", r.Steps)
 	}
 	for i, name := range state.Steps {
@@ -37,10 +37,10 @@ func TestRunMerges(t *testing.T) {
 			t.Errorf("step %d: %+v", i, s)
 		}
 	}
-	if s := r.Steps[1]; s.SessionID != "sess-1" || s.Model != "claude-opus-5-5" || s.CostUSD == nil || *s.CostUSD != 0.5 {
+	if s := r.Steps[2]; s.SessionID != "sess-1" || s.Model != "claude-opus-5-5" || s.CostUSD == nil || *s.CostUSD != 0.5 {
 		t.Errorf("implement: %+v", s)
 	}
-	if s := r.Steps[3]; s.CostUSD != nil {
+	if s := r.Steps[4]; s.CostUSD != nil {
 		t.Errorf("merge without Claude has cost: %+v", s)
 	}
 
@@ -239,7 +239,7 @@ func TestRunImplementBlockedContinues(t *testing.T) {
 	if r.Phase != project.PhaseBlocked || r.Error == nil || *r.Error != err.Error() || r.PID != 0 {
 		t.Errorf("state: %+v", r)
 	}
-	if r.NextStep() != state.StepImplement || len(r.Steps) != 2 || r.Steps[1].OK || *r.Steps[1].ExitCode != 0 {
+	if r.NextStep() != state.StepImplement || len(r.Steps) != 3 || r.Steps[2].OK || *r.Steps[2].ExitCode != 0 {
 		t.Errorf("steps: %+v", r.Steps)
 	}
 	wt := WorktreePath("app", prdName)
@@ -275,7 +275,7 @@ func TestRunImplementBlockedContinues(t *testing.T) {
 		t.Fatal(err)
 	}
 	r = loadRun(t)
-	if r.Phase != project.PhaseMerged || r.Error != nil || len(r.Steps) != 5 {
+	if r.Phase != project.PhaseMerged || r.Error != nil || len(r.Steps) != 6 {
 		t.Errorf("state after the second run: %+v", r)
 	}
 	// The setup ran once, the aborted implement costs too.
@@ -362,23 +362,23 @@ func TestRunCanceled(t *testing.T) {
 	target := newProject(t, "", false)
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	// The setup does not look at ctx, but runStep marks it aborted afterwards.
+	// Plan without other runs does not look at ctx, but runStep marks it aborted afterwards.
 	err := Run(ctx, target, prdName)
-	if err == nil || err.Error() != "setup aborted" {
+	if err == nil || err.Error() != "plan aborted" {
 		t.Fatalf("Run: %v", err)
 	}
 	r := loadRun(t)
-	if r.Phase != project.PhaseAborted || r.PID != 0 || r.NextStep() != state.StepSetup || r.Error != nil {
+	if r.Phase != project.PhaseAborted || r.PID != 0 || r.NextStep() != state.StepPlan || r.Error != nil {
 		t.Errorf("state: %+v", r)
 	}
-	if log := read(t, state.LogPath("app", prdName, state.StepSetup)); !strings.Contains(log, "Aborted") {
-		t.Errorf("setup log:\n%s", log)
+	if log := read(t, state.LogPath("app", prdName, state.StepPlan)); !strings.Contains(log, "Aborted") {
+		t.Errorf("plan log:\n%s", log)
 	}
-	// The setup repeats on the existing worktree.
+	// The plan repeats.
 	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
 	}
-	if r := loadRun(t); r.Phase != project.PhaseMerged || len(r.Steps) != 5 {
+	if r := loadRun(t); r.Phase != project.PhaseMerged || len(r.Steps) != 6 {
 		t.Errorf("state after the second run: %+v", r)
 	}
 }

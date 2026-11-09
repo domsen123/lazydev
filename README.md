@@ -75,7 +75,7 @@ git push origin v0.2.0
    `.lazydev/` with the prompts of the simple workflow. Commit it.
 2. Right pane, tab `PRDs`: `n` and a sentence about the feature. Claude Code opens as a center tab and
    writes `prd/<area>/<name>.md` with you.
-3. Select the PRD, `s`. Setup, implement, review and merge run in the background.
+3. Select the PRD, `s`. Plan, setup, implement, review and merge run in the background.
 4. The details pane below the terminals lists the runs of the project with phase, step, cost and the last
    log line. `l` on a run opens its complete log as a center tab, `z` there folds the header.
 
@@ -209,17 +209,20 @@ pnpm db:migrate
 
 ## Runs
 
-- Steps: setup (worktree on `feat/<prd>`, untracked PRD moved and committed, databases, setup hook) →
+- Steps: plan (only with other open runs in the project: Claude reads the PRDs and the code and decides
+  whether the PRD runs in parallel or waits until some of them are merged) → setup (worktree on `feat/<prd>`, untracked PRD moved and committed, databases, setup hook) →
   implement → review → merge (rebase, Claude on conflicts, databases again if the base moved, check hook,
   cost into the status line, fast-forward, teardown hook, dropping the databases, cleanup).
-- Max 3 runners at a time, the rest waits. Ports from 3500.
+- Max 3 runners at a time, the rest waits. A PRD that plan holds back waits without taking a slot and starts
+  once the PRDs it waits for are merged or discarded. `lazydev after <prd> [<prd>…]` overrides the order,
+  `lazydev status` and the run list show what a PRD waits for and why. Ports from 3500.
 - After an error or `x`, `s` continues with the failed step. `X` throws away worktree, branch and its
   commits, the PRD goes back with status `geplant` and without `## Blocker`.
 - The merge waits while the main folder is not on the base branch or has changes outside `prd/` and
   `.lazydev/`. If the base branch moved meanwhile, it rebases again.
 - PRD status values stay German (`geplant`, `umgesetzt (date)`, `verworfen (date)`, `blockiert (date)`), like
   the prompts.
-- Phases: `○` planned, `◌` waiting, `●` setup/implement/review/merge, `◐` merge-queue, `✓` merged, `■`
+- Phases: `○` planned, `◌` waiting, `●` plan/setup/implement/review/merge, `◐` merge-queue, `✓` merged, `■`
   aborted, `✗` error/discarded, `⊘` blocked (yellow).
 
 ### Blocked runs
@@ -303,6 +306,7 @@ lazydev discard [--yes] [<project>] <prd>
 lazydev wait [<project>] [--json] [--timeout 30m] # block until a run gets blocked, fails, aborts or merges
 lazydev log [<project>] <prd> [-f]                # step logs of a run, -f follows them
 lazydev set-status [<project>] <prd> planned|merged|discarded
+lazydev after [<project>] <prd> [<prd>...]        # override plan: start only after these are merged
 lazydev dev [<project>] <prd> [start|stop]        # dev server in the worktree
 lazydev prompt create [--auto] [<description>]    # print the create prompt of the project in the current folder
 lazydev prompt unblock [--auto] [<project>] <prd> # print the unblock prompt of a blocked run

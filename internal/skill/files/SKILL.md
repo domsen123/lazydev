@@ -9,7 +9,7 @@ description: lazydev und seine PRDs. Nutze diesen Skill bei lazydev, lazydev PRD
 
 lazydev setzt PRDs (Product Requirements Documents) mit Claude Code um. Ein PRD beschreibt ein Feature so
 vollständig, dass ein Agent es ohne Mensch umsetzt. lazydev setzt jedes PRD in einem eigenen Git-Worktree
-um: setup → implement → review → merge, und bringt es per Fast-Forward in den Basis-Branch des Projekts.
+um: plan → setup → implement → review → merge, und bringt es per Fast-Forward in den Basis-Branch des Projekts.
 Ein Projekt erkennst du am Ordner `.lazydev/` mit `config.yaml` und den Prompts der Schritte, die PRDs
 liegen unter `prd/<bereich>/<name>.md`.
 
@@ -35,7 +35,8 @@ Nutzer nie in die TUI, um eine Taste zu drücken, sondern nutze den passenden Be
 | Projekt in lazydev aufnehmen | `lazydev add [<pfad>]`, ohne Pfad das Repository des aktuellen Ordners. Legt `.lazydev/` an. |
 | PRD schreiben, auch aus dem bisherigen Gespräch | Führe im Projekt `lazydev prompt create "<Kurzfassung in einem Satz>"` aus. Die Ausgabe ist der vollständige Create-Prompt. Folge ihr Schritt für Schritt, inklusive der nummerierten Klärungsfragen mit den Optionen A bis D, und warte auf die Antworten. Ohne Argument ergibt sich die Aufgabe aus dem Gespräch. Soll der Nutzer nicht gefragt werden („beantworte die Fragen selbst“), hänge `--auto` an. |
 | Stand der PRDs und Läufe | `lazydev status [<projekt>] [--json]`: Phase, Schritt, Port, Kosten, Fehler und die Fragen blockierter Läufe. `--all` zeigt auch erledigte PRDs. |
-| Lauf starten, fortsetzen, stoppen, verwerfen | `lazydev start [<projekt>] <prd>`, `lazydev stop …`, `lazydev discard --yes …`. Höchstens 3 Läufe arbeiten gleichzeitig, weitere warten in der Queue und starten von selbst. `start` setzt nach Fehler oder Abbruch beim fehlgeschlagenen Schritt fort. |
+| Lauf starten, fortsetzen, stoppen, verwerfen | `lazydev start [<projekt>] <prd>`, `lazydev stop …`, `lazydev discard --yes …`. Höchstens 3 Läufe arbeiten gleichzeitig, weitere warten in der Queue und starten von selbst. `start` setzt nach Fehler oder Abbruch beim fehlgeschlagenen Schritt fort. Starte neue PRDs einfach, auch wenn andere laufen: Der erste Schritt `plan` entscheidet selbst, ob das PRD parallel läuft oder auf andere wartet. |
+| Reihenfolge ändern | `lazydev after [<projekt>] <prd> [<prd>…]` überschreibt die Entscheidung von `plan`, ohne PRDs wartet es auf nichts. `lazydev status` zeigt `waiting → <prds>` und den Grund. |
 | Läufe überwachen | `lazydev wait [<projekt>] [--json] [--timeout 30m]` blockiert, bis ein Lauf blockiert, fehlschlägt, abbricht, gemergt wird oder einen Hinweis bekommt, und gibt die Ereignisse aus. `idle` heißt: nichts läuft oder wartet. In Claude Code eignet sich dafür das Werkzeug `Monitor` oder ein Hintergrund-Befehl. |
 | Log eines Laufs | `lazydev log [<projekt>] <prd>`, `-f` folgt ihm bis zum Ende des Laufs. |
 | Blockierten Lauf lösen | `lazydev prompt unblock [<projekt>] <prd>` gibt den Unblock-Prompt aus, das PRD steht darin mit absolutem Pfad im Worktree. Folge ihm. Mit `--auto` beantwortest du die Fragen selbst. Danach `lazydev start <projekt> <prd>`. |

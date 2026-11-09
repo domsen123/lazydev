@@ -62,6 +62,24 @@ func Build(dir, workDir string, cfg repo.Config, step string, v Vars) (string, e
 	return strings.Join(parts, "\n\n") + "\n", nil
 }
 
+// PlanRun is an open run of the project that the step plan weighs the new PRD against.
+type PlanRun struct {
+	// Name is the PRD name, Phase the phase of its run, File the absolute path of its PRD.
+	Name, Phase, File string
+}
+
+// Plan builds the prompt of the step plan. It is built in and not part of .lazydev/: lazydev parses
+// its answer. v.Arguments is the path of the new PRD.
+func Plan(v Vars, runs []PlanRun) string {
+	data, _ := contracts.ReadFile("contract/plan.md")
+	var list strings.Builder
+	for _, r := range runs {
+		fmt.Fprintf(&list, "- `%s` (Phase %s): `%s`\n", r.Name, r.Phase, r.File)
+	}
+	rep := strings.NewReplacer("$ARGUMENTS", v.Arguments, "$BASE", v.Base, "$BRANCH", v.Branch, "$RUNS", strings.TrimSpace(list.String()))
+	return Header("plan", v) + "\n\n" + strings.TrimSpace(rep.Replace(string(data))) + "\n"
+}
+
 // Auto is the block a prompt of step gets in autonomous mode ("lazydev prompt <step> --auto"):
 // Claude answers the questions itself instead of asking the user. It goes after the contract and
 // takes precedence over it. Steps without autonomous mode give "".

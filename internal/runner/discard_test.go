@@ -52,7 +52,7 @@ func TestDiscardAfterFailedRun(t *testing.T) {
 	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
 	}
-	if r := loadRun(t); r.Phase != project.PhaseMerged || len(r.Steps) != 4 {
+	if r := loadRun(t); r.Phase != project.PhaseMerged || len(r.Steps) != 5 {
 		t.Errorf("state after the new run: %+v", r)
 	}
 }

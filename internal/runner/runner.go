@@ -35,6 +35,7 @@ const startLock = "start"
 // stepPhases are the phases of the steps. The merge starts in the merge queue and becomes merge
 // with the merge slot.
 var stepPhases = map[string]project.Phase{
+	state.StepPlan:      project.PhasePlan,
 	state.StepSetup:     project.PhaseSetup,
 	state.StepImplement: project.PhaseImplement,
 	state.StepReview:    project.PhaseReview,
@@ -119,7 +120,7 @@ func Start(t Target, prdName string) (started bool, err error) {
 	if err != nil {
 		return false, err
 	}
-	if countRunning(state.All()) >= MaxParallel {
+	if waitsForAfter(t.ID, r) || countRunning(state.All()) >= MaxParallel {
 		r.Phase, r.Error = project.PhaseWaiting, nil
 		return false, state.Save(t.ID, prdName, r)
 	}
@@ -140,7 +141,7 @@ func startWaiting() error {
 		if running >= MaxParallel {
 			break
 		}
-		if e.Run.Phase != project.PhaseWaiting || e.Run.Running() {
+		if e.Run.Phase != project.PhaseWaiting || e.Run.Running() || waitsForAfter(e.ID, e.Run) {
 			continue
 		}
 		if err := spawn(e.ID, e.PRDName, e.Run); err != nil {
@@ -278,6 +279,14 @@ func Run(ctx context.Context, t Target, prdName string) error {
 		return err
 	}
 	for step := r.NextStep(); step != ""; step = r.NextStep() {
+		if step == state.StepSetup {
+			if pending := PendingAfter(t.ID, r); len(pending) > 0 {
+				// The PRD waits for others and frees its slot. The runner that merges the last of
+				// them starts it.
+				r.Phase, r.PID = project.PhaseWaiting, 0
+				return state.Save(t.ID, prdName, r)
+			}
+		}
 		if err := runStep(ctx, t, prdName, r, step); err != nil {
 			return err
 		}
@@ -363,6 +372,8 @@ func runStep(ctx context.Context, t Target, prdName string, r *state.Run, step s
 
 	exitCode := 0
 	switch step {
+	case state.StepPlan:
+		exitCode, err = plan(ctx, t, prdName, r, log)
 	case state.StepSetup:
 		if err = setup(t, prdName, r, log); err != nil {
 			exitCode = 1

@@ -77,7 +77,7 @@ git push origin v0.2.0
    `.lazydev/` mit den Prompts des simple workflow an. Committe den Ordner.
 2. Rechtes Pane, Tab `PRDs`: `n` und ein Satz zum Feature. Claude Code öffnet sich als Tab in der Mitte
    und schreibt mit dir `prd/<bereich>/<name>.md`.
-3. PRD wählen, `s`. Setup, implement, review und merge laufen im Hintergrund.
+3. PRD wählen, `s`. Plan, setup, implement, review und merge laufen im Hintergrund.
 4. Das Details-Pane unter den Terminals listet die Läufe des Projekts mit Phase, Schritt, Kosten und letzter
    Logzeile. `l` auf einem Lauf öffnet sein vollständiges Log als Tab in der Mitte, `z` klappt dort den Kopf ein.
 
@@ -211,18 +211,23 @@ pnpm db:migrate
 
 ## Läufe
 
-- Schritte: setup (Worktree auf `feat/<prd>`, ungetracktes PRD verschoben und committet, Datenbanken,
+- Schritte: plan (nur bei anderen offenen Läufen im Projekt: Claude liest die PRDs und den Code und
+  entscheidet, ob das PRD parallel läuft oder wartet, bis einige davon gemergt sind) → setup (Worktree auf
+  `feat/<prd>`, ungetracktes PRD verschoben und committet, Datenbanken,
   Setup-Hook) → implement → review → merge (Rebase, Claude bei Konflikten, Datenbanken neu bei bewegtem
   Ziel-Branch, Check-Hook, Kosten in die Statuszeile, Fast-Forward, Teardown-Hook, Datenbanken löschen,
   Aufräumen).
-- Höchstens 3 Runner gleichzeitig, der Rest wartet. Ports ab 3500.
+- Höchstens 3 Runner gleichzeitig, der Rest wartet. Ein PRD, das plan zurückhält, wartet ohne einen Slot zu
+  belegen und startet, sobald die PRDs, auf die es wartet, gemergt oder verworfen sind.
+  `lazydev after <prd> [<prd>…]` überschreibt die Reihenfolge, `lazydev status` und die Run-Liste zeigen, worauf
+  ein PRD wartet und warum. Ports ab 3500.
 - Nach einem Fehler oder `x` setzt `s` beim gescheiterten Schritt fort. `X` verwirft Worktree, Branch und
   dessen Commits, das PRD kommt mit Status `geplant` und ohne `## Blocker` zurück.
 - Der Merge wartet, solange der Hauptordner nicht auf dem Ziel-Branch steht oder Änderungen außerhalb von
   `prd/` und `.lazydev/` hat. Ist der Ziel-Branch inzwischen weitergezogen, rebased er erneut.
 - Die Statuswerte im PRD bleiben deutsch (`geplant`, `umgesetzt (Datum)`, `verworfen (Datum)`,
   `blockiert (Datum)`), wie die Prompts.
-- Phasen: `○` planned, `◌` waiting, `●` setup/implement/review/merge, `◐` merge-queue, `✓` merged, `■`
+- Phasen: `○` planned, `◌` waiting, `●` plan/setup/implement/review/merge, `◐` merge-queue, `✓` merged, `■`
   aborted, `✗` error/discarded, `⊘` blocked (gelb).
 
 ### Blockierte Läufe
@@ -308,6 +313,7 @@ lazydev discard [--yes] [<projekt>] <prd>
 lazydev wait [<projekt>] [--json] [--timeout 30m] # blockiert, bis ein Lauf blockiert, scheitert, abbricht oder merged
 lazydev log [<projekt>] <prd> [-f]                # Schritt-Logs eines Laufs, -f folgt ihnen
 lazydev set-status [<projekt>] <prd> planned|merged|discarded
+lazydev after [<projekt>] <prd> [<prd>...]        # plan überschreiben: erst nach diesen PRDs starten
 lazydev dev [<projekt>] <prd> [start|stop]        # Dev-Server im Worktree
 lazydev prompt create [--auto] [<beschreibung>]   # Create-Prompt des Projekts im aktuellen Ordner ausgeben
 lazydev prompt unblock [--auto] [<projekt>] <prd> # Unblock-Prompt eines blockierten Laufs ausgeben

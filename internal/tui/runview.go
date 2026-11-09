@@ -82,6 +82,10 @@ func (m model) fetchRuns() tea.Cmd {
 					msg.last[name] = entries[len(entries)-1]
 				}
 			}
+			// A PRD that waits for others says for which instead of its last log line.
+			if pending := runner.PendingAfter(id, r); r.Phase == project.PhaseWaiting && r.NextStep() == state.StepSetup && len(pending) > 0 {
+				msg.last[name] = claude.Entry{Kind: claude.KindRunner, Text: "waits for " + strings.Join(pending, ", ") + ": " + r.AfterReason}
+			}
 			msg.devPIDs[name] = devserver.PID(id, name)
 		}
 		return msg
@@ -208,7 +212,7 @@ func (m *model) startPRD(name string) tea.Cmd {
 			case err != nil:
 				return actionMsg{err: err}
 			case !started:
-				return actionMsg{text: fmt.Sprintf("%s waits, %d PRDs run already.", name, runner.MaxParallel)}
+				return actionMsg{text: runner.WaitReason(t.ID, name)}
 			}
 			return actionMsg{text: "Started " + name + "."}
 		}

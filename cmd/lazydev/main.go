@@ -39,6 +39,7 @@ PRDs and runs:
   lazydev discard [--yes] [<project>] <prd>        throw away the run: worktree, branch and its commits
   lazydev wait [<project>] [--json] [--timeout 30m]  block until a run gets blocked, fails, aborts or merges
   lazydev log [<project>] <prd> [-f]               the step logs of a run, -f follows them
+  lazydev after [<project>] <prd> [<prd>...]       override plan: start <prd> only after these are merged
   lazydev set-status [<project>] <prd> <status>    set the status line to planned, merged or discarded
   lazydev dev [<project>] <prd> [start|stop]       start or stop the dev server in the worktree
   lazydev prompt create [--auto] [<description>]   print the create prompt of the project in the current folder
@@ -53,7 +54,8 @@ Other:
 <project> is the project ID (its folder name) or its path. Without it, the project of the working
 directory applies, also from inside the worktree of a run. <prd> is the PRD file name without .md.
 --auto makes Claude answer the questions itself instead of asking. After an error or abort, start
-continues with the failed step.
+continues with the failed step. Every run starts with the step plan: with other open runs in the
+project, Claude decides whether the PRD runs in parallel or waits until some of them are merged.
 
 Projects: %s
 State and logs: %s
@@ -145,10 +147,10 @@ func main() {
 			fail(err)
 		}
 		return
-	case "add", "remove", "projects", "status", "wait", "log", "set-status", "dev":
+	case "add", "remove", "projects", "status", "wait", "log", "set-status", "dev", "after":
 		commands := map[string]func([]string) error{
 			"add": addProject, "remove": removeProject, "projects": listProjects, "status": status,
-			"wait": wait, "log": showLog, "set-status": setStatus, "dev": dev,
+			"wait": wait, "log": showLog, "set-status": setStatus, "dev": dev, "after": setAfter,
 		}
 		if err := commands[cmd](rest); err != nil {
 			fail(err)
@@ -178,7 +180,7 @@ func main() {
 		case started:
 			fmt.Printf("Runner started. Log: %s\n", state.RunnerLogPath(t.ID, prdName))
 		default:
-			fmt.Printf("%d runners work already. %s waits and starts once one ends.\n", runner.MaxParallel, prdName)
+			fmt.Println(runner.WaitReason(t.ID, prdName))
 		}
 	case "stop":
 		if err := runner.Stop(t.ID, prdName); err != nil {

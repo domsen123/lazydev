@@ -206,7 +206,7 @@ The native selection of the terminal works with Shift held while dragging.
   show a Markdown file rendered, without a process, and count in the tab number too (see Markdown viewer).
 - **Details pane,** tab `Details` (default): with the PRDs tab active, the runs of the selected project
   (title `Runs`), independent of the PRD selected in the Explorer. The list holds every run that is not
-  merged (waiting, setup, implement, review, merge, merge-queue, error, blocked, aborted), ordered by start time and
+  merged (waiting, plan, setup, implement, review, merge, merge-queue, error, blocked, aborted), ordered by start time and
   then by PRD name. A header row names the columns, each run has one row: phase symbol and PRD label, phase
   (waiting with `· #n in queue`), current step with duration (`–` without step), cost (`x.xx USD`), port,
   dev server (`● :<port>` while running, otherwise `–`), branch, and in the rest of the width the first line
@@ -227,7 +227,7 @@ The native selection of the terminal works with Shift held while dragging.
   group row nothing. `f` opens the unblock dialog of a blocked run (see Blocked runs). Tab `Files`: file tree without `.git`, `l` opens folders or files in `$VISUAL`/`$EDITOR`/`vi`
   as a tab.
 
-Phase symbols: `○` planned, `◌` waiting, `●` setup/implement/review/merge, `◐` merge-queue, `✓` merged,
+Phase symbols: `○` planned, `◌` waiting, `●` plan/setup/implement/review/merge, `◐` merge-queue, `✓` merged,
 `■` aborted, `✗` error/discarded, `⊘` blocked (yellow `#d7af00`). Blocked PRDs are neither active nor done,
 they stay in the group of open PRDs.
 
@@ -489,16 +489,28 @@ interactively in the main folder. Empty input asks Claude to ask. The contract m
 
 Steps in order, each recorded in the run state:
 
-1. **setup:** `git worktree add -b feat/<prd> <worktree> <base>` (an existing worktree stays, an existing
+1. **plan:** decides whether the PRD may start next to the open runs of its project (phases waiting, plan,
+   setup, implement, review, merge-queue, merge, blocked) or must wait until some of them are merged.
+   Without such runs the step ends right away without Claude: `No other open runs in <id>, <prd> starts
+   right away`, `after` stays empty. Otherwise Claude gets the built-in prompt `plan` (not part of
+   `.lazydev/`, header `# lazydev plan: <prd path>`) with the open runs as `` `<name>` (Phase <phase>):
+   `<absolute PRD path>` ``, the worktree's PRD when the run moved it there. It runs in the main folder with
+   `--permission-mode default` and only `Read,Glob,Grep`, so it changes nothing. Its answer must end with
+   `## Reihenfolge`, a line `Nach: <prd>, …` or `Nach: keine` and `Grund: <sentence>`. Names may carry
+   backticks, area or `.md`; a missing section, a missing `Nach:` line or a name that is no open run fails
+   the step. PRDs that wait for this one, directly or through others, are dropped with a log line, so the
+   order has no cycle. The result goes into `after` and `afterReason` of the run state, the log says
+   `Parallel: <reason>` or `After <prds>: <reason>`. Its cost counts like any step.
+2. **setup:** `git worktree add -b feat/<prd> <worktree> <base>` (an existing worktree stays, an existing
    branch without worktree is an error). An untracked PRD moves into the worktree and gets committed as
    `docs(prd): add <prd>`. Then the databases (env files, containers, databases, see Databases), then the
    setup hook.
-2. **implement:** Claude with the PRD path. Success requires `## Ergebnis` `umgesetzt` and the PRD status
+3. **implement:** Claude with the PRD path. Success requires `## Ergebnis` `umgesetzt` and the PRD status
    `umgesetzt (date)` in the worktree. `abgebrochen` with points under `## Offene Fragen` blocks the run (see
    Blocked runs), `abgebrochen` without them fails with `implement aborted`. `## Hinweise` holds remarks
    without a decision and changes nothing.
-3. **review:** Claude reviews and commits through the agent `committer`. The worktree must be clean.
-4. **merge:** wait for the project's merge slot (phase merge-queue), stop the dev server. If the PRD is the
+4. **review:** Claude reviews and commits through the agent `committer`. The worktree must be clean.
+5. **merge:** wait for the project's merge slot (phase merge-queue), stop the dev server. If the PRD is the
    only uncommitted file in the worktree, commit it as `docs(prd): resolve blocker of <prd>`. Require a clean
    worktree, `git rebase <base>`; on conflict `rebase --abort` and Claude step merge (`bereit für
    Fast-Forward`, base must be an ancestor, worktree clean; `abgebrochen` with points under `## Offene Punkte`
@@ -521,6 +533,20 @@ check. Merges always run automatically.
   `<prd> is blocked. Resolve it with f first.`. `s` asks `Start|Continue <prd>? (y/n)`.
 - At most 3 runners work at the same time. Above that, the PRD gets phase waiting. A runner that ends starts
   waiting PRDs in start order.
+- **Order:** the setup of a PRD starts only when every PRD in `after` is merged or its run state is gone
+  (discarded). Until then the PRD has phase waiting and takes no slot: `start` and `startWaiting` skip it,
+  and a runner that reaches the setup with an unmerged PRD in `after` saves phase waiting with PID 0 and ends
+  without error. The runner that merges the last of them starts it. A PRD in `after` that ends in error,
+  blocked or aborted holds the waiting PRD until it is merged or discarded, or until `lazydev after`
+  changes the order. `start` and `s` on such a PRD say `<prd> waits for <prds>: <reason>`, a PRD without a
+  free slot `3 runners work already. <prd> waits and starts once one ends.`. The run list shows
+  `waits for <prds>: <reason>` in place of the last log line, `status` shows `waiting → <prds>`.
+- **`lazydev after [<project>] <prd> [<prd>…]`** overrides plan on a run that has not started its setup:
+  the PRDs must have runs in the project, none may wait for `<prd>` (`<dep> waits for <prd> already, that
+  would be a cycle`), `<prd>` not itself. Without PRDs it clears `after`. `afterReason` becomes
+  `set by hand`, an open step plan counts as done, a running plan refuses (`<prd> plans right now, set it
+  once plan is done`), a started setup too (`<prd> has started already, phase <phase>`). Then waiting PRDs
+  whose turn it is start.
 - Ports start at 3500, skipping ports of unmerged runs and ports something listens on (IPv4 and IPv6).
 - `x` stops a runner (phase aborted) or aborts a waiting PRD.
 - `X` asks, then stops the dev server, runs the teardown hook, drops the databases (also without worktree,
@@ -787,7 +813,7 @@ skill replaces no MCP server and no slash command.
 
 | Path | Content |
 |---|---|
-| `$XDG_STATE_HOME/lazydev/runs/<id>/<prd>.json` | Run state: projectDir, prd, branch, base, worktree, port, slug, phase, pid, startedAt, steps (name, sessionId, model, exitCode, ok, costUsd, startedAt, endedAt), error, note, databases (service, name) |
+| `$XDG_STATE_HOME/lazydev/runs/<id>/<prd>.json` | Run state: projectDir, prd, branch, base, worktree, port, slug, phase, pid, startedAt, steps (name, sessionId, model, exitCode, ok, costUsd, startedAt, endedAt), error, note, after, afterReason, databases (service, name) |
 | `…/runs/<id>/<prd>.<step>.jsonl` | Step log: stream-json with `ts` and runner lines `{"type":"lazydev","time","text"}` |
 | `…/runs/<id>/<prd>.runner.log`, `.devpid`, `.dev.log` | Runner output, dev server PID and folder, dev server output |
 | `$XDG_STATE_HOME/lazydev/trust/<id>.json`, `usage.json`, `agents.json`, `bin/` | Trust, limits, agents, runner binary |
@@ -816,8 +842,9 @@ the PRD file name without `.md`.
 | `remove <project>` | Removes the project from the list. Folder, run state and worktrees stay, runners keep working (`Its runners keep working until they end.`). |
 | `projects [--json]` | ID and path of every project, `--json` as an array of `{id, path}`. |
 | `trust [<project>]` | Shows hooks, allowed tools and databases of `config.yaml` and saves their hash after `y` (see Trust). |
-| `status [<project>] [--all] [--json]` | Without `<project>` outside a project: all projects with a column `PROJECT`. A table of the PRDs sorted by label: phase (`waiting #<n>` with the position in the queue), step (the running one, else the one `start` continues with), port (`dev` with a dev server), cost, status value. Below it the error and note of each run and the questions of `## Blocker` of a blocked run. Merged and discarded PRDs only with `--all`, or with an error. `--json` prints an array of objects with `project`, `prd`, `label`, `path`, `file` (absolute, in the worktree while the run has it), `status`, `phase`, `queue`, `step`, `branch`, `worktree`, `port`, `cost`, `error`, `note`, `blocker` (`{step, questions}`), `devPid`, `log` (the step log); empty fields are left out. |
-| `start [<project>] <prd>` | Starts or continues the runner in the background (see Run). With `MaxParallel` reached the PRD waits: `3 runners work already. <prd> waits and starts once one ends.` |
+| `status [<project>] [--all] [--json]` | Without `<project>` outside a project: all projects with a column `PROJECT`. A table of the PRDs sorted by label: phase (`waiting #<n>` with the position in the queue, `→ <prds>` while it waits for PRDs of `after`, with a line `<prd> waits for <prds>: <reason>` below the table), step (the running one, else the one `start` continues with), port (`dev` with a dev server), cost, status value. Below it the error and note of each run and the questions of `## Blocker` of a blocked run. Merged and discarded PRDs only with `--all`, or with an error. `--json` prints an array of objects with `project`, `prd`, `label`, `path`, `file` (absolute, in the worktree while the run has it), `status`, `phase`, `queue`, `step`, `branch`, `worktree`, `port`, `cost`, `error`, `note`, `blocker` (`{step, questions}`), `after`, `afterReason`, `waitsFor` (the PRDs of `after` not merged yet), `devPid`, `log` (the step log); empty fields are left out. |
+| `start [<project>] <prd>` | Starts or continues the runner in the background (see Run). A PRD that waits prints why: `<prd> waits for <prds>: <reason>`, or `3 runners work already. <prd> waits and starts once one ends.` |
+| `after [<project>] <prd> [<prd>…]` | Overrides the order plan chose (see Run): `<prd> starts once <prds> are merged.`, without PRDs `<prd> waits for nothing and starts with the next free slot.` The project is optional only when the first argument is no project. |
 | `stop [<project>] <prd>` | SIGTERM to the runner, a waiting PRD becomes aborted. |
 | `discard [--yes] [<project>] <prd>` | Asks `Delete worktree and branch feat/<prd> of <id>? …`, `--yes` skips the question (see Run, `X`). |
 | `wait [<project>] [--json] [--timeout <duration>]` | Projects like `status`. Reads the overview every second and returns with the events of the first read that has any: a run that reaches blocked, error, aborted or merged (`<kind> <id>/<prd>: <error or questions joined with " \| ">`) and a run with a new note (`note <id>/<prd>: <note>`). A PRD seen first as merged gives no event. When no run works, sits in the merge queue or waits, it returns right away with `idle: no run works or waits`; after the timeout (Go duration, e.g. `30m`) with `timeout: no event within <duration>`. `--json` prints one object per event: `kind`, `project`, `prd`, `phase`, `from`, `text`, `item` (the object of `status --json`). Always exit code 0. |

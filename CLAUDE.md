@@ -35,7 +35,7 @@ older versions do not build against the newer `x/ansi`.
 |---|---|
 | `tui` | Model, layout, keys, panes, wizard, status picker, run view, docker view. Reads files only |
 | `terminal` | Programs in a PTY, x/vt emulator, key encoding, window title filter |
-| `runner` | Start/queue/stop/discard, steps setup → implement → review → merge, hooks, worktrees, dev server start |
+| `runner` | Start/queue/stop/discard, steps plan → setup → implement → review → merge, order (`after`), hooks, worktrees, dev server start |
 | `state` | Run state, step logs, locks, trust, paths under `$XDG_STATE_HOME/lazydev/` |
 | `project` | PRDs, status line, phases, status change with commit |
 | `repo` | `.lazydev/`: config, init with the simple workflow (`workflows/simple/`), trust hash, wizard YAML edits |
@@ -57,7 +57,8 @@ older versions do not build against the newer `x/ansi`.
   gets copied to `$XDG_STATE_HOME/lazydev/bin/lazydev` first, so a running runner keeps its code and `go run`
   works. `state.IsRunner` checks `/proc/<pid>/cmdline`.
 - `runner.MaxParallel` (3) holds under the lock `locks/start.lock`. An ending runner starts the next waiting
-  PRD, not the TUI.
+  PRD, not the TUI. The step `plan` (`plan.go`, read-only Claude in the main folder, built-in prompt
+  `contract/plan.md`) sets `after`; a PRD starts its setup only once those are merged or discarded.
 - `x` signals the runner only. It cancels its context first, then signals its process group, so the step
   records an abort instead of a killed Claude.
 - `create` is no runner step: `n` opens an interactive Claude Code tab with the create prompt.

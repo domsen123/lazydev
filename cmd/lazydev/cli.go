@@ -264,6 +264,9 @@ func printStatus(out io.Writer, items []runner.Item, withProject bool) {
 		if it.Queue > 0 {
 			phase += fmt.Sprintf(" #%d", it.Queue)
 		}
+		if len(it.WaitsFor) > 0 && it.Phase == project.PhaseWaiting {
+			phase += " → " + strings.Join(it.WaitsFor, ", ")
+		}
 		port, cost := "", ""
 		if it.Port > 0 {
 			port = fmt.Sprint(it.Port)
@@ -291,6 +294,9 @@ func printStatus(out io.Writer, items []runner.Item, withProject bool) {
 		}
 		if it.Note != "" {
 			fmt.Fprintf(out, "\n%s: %s\n", name, it.Note)
+		}
+		if len(it.WaitsFor) > 0 && it.Phase == project.PhaseWaiting {
+			fmt.Fprintf(out, "\n%s waits for %s: %s\n", name, strings.Join(it.WaitsFor, ", "), it.AfterReason)
 		}
 		if it.Blocker != nil {
 			fmt.Fprintf(out, "\n%s is blocked in %s:\n", name, it.Blocker.Step)
@@ -438,6 +444,37 @@ func printLogEntry(step string, e claude.Entry) {
 	}
 	text := strings.ReplaceAll(e.Text, "\n", "\n"+strings.Repeat(" ", 8+1+len(step)+1+len(e.Kind)+1)+indent)
 	fmt.Printf("%s %s %s %s%s\n", at, step, e.Kind, indent, text)
+}
+
+// setAfter is "lazydev after [<project>] <prd> [<prd>…]": it overrides the decision of the step plan.
+// The project is only optional with exactly one argument; with more, the first one names a project
+// when it is one, otherwise all name PRDs of the project of the working directory.
+func setAfter(args []string) error {
+	if len(args) == 0 {
+		usageError()
+	}
+	var t runner.Target
+	var err error
+	if len(args) >= 2 {
+		if found, ferr := runner.Find(args[0]); ferr == nil {
+			t, args = found, args[1:]
+		}
+	}
+	if t.ID == "" {
+		if t, err = cwdTarget(); err != nil {
+			return err
+		}
+	}
+	name, deps := args[0], args[1:]
+	if err := runner.SetAfter(t, name, deps); err != nil {
+		return err
+	}
+	if len(deps) == 0 {
+		fmt.Printf("%s waits for nothing and starts with the next free slot.\n", name)
+	} else {
+		fmt.Printf("%s starts once %s are merged.\n", name, strings.Join(deps, ", "))
+	}
+	return nil
 }
 
 // setStatus is "lazydev set-status [<project>] <prd> planned|merged|discarded", the status picker of

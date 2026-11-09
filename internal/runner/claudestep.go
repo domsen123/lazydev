@@ -73,12 +73,18 @@ func runClaude(ctx context.Context, t Target, prdName string, r *state.Run, step
 	if err != nil {
 		return claude.Summary{}, 1, err
 	}
+	return callClaude(ctx, t, prdName, r, r.Worktree, prompt, tools, mode, log)
+}
+
+// callClaude runs claude -p with prompt in dir. Session, model and cost go into the last step as
+// they come.
+func callClaude(ctx context.Context, t Target, prdName string, r *state.Run, dir, prompt string, tools []string, mode string, log *logger) (claude.Summary, int, error) {
 	baseCost := 0.0
 	if c := r.LastStep().CostUSD; c != nil {
 		baseCost = *c
 	}
 	o := claude.Options{
-		Dir:            r.Worktree,
+		Dir:            dir,
 		Prompt:         prompt,
 		AllowedTools:   tools,
 		PermissionMode: mode,

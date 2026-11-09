@@ -20,13 +20,14 @@ import (
 
 // The steps of a run in order.
 const (
+	StepPlan      = "plan"
 	StepSetup     = "setup"
 	StepImplement = "implement"
 	StepReview    = "review"
 	StepMerge     = "merge"
 )
 
-var Steps = []string{StepSetup, StepImplement, StepReview, StepMerge}
+var Steps = []string{StepPlan, StepSetup, StepImplement, StepReview, StepMerge}
 
 // BinaryName is the name runners run under. IsRunner recognizes them by it.
 const BinaryName = "lazydev"
@@ -81,6 +82,10 @@ type Run struct {
 	Error      *string       `json:"error"`
 	// Note is a hint for humans, e.g. that the main folder blocks the merge.
 	Note string `json:"note,omitempty"`
+	// After are the PRDs of the same project that must be merged before the setup of this one
+	// starts, AfterReason why. The step plan or "lazydev after" sets them.
+	After       []string `json:"after,omitempty"`
+	AfterReason string   `json:"afterReason,omitempty"`
 	// Databases are the databases the setup created for the worktree.
 	Databases []Database `json:"databases,omitempty"`
 }

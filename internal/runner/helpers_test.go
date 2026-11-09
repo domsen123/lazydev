@@ -60,7 +60,8 @@ echo "teardown $(pwd -P)" >> "$LAZYDEV_PROJECT/hooks.log"
 // uncommitted), abortnone (abgebrochen without questions), status (status line stays), dirty
 // (review does not commit),
 // lazydev (implement creates .lazydev/neu.md), sleep (implement sleeps until a signal ends it).
-// FAKE_MERGE_MODE: ok (rebase -X theirs), noop (no rebase), abort.
+// FAKE_MERGE_MODE: ok (rebase -X theirs), noop (no rebase), abort. FAKE_PLAN is the line "Nach:" of
+// plan, "keine" by default.
 const fakeScript = `#!/bin/sh
 # printf instead of echo, dash's echo turns "\n" into a newline.
 { printf '%s\n' "$@"; echo "GIT_EDITOR=$GIT_EDITOR"; echo "PWD=$(pwd -P)"; } >> "$FAKE_ARGS"
@@ -90,6 +91,9 @@ case "$2" in
 	echo change > review.txt
 	if [ "$mode" != dirty ]; then git add -A && git commit -q -m "feat: review"; fi
 	echo '{"type":"result","is_error":false,"total_cost_usd":0.3,"result":"fertig"}'
+	;;
+"# lazydev plan: "*)
+	printf '{"type":"result","is_error":false,"total_cost_usd":0.05,"result":"Geprüft.\\n\\n## Reihenfolge\\n\\nNach: %s\\nGrund: beide ändern die Tokens\\n"}\n' "${FAKE_PLAN:-keine}"
 	;;
 "# lazydev merge: "*)
 	case "$FAKE_MERGE_MODE" in

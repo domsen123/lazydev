@@ -213,3 +213,20 @@ func TestAuto(t *testing.T) {
 		t.Errorf("Auto(implement) = %q, want empty", got)
 	}
 }
+
+func TestPlan(t *testing.T) {
+	got := Plan(Vars{Arguments: "prd/a/neu.md", Base: "main"}, []PlanRun{{Name: "alt", Phase: "implement", File: "/wt/alt/prd/a/alt.md"}})
+	for _, s := range []string{
+		"# lazydev plan: prd/a/neu.md\n",
+		"- `alt` (Phase implement): `/wt/alt/prd/a/alt.md`\n",
+		"Fast-Forward in `main`",
+		"Nach: keine",
+	} {
+		if !strings.Contains(got, s) {
+			t.Errorf("plan prompt lacks %q:\n%s", s, got)
+		}
+	}
+	if strings.Contains(got, "$RUNS") || strings.Contains(got, "$ARGUMENTS") {
+		t.Errorf("placeholder left:\n%s", got)
+	}
+}
