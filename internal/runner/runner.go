@@ -288,7 +288,13 @@ func Run(ctx context.Context, t Target, prdName string) error {
 			}
 		}
 		if err := runStep(ctx, t, prdName, r, step); err != nil {
-			return err
+			var blocked *blockedError
+			if !errors.As(err, &blocked) || !blocked.resolve {
+				return err
+			}
+			if err := resolve(ctx, t, prdName, r, blocked); err != nil {
+				return err
+			}
 		}
 	}
 	r.Phase, r.PID = project.PhaseMerged, 0
@@ -390,6 +396,12 @@ func runStep(ctx context.Context, t Target, prdName string, r *state.Run, step s
 	if ctx.Err() == nil && errors.As(err, &blocked) {
 		if recErr := recordBlocker(prdName, r, blocked, log); recErr != nil {
 			err = recErr
+		} else if blocked.resolve = canResolve(t, r); blocked.resolve {
+			// The runner goes on with the step resolve, it notifies once that is decided.
+			log.printf("Blocked: %v, Claude resolves it (auto-unblock)", err)
+			r.EndStep(0, false)
+			r.Block(err.Error())
+			return errors.Join(err, state.Save(t.ID, prdName, r))
 		} else {
 			log.printf("Blocked: %v", err)
 			r.EndStep(0, false)

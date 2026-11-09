@@ -60,6 +60,8 @@ echo "teardown $(pwd -P)" >> "$LAZYDEV_PROJECT/hooks.log"
 // uncommitted), abortnone (abgebrochen without questions), status (status line stays), dirty
 // (review does not commit),
 // lazydev (implement creates .lazydev/neu.md), sleep (implement sleeps until a signal ends it).
+// abortonce (implement blocks the first time only). FAKE_RESOLVE: ok (default), decline (abgebrochen,
+// scribbles into the PRD), dirty (also writes other.txt).
 // FAKE_MERGE_MODE: ok (rebase -X theirs), noop (no rebase), abort. FAKE_PLAN is the line "Nach:" of
 // plan, "keine" by default.
 const fakeScript = `#!/bin/sh
@@ -77,6 +79,10 @@ case "$2" in
 	error) echo '{"type":"result","is_error":true,"result":"Rate limit"}'; exit 0 ;;
 	abort) echo wip > wip.txt
 		printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Feld fehlt im PRD\n- Zweite Frage\n\n## Hinweise\n- einmal cd benutzt\n"}'; exit 0 ;;
+	abortonce) if [ ! -f "$FAKE_ARGS.aborted" ]; then touch "$FAKE_ARGS.aborted"; echo wip > wip.txt
+			printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Feld fehlt im PRD\n"}'; exit 0
+		fi
+		sed -i 's/^> Status: geplant/> Status: umgesetzt (2026-10-20)/' "$prd" ;;
 	abortnone) printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- keine\n"}'; exit 0 ;;
 	status) ;;
 	sleep) exec sleep 30 ;;
@@ -91,6 +97,17 @@ case "$2" in
 	echo change > review.txt
 	if [ "$mode" != dirty ]; then git add -A && git commit -q -m "feat: review"; fi
 	echo '{"type":"result","is_error":false,"total_cost_usd":0.3,"result":"fertig"}'
+	;;
+"# lazydev resolve: "*)
+	prd=$(printf '%s\n' "$2" | sed -n '1s/^# lazydev resolve: //p')
+	case "$FAKE_RESOLVE" in
+	decline) echo kaputt >> "$prd"
+		printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Datenverlust möglich\n"}'; exit 0 ;;
+	dirty) echo x > other.txt ;;
+	esac
+	sed -i -e 's/^> Status: blockiert ([0-9-]*)/> Status: geplant/' -e '/^## Blocker/,$d' "$prd"
+	printf '## Entscheidungen\n\n- Feld: A, passt zum Code\n' >> "$prd"
+	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\ngeklärt\n\n## Entscheidungen\n- Feld fehlt im PRD: A, passt zum Code\n\n## Offene Fragen\n- keine\n"}'
 	;;
 "# lazydev plan: "*)
 	printf '{"type":"result","is_error":false,"total_cost_usd":0.05,"result":"Geprüft.\\n\\n## Reihenfolge\\n\\nNach: %s\\nGrund: beide ändern die Tokens\\n"}\n' "${FAKE_PLAN:-keine}"

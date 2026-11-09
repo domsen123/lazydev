@@ -80,6 +80,15 @@ func Plan(v Vars, runs []PlanRun) string {
 	return Header("plan", v) + "\n\n" + strings.TrimSpace(rep.Replace(string(data))) + "\n"
 }
 
+// Resolve builds the prompt of the step resolve, which answers the questions of a blocked run
+// without the user. Like plan it is built in, lazydev checks its report. v.Arguments is the PRD
+// path relative to the worktree.
+func Resolve(v Vars) string {
+	data, _ := contracts.ReadFile("contract/resolve.md")
+	rep := strings.NewReplacer("$ARGUMENTS", v.Arguments, "$BASE", v.Base, "$BRANCH", v.Branch)
+	return Header("resolve", v) + "\n\n" + strings.TrimSpace(rep.Replace(string(data))) + "\n"
+}
+
 // Auto is the block a prompt of step gets in autonomous mode ("lazydev prompt <step> --auto"):
 // Claude answers the questions itself instead of asking the user. It goes after the contract and
 // takes precedence over it. Steps without autonomous mode give "".

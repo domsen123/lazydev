@@ -230,3 +230,12 @@ func TestPlan(t *testing.T) {
 		t.Errorf("placeholder left:\n%s", got)
 	}
 }
+
+func TestResolve(t *testing.T) {
+	got := Resolve(Vars{Arguments: "prd/a/neu.md"})
+	for _, s := range []string{"# lazydev resolve: prd/a/neu.md\n", "Ändere ausschließlich das PRD `prd/a/neu.md`", "## Entscheidungen", "geklärt"} {
+		if !strings.Contains(got, s) {
+			t.Errorf("resolve prompt lacks %q", s)
+		}
+	}
+}

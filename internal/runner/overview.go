@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"lazydev/internal/devserver"
+	"lazydev/internal/fsutil"
 	"lazydev/internal/project"
 	"lazydev/internal/repo"
 	"lazydev/internal/state"
@@ -41,7 +42,9 @@ type Item struct {
 	WaitsFor    []string `json:"waitsFor,omitempty"`
 	// Blocker holds the open questions of a blocked run.
 	Blocker *Blocker `json:"blocker,omitempty"`
-	DevPID  int      `json:"devPid,omitempty"`
+	// Resolved counts the resolve steps that answered the questions of a blocked step.
+	Resolved int `json:"resolved,omitempty"`
+	DevPID   int `json:"devPid,omitempty"`
 	Log     string   `json:"log,omitempty"`
 }
 
@@ -114,9 +117,15 @@ func fillRun(it *Item, id string, r *state.Run, queue []string) {
 		it.Log = state.LogPath(id, it.PRD, it.Step)
 	}
 	it.DevPID = devserver.PID(id, it.PRD)
+	for _, s := range r.Steps {
+		if s.Name == state.StepResolve && s.OK {
+			it.Resolved++
+		}
+	}
 	if r.Worktree != "" && r.PRD != "" {
+		// While the run has its worktree, the PRD there is the current one, also for a tracked PRD.
 		file := filepath.Join(r.Worktree, r.PRD)
-		if it.File == "" {
+		if it.File == "" || fsutil.Exists(file) {
 			it.File = file
 		}
 		if it.Phase == project.PhaseBlocked {
@@ -143,7 +152,8 @@ func waitingQueue(entries []state.Entry) []string {
 // Event is a change "lazydev wait" reports.
 type Event struct {
 	// Kind is the new phase (blocked, error, aborted, merged), "note" for a new note of a run,
-	// "idle" when nothing runs or waits, or "timeout".
+	// "resolved" when Claude answered the questions of a blocked step (auto-unblock), "idle" when
+	// nothing runs or waits, or "timeout".
 	Kind    string        `json:"kind"`
 	Project string        `json:"project,omitempty"`
 	PRD     string        `json:"prd,omitempty"`
@@ -174,6 +184,8 @@ func Changes(before, after []Item) []Event {
 				text = strings.Join(it.Blocker.Questions, " | ")
 			}
 			events = append(events, Event{Kind: string(it.Phase), Project: it.Project, PRD: it.PRD, Phase: it.Phase, From: prev.Phase, Text: text, Item: &item})
+		case known && it.Resolved > prev.Resolved:
+			events = append(events, Event{Kind: "resolved", Project: it.Project, PRD: it.PRD, Phase: it.Phase, Text: "Claude answered the open questions, see ## Entscheidungen in " + it.File, Item: &item})
 		case it.Note != "" && it.Note != prev.Note:
 			events = append(events, Event{Kind: "note", Project: it.Project, PRD: it.PRD, Phase: it.Phase, Text: it.Note, Item: &item})
 		}

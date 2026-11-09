@@ -267,3 +267,18 @@ func TestMenuEscape(t *testing.T) {
 		t.Errorf("h on the right: %+v", m.menu)
 	}
 }
+
+func TestMenuAutoUnblock(t *testing.T) {
+	m := moveTo(t, press(t, menuModel(t), keyEnter), itemAutoUnblock)
+	if plain := ansi.Strip(m.View()); !strings.Contains(plain, "Auto-unblock shop  ‹ off ›") || !strings.Contains(plain, "On: when a run of this project") {
+		t.Errorf("view:\n%s", plain)
+	}
+	m = press(t, m, keyEnter)
+	if !config.LoadSettings().AutoUnblockEnabled(m.projects[0].path) {
+		t.Error("auto-unblock not saved")
+	}
+	press(t, m, keyRight)
+	if s := config.LoadSettings(); s.AutoUnblockEnabled(m.projects[0].path) || len(s.AutoUnblock) != 0 {
+		t.Errorf("auto-unblock not switched off: %v", s.AutoUnblock)
+	}
+}

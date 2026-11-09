@@ -21,6 +21,7 @@ const (
 	Aborted    Event = "aborted"
 	MainFolder Event = "main folder"
 	Blocked    Event = "blocked"
+	Resolved   Event = "resolved"
 )
 
 // maxFieldValue is the longest value of an embed field Discord takes, in characters.
@@ -36,7 +37,8 @@ var RetryDelay = 5 * time.Second
 const attempts = 4
 
 // Message is the content of a notification about a run. PRD is "<area>/<name>". Blocker holds the
-// open questions of a blocked run, one per line, and shows for Blocked only.
+// open questions of a blocked run, one per line, for Blocked, and the decisions Claude made for
+// Resolved.
 type Message struct {
 	Event                             Event
 	Project, PRD, Branch, Base, Model string
@@ -55,6 +57,7 @@ var titles = map[Event]struct {
 	Aborted:    {"■ Aborted: ", 0x95a5a6},
 	MainFolder: {"◐ Waiting for main folder: ", 0xf1c40f},
 	Blocked:    {"⊘ Blocked: ", 0xe67e22},
+	Resolved:   {"↻ Unblocked by Claude: ", 0x1abc9c},
 }
 
 // testColor is the color of the test message.
@@ -95,8 +98,11 @@ func Payload(m Message) ([]byte, error) {
 		{"Duration", FormatDuration(m.Duration), true},
 		{"Model", model, true},
 	}
-	if m.Event == Blocked {
+	switch m.Event {
+	case Blocked:
 		fields = append(fields, field{"Blocker", truncate(m.Blocker, maxFieldValue), false})
+	case Resolved:
+		fields = append(fields, field{"Decisions", truncate(m.Blocker, maxFieldValue), false})
 	}
 	return build(t.prefix+m.PRD, t.color, fields)
 }

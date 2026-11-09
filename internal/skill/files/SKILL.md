@@ -39,6 +39,7 @@ Nutzer nie in die TUI, um eine Taste zu drücken, sondern nutze den passenden Be
 | Reihenfolge ändern | `lazydev after [<projekt>] <prd> [<prd>…]` überschreibt die Entscheidung von `plan`, ohne PRDs wartet es auf nichts. `lazydev status` zeigt `waiting → <prds>` und den Grund. |
 | Läufe überwachen | `lazydev wait [<projekt>] [--json] [--timeout 30m]` blockiert, bis ein Lauf blockiert, fehlschlägt, abbricht, gemergt wird oder einen Hinweis bekommt, und gibt die Ereignisse aus. `idle` heißt: nichts läuft oder wartet. In Claude Code eignet sich dafür das Werkzeug `Monitor` oder ein Hintergrund-Befehl. |
 | Log eines Laufs | `lazydev log [<projekt>] <prd>`, `-f` folgt ihm bis zum Ende des Laufs. |
+| Blocker automatisch lösen lassen | `lazydev auto-unblock [<projekt>] on` lässt den Runner blockierte Läufe selbst klären (höchstens 2-mal pro Lauf), `off` schaltet es ab. Nur auf Wunsch des Nutzers. |
 | Blockierten Lauf lösen | `lazydev prompt unblock [<projekt>] <prd>` gibt den Unblock-Prompt aus, das PRD steht darin mit absolutem Pfad im Worktree. Folge ihm. Mit `--auto` beantwortest du die Fragen selbst. Danach `lazydev start <projekt> <prd>`. |
 | PRD-Status von Hand setzen | `lazydev set-status [<projekt>] <prd> planned\|merged\|discarded`, committet das PRD. |
 | Dev-Server im Worktree | `lazydev dev [<projekt>] <prd> [start\|stop]`, der Port steht in `lazydev status`. |

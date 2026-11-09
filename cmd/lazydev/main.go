@@ -31,6 +31,7 @@ Projects:
   lazydev remove <project>                         remove a project from the list, the folder stays
   lazydev projects [--json]                        list the projects
   lazydev trust [<project>]                        check and trust hooks, allowed tools and databases of .lazydev/config.yaml
+  lazydev auto-unblock [<project>] [on|off]        let Claude answer the questions of blocked runs itself
 
 PRDs and runs:
   lazydev status [<project>] [--all] [--json]      open PRDs with phase, step, port, cost and blockers
@@ -147,10 +148,11 @@ func main() {
 			fail(err)
 		}
 		return
-	case "add", "remove", "projects", "status", "wait", "log", "set-status", "dev", "after":
+	case "add", "remove", "projects", "status", "wait", "log", "set-status", "dev", "after", "auto-unblock":
 		commands := map[string]func([]string) error{
 			"add": addProject, "remove": removeProject, "projects": listProjects, "status": status,
 			"wait": wait, "log": showLog, "set-status": setStatus, "dev": dev, "after": setAfter,
+			"auto-unblock": autoUnblock,
 		}
 		if err := commands[cmd](rest); err != nil {
 			fail(err)

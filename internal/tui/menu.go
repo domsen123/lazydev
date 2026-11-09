@@ -35,6 +35,7 @@ type menuItem int
 
 const (
 	itemTheme menuItem = iota
+	itemAutoUnblock
 	itemNotifications
 	itemGlobalURL
 	itemProject
@@ -48,16 +49,17 @@ const (
 	urlProject = "project"
 )
 
-// tabDescriptions describe the tabs without entries and the General tab below its entry.
+// tabDescriptions describe the tabs without entries.
 var tabDescriptions = [menuTabs]string{
-	tabGeneral: "Colors of borders, focus and selection. lazydev saves the choice in settings.json.",
 	tabGit:     "Fetch, pull, push and commit the main folder of the selected project. Each action runs in a center tab. Also alt+g.",
 	tabQuit:    "Ends lazydev and its terminal tabs. Runners keep working in the background.",
 }
 
-// itemDescriptions describe the entries of the Discord tab.
+// itemDescriptions describe the entries of the right column.
 var itemDescriptions = map[menuItem]string{
-	itemNotifications: "Runners post to Discord when a PRD is merged, fails, gets blocked, gets aborted or waits for the main folder.",
+	itemTheme:         "Colors of borders, focus and selection. lazydev saves the choice in settings.json.",
+	itemAutoUnblock:   "On: when a run of this project gets blocked, Claude answers the open questions itself, records them under ## Entscheidungen and the run goes on. Questions about data loss, security, public interfaces or costs still stop the run.",
+	itemNotifications: "Runners post to Discord when a PRD is merged, fails, gets blocked, gets unblocked by Claude, gets aborted or waits for the main folder.",
 	itemGlobalURL:     "Webhook URL for all projects. Stored in settings.json, never in a repository.",
 	itemProject:       "Off mutes this project only.",
 	itemProjectURL:    "Replaces the global URL for this project. Empty uses the global URL.",
@@ -84,7 +86,10 @@ type discordTestMsg struct{ err error }
 func (m model) menuItems() []menuItem {
 	switch m.menu.tab {
 	case tabGeneral:
-		return []menuItem{itemTheme}
+		if m.current() == nil {
+			return []menuItem{itemTheme}
+		}
+		return []menuItem{itemTheme, itemAutoUnblock}
 	case tabDiscord:
 		if m.current() == nil {
 			return []menuItem{itemNotifications, itemGlobalURL, itemSendTest}
@@ -174,6 +179,12 @@ func (m *model) changeItem(step int) {
 	switch m.selectedItem() {
 	case itemTheme:
 		m.setTheme(m.theme + step)
+	case itemAutoUnblock:
+		s := config.LoadSettings()
+		s.SetAutoUnblock(p.path, !s.AutoUnblockEnabled(p.path))
+		if err := config.SaveSettings(s); err != nil {
+			m.err = err.Error()
+		}
 	case itemNotifications:
 		m.saveDiscord(func(d *config.Discord) { d.Enabled = !d.Enabled })
 	case itemProject:
@@ -287,6 +298,8 @@ func (m model) itemLabel(item menuItem, d config.Discord) string {
 	switch item {
 	case itemTheme:
 		return "Color theme  ‹ " + themes[m.theme].name + " ›"
+	case itemAutoUnblock:
+		return "Auto-unblock " + p.name() + "  " + onOff(config.LoadSettings().AutoUnblockEnabled(p.path))
 	case itemNotifications:
 		return "Notifications  " + onOff(d.Enabled)
 	case itemGlobalURL:
@@ -368,9 +381,7 @@ func (m model) viewMenu() string {
 				}
 			}
 		}
-		if m.menu.tab == tabDiscord {
-			description = itemDescriptions[items[cursor]]
-		}
+		description = itemDescriptions[items[cursor]]
 		right = append(right, "")
 	}
 	wrapped := lipgloss.NewStyle().Width(rightWidth).Render(description)

@@ -32,7 +32,7 @@ func phaseColor(p project.Phase, t theme) lipgloss.TerminalColor {
 		return t.focus
 	case project.PhaseBlocked:
 		return colorBlocked
-	case project.PhasePlan, project.PhaseSetup, project.PhaseImplement, project.PhaseReview, project.PhaseMerge, project.PhaseMergeQueue:
+	case project.PhasePlan, project.PhaseResolve, project.PhaseSetup, project.PhaseImplement, project.PhaseReview, project.PhaseMerge, project.PhaseMergeQueue:
 		return t.title
 	}
 	return nil

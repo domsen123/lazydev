@@ -29,6 +29,13 @@ const (
 
 var Steps = []string{StepPlan, StepSetup, StepImplement, StepReview, StepMerge}
 
+// StepResolve is no step of the order: with auto-unblock on, it answers the questions of a blocked
+// implement or merge, which then runs again. NextStep skips it.
+const StepResolve = "resolve"
+
+// LogSteps are the steps with a log file, in the order the log tab shows them.
+var LogSteps = []string{StepPlan, StepSetup, StepImplement, StepResolve, StepReview, StepMerge}
+
 // BinaryName is the name runners run under. IsRunner recognizes them by it.
 const BinaryName = "lazydev"
 
@@ -118,7 +125,7 @@ func Save(id, prdName string, r *Run) error {
 // Remove deletes state and logs of a PRD.
 func Remove(id, prdName string) error {
 	files := []string{Path(id, prdName), RunnerLogPath(id, prdName), DevPIDPath(id, prdName), DevLogPath(id, prdName)}
-	for _, step := range Steps {
+	for _, step := range LogSteps {
 		files = append(files, LogPath(id, prdName, step))
 	}
 	var errs []error
@@ -193,6 +200,17 @@ func (r *Run) Fail(err error) {
 	r.Error, r.Phase = &msg, project.PhaseError
 }
 
+// Resolves counts the started resolve steps of the run.
+func (r *Run) Resolves() int {
+	n := 0
+	for _, s := range r.Steps {
+		if s.Name == StepResolve {
+			n++
+		}
+	}
+	return n
+}
+
 // Block ends the run in phase blocked: a step waits for a decision of the user.
 func (r *Run) Block(msg string) {
 	r.Error, r.Phase = &msg, project.PhaseBlocked
@@ -235,7 +253,13 @@ func (r *Run) Effective() project.Phase {
 // NextStep is the step a run continues with: the first, the failed one after an error or abort,
 // otherwise the next. After the merge it is empty.
 func (r *Run) NextStep() string {
-	last := r.LastStep()
+	var last *Step
+	for i := len(r.Steps) - 1; i >= 0; i-- {
+		if r.Steps[i].Name != StepResolve {
+			last = &r.Steps[i]
+			break
+		}
+	}
 	if last == nil {
 		return Steps[0]
 	}

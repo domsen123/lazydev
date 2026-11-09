@@ -8,6 +8,7 @@ const (
 	PhasePlanned    Phase = "planned"
 	PhaseWaiting    Phase = "waiting"
 	PhasePlan       Phase = "plan"
+	PhaseResolve    Phase = "resolve"
 	PhaseSetup      Phase = "setup"
 	PhaseImplement  Phase = "implement"
 	PhaseReview     Phase = "review"
@@ -27,7 +28,7 @@ func (p Phase) Symbol() string {
 		return "○"
 	case PhaseWaiting:
 		return "◌"
-	case PhasePlan, PhaseSetup, PhaseImplement, PhaseReview, PhaseMerge:
+	case PhasePlan, PhaseSetup, PhaseImplement, PhaseResolve, PhaseReview, PhaseMerge:
 		return "●"
 	case PhaseMergeQueue:
 		return "◐"
@@ -51,7 +52,7 @@ func (p Phase) Done() bool {
 // Active is true for the phases in which a runner works.
 func (p Phase) Active() bool {
 	switch p {
-	case PhasePlan, PhaseSetup, PhaseImplement, PhaseReview, PhaseMerge:
+	case PhasePlan, PhaseSetup, PhaseImplement, PhaseResolve, PhaseReview, PhaseMerge:
 		return true
 	}
 	return false

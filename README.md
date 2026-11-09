@@ -222,7 +222,7 @@ pnpm db:migrate
   `.lazydev/`. If the base branch moved meanwhile, it rebases again.
 - PRD status values stay German (`geplant`, `umgesetzt (date)`, `verworfen (date)`, `blockiert (date)`), like
   the prompts.
-- Phases: `○` planned, `◌` waiting, `●` plan/setup/implement/review/merge, `◐` merge-queue, `✓` merged, `■`
+- Phases: `○` planned, `◌` waiting, `●` plan/setup/implement/resolve/review/merge, `◐` merge-queue, `✓` merged, `■`
   aborted, `✗` error/discarded, `⊘` blocked (yellow).
 
 ### Blocked runs
@@ -239,6 +239,12 @@ That is no error: the run ends in phase `blocked`.
 
 Without the TUI, `lazydev prompt unblock [--auto] <project> <prd>` prints the same prompt for any Claude
 Code session, and `lazydev start` continues.
+
+**Auto-unblock** (opt-in per project: `lazydev auto-unblock on` or `alt+m` → General): when a run gets
+blocked, the runner lets Claude answer the questions itself in the worktree. It records each answer with a
+reason under `## Entscheidungen`, commits the PRD alone and runs the blocked step again; Discord gets
+`↻ Unblocked by Claude` with the decisions. Questions about data loss, security, public interfaces or costs
+it may not decide, then the run stops as before. At most 2 times per run.
 
 Remarks without a decision go under `## Hinweise` in the report of implement and do not block.
 
@@ -262,8 +268,8 @@ action runs as a center tab, so passphrase and credential prompts work like in a
 
 ## Discord
 
-Runners post to a Discord webhook when a PRD is merged, a step fails or blocks, `x` aborts a runner or the
-merge starts to wait for the main folder. They post without a running TUI too.
+Runners post to a Discord webhook when a PRD is merged, a step fails or blocks, Claude resolves a blocker
+(auto-unblock), `x` aborts a runner or the merge starts to wait for the main folder. They post without a running TUI too.
 
 1. In Discord, create a webhook for a channel and copy its URL.
 2. `alt+m`, tab `Discord`, `enter`. Select `Global URL`, press `enter`, paste the URL and press `enter`.
@@ -299,6 +305,7 @@ lazydev add [<path>]                              # add a project, without path 
 lazydev remove <project>                          # remove it from the list, the folder stays
 lazydev projects [--json]
 lazydev trust [<project>]
+lazydev auto-unblock [<project>] [on|off]         # let Claude resolve blocked runs of the project itself
 lazydev status [<project>] [--all] [--json]       # PRDs with phase, step, port, cost and blocker questions
 lazydev start [<project>] <prd>                   # start or continue in the background
 lazydev stop [<project>] <prd>
@@ -321,7 +328,7 @@ Without `<project>`, the project of the current folder applies, also from inside
 `--auto` makes Claude answer the questions itself and record them under `## Entscheidungen`.
 
 `wait` is made for an operator session: it returns with one line per event (`blocked`, `error`,
-`aborted`, `merged`, `note`), with `idle` when nothing runs or waits, and `--json` gives the details of
+`aborted`, `merged`, `note`, `resolved`), with `idle` when nothing runs or waits, and `--json` gives the details of
 `status --json` along. A running TUI picks up projects that `add` and `remove` change within 5 s.
 
 `activity` reads the log the TUI writes while it runs: every key outside a terminal with its pane, tab and

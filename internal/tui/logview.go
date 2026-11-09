@@ -146,7 +146,7 @@ func (m model) applyLogs(msg logReadMsg) {
 // readSteps reads every step log of a run from its offset on.
 func readSteps(id, prd string, offsets map[string]int64) map[string]logChunk {
 	chunks := map[string]logChunk{}
-	for _, step := range state.Steps {
+	for _, step := range state.LogSteps {
 		if c, ok := readStep(state.LogPath(id, prd, step), offsets[step]); ok {
 			chunks[step] = c
 		}
@@ -223,7 +223,7 @@ func (lv *logView) body() []string {
 	text := lipgloss.NewStyle().Foreground(t.text)
 	muted := text.Faint(true)
 	var lines []string
-	for _, step := range state.Steps {
+	for _, step := range state.LogSteps {
 		entries := lv.entries[step]
 		if len(entries) == 0 {
 			continue

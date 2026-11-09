@@ -96,6 +96,7 @@ func TestPayloadTitles(t *testing.T) {
 		{Aborted, "■ Aborted: a/b", 0x95a5a6},
 		{MainFolder, "◐ Waiting for main folder: a/b", 0xf1c40f},
 		{Blocked, "⊘ Blocked: a/b", 0xe67e22},
+		{Resolved, "↻ Unblocked by Claude: a/b", 0x1abc9c},
 	} {
 		body, err := Payload(Message{Event: tc.event, PRD: "a/b"})
 		if err != nil {
@@ -126,6 +127,9 @@ func TestPayloadBlocker(t *testing.T) {
 	f := fields(Message{Event: Blocked, PRD: "a/b", Blocker: "Erste Frage\nZweite Frage"})
 	if len(f) != 6 || f[5] != (field{"Blocker", "Erste Frage\nZweite Frage", false}) {
 		t.Errorf("fields: %+v", f)
+	}
+	if f := fields(Message{Event: Resolved, PRD: "a/b", Blocker: "Feld: A, passt"}); len(f) != 6 || f[5] != (field{"Decisions", "Feld: A, passt", false}) {
+		t.Errorf("fields of resolved: %+v", f)
 	}
 	// Other events show no blocker, also with one given.
 	if f := fields(Message{Event: Failed, PRD: "a/b", Blocker: "x"}); len(f) != 5 {

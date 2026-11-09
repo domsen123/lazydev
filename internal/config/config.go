@@ -102,6 +102,9 @@ type Settings struct {
 	// Skill nil and true let the TUI write the Claude Code skill lazydev at its start, false
 	// switches that off. lazydev skill install works either way.
 	Skill *bool `json:"skill,omitempty"`
+	// AutoUnblock holds the projects, by absolute path, whose blocked runs Claude resolves itself
+	// before they stop in phase blocked. Off by default.
+	AutoUnblock map[string]bool `json:"autoUnblock,omitempty"`
 	// Activity nil and true let the TUI log what the user does to activity.jsonl (see
 	// lazydev activity), false switches that off.
 	Activity *bool `json:"activity,omitempty"`
@@ -110,6 +113,23 @@ type Settings struct {
 // SkillEnabled reports whether the TUI writes the Claude Code skill at its start.
 func (s Settings) SkillEnabled() bool {
 	return s.Skill == nil || *s.Skill
+}
+
+// AutoUnblockEnabled reports whether the runner resolves blocked runs of the project in dir itself.
+func (s Settings) AutoUnblockEnabled(dir string) bool {
+	return s.AutoUnblock[dir]
+}
+
+// SetAutoUnblock switches auto-unblock of the project in dir. Off drops the entry.
+func (s *Settings) SetAutoUnblock(dir string, on bool) {
+	if !on {
+		delete(s.AutoUnblock, dir)
+		return
+	}
+	if s.AutoUnblock == nil {
+		s.AutoUnblock = map[string]bool{}
+	}
+	s.AutoUnblock[dir] = true
 }
 
 // ActivityEnabled reports whether the TUI writes the activity log.

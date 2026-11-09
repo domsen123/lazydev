@@ -227,7 +227,7 @@ pnpm db:migrate
   `prd/` und `.lazydev/` hat. Ist der Ziel-Branch inzwischen weitergezogen, rebased er erneut.
 - Die Statuswerte im PRD bleiben deutsch (`geplant`, `umgesetzt (Datum)`, `verworfen (Datum)`,
   `blockiert (Datum)`), wie die Prompts.
-- Phasen: `○` planned, `◌` waiting, `●` plan/setup/implement/review/merge, `◐` merge-queue, `✓` merged, `■`
+- Phasen: `○` planned, `◌` waiting, `●` plan/setup/implement/resolve/review/merge, `◐` merge-queue, `✓` merged, `■`
   aborted, `✗` error/discarded, `⊘` blocked (gelb).
 
 ### Blockierte Läufe
@@ -244,6 +244,13 @@ Fragen ab. Das ist kein Fehler: Der Lauf endet in der Phase `blocked`.
 
 Ohne TUI gibt `lazydev prompt unblock [--auto] <projekt> <prd>` denselben Prompt für jede Claude-Code-Session
 aus, `lazydev start` setzt fort.
+
+**Auto-Unblock** (opt-in pro Projekt: `lazydev auto-unblock on` oder `alt+m` → General): Blockiert ein Lauf,
+lässt der Runner Claude die Fragen im Worktree selbst beantworten. Es hält jede Antwort mit Begründung unter
+`## Entscheidungen` fest, committet nur das PRD und lässt den blockierten Schritt erneut laufen; Discord
+bekommt `↻ Unblocked by Claude` mit den Entscheidungen. Fragen zu Datenverlust, Sicherheit, öffentlichen
+Schnittstellen oder Kosten darf es nicht entscheiden, dann stoppt der Lauf wie bisher. Höchstens 2-mal pro
+Lauf.
 
 Bemerkungen ohne Entscheidung stehen im Bericht von implement unter `## Hinweise` und blockieren nicht.
 
@@ -268,8 +275,9 @@ deshalb wie in einer Shell.
 
 ## Discord
 
-Runner schreiben an einen Discord-Webhook, wenn ein PRD gemergt ist, ein Schritt scheitert oder blockiert, `x` einen
-Runner abbricht oder der Merge auf den Hauptordner zu warten beginnt. Das klappt auch ohne laufende TUI.
+Runner schreiben an einen Discord-Webhook, wenn ein PRD gemergt ist, ein Schritt scheitert oder blockiert, Claude
+einen Blocker selbst löst (Auto-Unblock), `x` einen Runner abbricht oder der Merge auf den Hauptordner zu
+warten beginnt. Das klappt auch ohne laufende TUI.
 
 1. Lege in Discord einen Webhook für einen Kanal an und kopiere seine URL.
 2. `alt+m`, Tab `Discord`, `enter`. Wähle `Global URL`, drücke `enter`, füge die URL ein und drücke `enter`.
@@ -306,6 +314,7 @@ lazydev add [<pfad>]                              # Projekt aufnehmen, ohne Pfad
 lazydev remove <projekt>                          # aus der Liste entfernen, der Ordner bleibt
 lazydev projects [--json]
 lazydev trust [<projekt>]
+lazydev auto-unblock [<projekt>] [on|off]         # Claude löst blockierte Läufe des Projekts selbst
 lazydev status [<projekt>] [--all] [--json]       # PRDs mit Phase, Schritt, Port, Kosten und Blocker-Fragen
 lazydev start [<projekt>] <prd>                   # im Hintergrund starten oder fortsetzen
 lazydev stop [<projekt>] <prd>
@@ -328,7 +337,7 @@ lazydev version                                   # auch --version, -v
 stehen. `--auto` lässt Claude die Fragen selbst beantworten und unter `## Entscheidungen` festhalten.
 
 `wait` ist für eine Operator-Session gedacht: Es kehrt mit einer Zeile je Ereignis zurück (`blocked`,
-`error`, `aborted`, `merged`, `note`), mit `idle`, wenn nichts läuft oder wartet, und `--json` liefert die
+`error`, `aborted`, `merged`, `note`, `resolved`), mit `idle`, wenn nichts läuft oder wartet, und `--json` liefert die
 Details von `status --json` mit. Eine laufende TUI übernimmt Projekte, die `add` und `remove` ändern,
 innerhalb von 5 s.
 

@@ -146,6 +146,8 @@ func checkSummary(s claude.Summary, exitCode int) error {
 type blockedError struct {
 	step   string
 	points []string
+	// resolve is true when the step resolve answers the questions before the run stops.
+	resolve bool
 }
 
 func (e *blockedError) Error() string {

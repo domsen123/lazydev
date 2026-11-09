@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"strings"
 	"testing"
 
 	"lazydev/internal/project"
@@ -12,6 +13,7 @@ func TestChanges(t *testing.T) {
 		{Project: "p", PRD: "b", Phase: project.PhaseMergeQueue},
 		{Project: "p", PRD: "c", Phase: project.PhaseMerged},
 		{Project: "p", PRD: "d", Phase: project.PhaseReview},
+		{Project: "p", PRD: "f", Phase: project.PhaseResolve},
 	}
 	after := []Item{
 		{Project: "p", PRD: "a", Phase: project.PhaseBlocked, Blocker: &Blocker{Step: "implement", Questions: []string{"Q1", "Q2"}}},
@@ -19,9 +21,10 @@ func TestChanges(t *testing.T) {
 		{Project: "p", PRD: "c", Phase: project.PhaseMerged},
 		{Project: "p", PRD: "d", Phase: project.PhaseMerge},
 		{Project: "p", PRD: "e", Phase: project.PhaseMerged},
+		{Project: "p", PRD: "f", Phase: project.PhaseImplement, Resolved: 1, File: "/wt/f.md"},
 	}
 	got := Changes(before, after)
-	if len(got) != 2 {
+	if len(got) != 3 {
 		t.Fatalf("Changes = %+v, want 2 events", got)
 	}
 	if e := got[0]; e.Kind != "blocked" || e.PRD != "a" || e.From != project.PhaseImplement || e.Text != "Q1 | Q2" {
@@ -29,6 +32,9 @@ func TestChanges(t *testing.T) {
 	}
 	if e := got[1]; e.Kind != "note" || e.PRD != "b" || e.Text != "main folder has uncommitted changes" {
 		t.Errorf("event 1 = %+v", e)
+	}
+	if e := got[2]; e.Kind != "resolved" || e.PRD != "f" || !strings.Contains(e.Text, "/wt/f.md") {
+		t.Errorf("event 2 = %+v", e)
 	}
 }
 

@@ -386,7 +386,7 @@ func showLog(args []string) error {
 	}
 	offsets := map[string]int64{}
 	for {
-		for _, step := range state.Steps {
+		for _, step := range state.LogSteps {
 			path := state.LogPath(t.ID, name, step)
 			lines, next := readNewLines(path, offsets[step])
 			offsets[step] = next
@@ -473,6 +473,32 @@ func setAfter(args []string) error {
 		fmt.Printf("%s waits for nothing and starts with the next free slot.\n", name)
 	} else {
 		fmt.Printf("%s starts once %s are merged.\n", name, strings.Join(deps, ", "))
+	}
+	return nil
+}
+
+// autoUnblock is "lazydev auto-unblock [<project>] [on|off]": without on or off it prints the
+// switch, otherwise it sets it in settings.json.
+func autoUnblock(args []string) error {
+	value := ""
+	if n := len(args); n > 0 && (args[n-1] == "on" || args[n-1] == "off") {
+		value, args = args[n-1], args[:n-1]
+	}
+	t, _, err := targetArgs(args, 0)
+	if err != nil {
+		return err
+	}
+	s := config.LoadSettings()
+	if value != "" {
+		s.SetAutoUnblock(t.Dir, value == "on")
+		if err := config.SaveSettings(s); err != nil {
+			return err
+		}
+	}
+	if s.AutoUnblockEnabled(t.Dir) {
+		fmt.Printf("Auto-unblock of %s is on: Claude answers the questions of blocked runs itself, at most %d times per run.\n", t.ID, runner.MaxResolves)
+	} else {
+		fmt.Printf("Auto-unblock of %s is off: blocked runs wait for you.\n", t.ID)
 	}
 	return nil
 }

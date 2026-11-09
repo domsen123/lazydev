@@ -36,6 +36,9 @@ Not goals: remote runs, pull requests, issue trackers, editing PRDs inside lazyd
     keeps its entry.
   - `skill`: `false` stops the TUI from writing the Claude Code skill at its start (see Claude Code
     skill). Missing or `true` means it writes it.
+  - `autoUnblock`: `{"<absolute project path>": true}`, the projects whose blocked runs Claude resolves
+    itself (see Blocked runs). Missing means off, switching off removes the entry. `lazydev auto-unblock`
+    and the menu set it.
 
   lazydev writes `settings.json` with the rights `0600`, also when it saves the theme. An existing file with
   other rights gets `0600` with the next save.
@@ -206,7 +209,7 @@ The native selection of the terminal works with Shift held while dragging.
   show a Markdown file rendered, without a process, and count in the tab number too (see Markdown viewer).
 - **Details pane,** tab `Details` (default): with the PRDs tab active, the runs of the selected project
   (title `Runs`), independent of the PRD selected in the Explorer. The list holds every run that is not
-  merged (waiting, plan, setup, implement, review, merge, merge-queue, error, blocked, aborted), ordered by start time and
+  merged (waiting, plan, setup, implement, resolve, review, merge, merge-queue, error, blocked, aborted), ordered by start time and
   then by PRD name. A header row names the columns, each run has one row: phase symbol and PRD label, phase
   (waiting with `· #n in queue`), current step with duration (`–` without step), cost (`x.xx USD`), port,
   dev server (`● :<port>` while running, otherwise `–`), branch, and in the rest of the width the first line
@@ -227,7 +230,7 @@ The native selection of the terminal works with Shift held while dragging.
   group row nothing. `f` opens the unblock dialog of a blocked run (see Blocked runs). Tab `Files`: file tree without `.git`, `l` opens folders or files in `$VISUAL`/`$EDITOR`/`vi`
   as a tab.
 
-Phase symbols: `○` planned, `◌` waiting, `●` plan/setup/implement/review/merge, `◐` merge-queue, `✓` merged,
+Phase symbols: `○` planned, `◌` waiting, `●` plan/setup/implement/resolve/review/merge, `◐` merge-queue, `✓` merged,
 `■` aborted, `✗` error/discarded, `⊘` blocked (yellow `#d7af00`). Blocked PRDs are neither active nor done,
 they stay in the group of open PRDs.
 
@@ -411,14 +414,14 @@ hint line.
 
 | Tab | Right column |
 |---|---|
-| `General` | Entry `Color theme  ‹ <name> ›`, below it `Colors of borders, focus and selection. lazydev saves the choice in settings.json.`, a blank line and `lazydev <version>`. With a newer release known the line is `lazydev <version> · <latest> available, alt+u updates.`, after the update `lazydev <version> · <tag> installed, restart lazydev.` (see Releases) |
+| `General` | Entries `Color theme  ‹ <name> ›` and, with a selected project, `Auto-unblock <project name>  ‹ on/off ›`. Below them the description of the selected entry: `Colors of borders, focus and selection. lazydev saves the choice in settings.json.` or `On: when a run of this project gets blocked, Claude answers the open questions itself, records them under ## Entscheidungen and the run goes on. Questions about data loss, security, public interfaces or costs still stop the run.`, a blank line and `lazydev <version>`. With a newer release known the line is `lazydev <version> · <latest> available, alt+u updates.`, after the update `lazydev <version> · <tag> installed, restart lazydev.` (see Releases) |
 | `Discord` | Entries `Notifications  ‹ on/off ›` (global), `Global URL  <url>`, `<project name>  ‹ on/off ›`, `URL for <project name>  <url>`, `Send test`. Without a selected project the two project entries drop out. Below them the description of the selected entry |
 | `Git` | `Fetch, pull, push and commit the main folder of the selected project. Each action runs in a center tab. Also alt+g.` |
 | `Quit` | `Ends lazydev and its terminal tabs. Runners keep working in the background.` |
 
 Descriptions of the Discord entries:
 
-- Notifications: `Runners post to Discord when a PRD is merged, fails, gets blocked, gets aborted or waits for the main folder.`
+- Notifications: `Runners post to Discord when a PRD is merged, fails, gets blocked, gets unblocked by Claude, gets aborted or waits for the main folder.`
 - Global URL: `Webhook URL for all projects. Stored in settings.json, never in a repository.`
 - Project switch: `Off mutes this project only.`
 - Project URL: `Replaces the global URL for this project. Empty uses the global URL.`
@@ -435,7 +438,8 @@ Keys in the right column: `↑/↓`, `j/k` and `tab` move and wrap around. `←/
 `enter` and `space` flip switches, go to the next theme, open the URL input or send the test. `esc` and `h`
 go back to the left column, `q` and `alt+m` close the menu. Hint: `↑/↓ select · ←/→ change · enter edit · esc back`.
 
-- The theme applies right away and goes into `settings.json`.
+- The theme applies right away and goes into `settings.json`. The auto-unblock switch reads `settings.json`,
+  flips `autoUnblock` of the selected project and writes it right away.
 - Every change in the tab `Discord` reads `settings.json`, changes the field and writes it right away. An error
   while writing goes into the footer.
 - `enter` on a URL opens the empty input `Webhook URL: ` in place of the entries, hint `enter save · esc
@@ -586,6 +590,28 @@ needs a decision of the user, not another attempt.
   `## Entscheidungen`, asks the user only about questions it cannot answer responsibly (data loss, public
   interfaces, running costs, a contradiction to an explicit requirement of the user) and continues the run
   with `lazydev start`.
+- **Auto-unblock:** with `autoUnblock` on for the project (see `settings.json`) and fewer than 2 resolve steps
+  in the run, the runner records the block as above (status line, `## Blocker`, commit), logs
+  `Blocked: <error>, Claude resolves it (auto-unblock)`, sends no notification yet and keeps its PID. Then
+  the step `resolve` runs, phase resolve, log `<prd>.resolve.jsonl`, recorded in `steps` like a step but
+  skipped when the run picks its next step. Claude gets the built-in prompt `resolve` (not part of
+  `.lazydev/`, header `# lazydev resolve: <prd path>`) in the worktree with the permission mode of
+  `settings.json` and only `Read`, `Edit`, `Write`, `Glob`, `Grep` and `git status`, `diff`, `log`, `show`.
+  It answers the questions like a developer of the project, writes each with the chosen option and a reason
+  into `## Entscheidungen`, works them into the PRD, removes `## Blocker` and sets the status line like the
+  dialog. Questions about data loss, security, public interfaces, running costs or a contradiction to an
+  explicit requirement of the PRD it may not decide when code and PRD give no clear answer; then it changes
+  nothing and reports `abgebrochen` with them under `## Offene Fragen`.
+  Success needs exit code 0, a last `result` without error, `## Ergebnis` `geklärt`, no new uncommitted
+  change outside the PRD (`resolve changed <path>, it may only change the PRD`), nothing changed under
+  `.lazydev/`, and a PRD without `blockiert` and without `## Blocker`. Then the runner commits the PRD alone
+  as `docs(prd): resolve blocker of <prd>`, logs every decision as `Decision: <point>` and
+  `Resolved, <step> runs again`, posts `resolved` and runs the blocked step again in the same runner.
+  Otherwise it logs `Not resolved: <error>` (`Claude may not decide: <questions joined with " | ">` for
+  `abgebrochen`), restores the PRD with `git checkout HEAD -- <prd>`, and the run ends in phase blocked with the
+  error of the block and the `blocked` notification, as without auto-unblock. An abort during resolve
+  restores the PRD too and ends in phase aborted. After 2 resolve steps a further block stops the run right
+  away. `lazydev auto-unblock [<project>] [on|off]` prints or sets the switch.
 - **Continue:** nothing starts by itself, `s` continues with the blocked step. While the PRD in the worktree
   still says `blockiert`, the TUI refuses (see Run) and `start` and a runner end with
   `<prd> is still blocked, resolve it with lazydev prompt unblock <prd> or f in the TUI` without
@@ -602,7 +628,8 @@ change in the menu applies to running runners too.
 |---|---|---|---|---|
 | `merged` | the PRD is merged | `✓ Merged: <area>/<name>` | `0x2ecc71` | merge |
 | `failed` | a step fails (phase error) | `✗ Failed: <area>/<name>` | `0xe74c3c` | the failed step |
-| `blocked` | a step blocks (phase blocked), no `failed` then | `⊘ Blocked: <area>/<name>` | `0xe67e22` | the blocked step |
+| `blocked` | a step blocks (phase blocked), no `failed` then; with auto-unblock only once resolve did not resolve it | `⊘ Blocked: <area>/<name>` | `0xe67e22` | the blocked step, or resolve |
+| `resolved` | resolve answered the questions of a blocked step (auto-unblock) | `↻ Unblocked by Claude: <area>/<name>` | `0x1abc9c` | resolve |
 | `aborted` | `x` ends a running runner (phase aborted) | `■ Aborted: <area>/<name>` | `0x95a5a6` | the aborted step |
 | `main folder` | the merge starts to wait for the main folder | `◐ Waiting for main folder: <area>/<name>` | `0xf1c40f` | merge |
 
@@ -615,6 +642,7 @@ change in the menu applies to running runners too.
   `Cost` (`x.xx USD`), `Duration` (since the start of the run, `1h 2m 3s` without leading zero parts, e.g.
   `4m 5s`), `Model` (implement model, `–` without). The embed holds no error text. `blocked` adds the field
   `Blocker` (`inline: false`) with all open questions, one per line, cut to 1024 characters with `…` at the end.
+  `resolved` adds the field `Decisions` the same way with the points of `## Entscheidungen` of the report.
 - HTTP `POST` with `Content-Type: application/json`, 10 s timeout per attempt, success is a 2xx status. One
   attempt plus 3 retries 5 s apart, every error retries, 4xx too. The delivery runs in the runner and delays
   it by about 55 s at most. An abort posts with its own context.
@@ -814,7 +842,7 @@ skill replaces no MCP server and no slash command.
 | Path | Content |
 |---|---|
 | `$XDG_STATE_HOME/lazydev/runs/<id>/<prd>.json` | Run state: projectDir, prd, branch, base, worktree, port, slug, phase, pid, startedAt, steps (name, sessionId, model, exitCode, ok, costUsd, startedAt, endedAt), error, note, after, afterReason, databases (service, name) |
-| `…/runs/<id>/<prd>.<step>.jsonl` | Step log: stream-json with `ts` and runner lines `{"type":"lazydev","time","text"}` |
+| `…/runs/<id>/<prd>.<step>.jsonl` | Step log (also `resolve`): stream-json with `ts` and runner lines `{"type":"lazydev","time","text"}` |
 | `…/runs/<id>/<prd>.runner.log`, `.devpid`, `.dev.log` | Runner output, dev server PID and folder, dev server output |
 | `$XDG_STATE_HOME/lazydev/trust/<id>.json`, `usage.json`, `agents.json`, `bin/` | Trust, limits, agents, runner binary |
 | `$XDG_STATE_HOME/lazydev/activity.jsonl` | Activity log of the TUI (see Activity log) |
@@ -841,13 +869,14 @@ the PRD file name without `.md`.
 | `add [<path>]` | Adds the folder, without path the main folder of the repository of the working directory, runs `.lazydev/` init (see `.lazydev/`) and writes the skill (see Claude Code skill). Prints `Added <id> (<path>).`, for a folder in the list already `<id> (<path>) is in the list already, .lazydev/ is complete.` No folder: `not a folder: <path>`. |
 | `remove <project>` | Removes the project from the list. Folder, run state and worktrees stay, runners keep working (`Its runners keep working until they end.`). |
 | `projects [--json]` | ID and path of every project, `--json` as an array of `{id, path}`. |
+| `auto-unblock [<project>] [on\|off]` | Prints or sets `autoUnblock` of the project: `Auto-unblock of <id> is on: Claude answers the questions of blocked runs itself, at most 2 times per run.` or `Auto-unblock of <id> is off: blocked runs wait for you.` (see Blocked runs). |
 | `trust [<project>]` | Shows hooks, allowed tools and databases of `config.yaml` and saves their hash after `y` (see Trust). |
-| `status [<project>] [--all] [--json]` | Without `<project>` outside a project: all projects with a column `PROJECT`. A table of the PRDs sorted by label: phase (`waiting #<n>` with the position in the queue, `→ <prds>` while it waits for PRDs of `after`, with a line `<prd> waits for <prds>: <reason>` below the table), step (the running one, else the one `start` continues with), port (`dev` with a dev server), cost, status value. Below it the error and note of each run and the questions of `## Blocker` of a blocked run. Merged and discarded PRDs only with `--all`, or with an error. `--json` prints an array of objects with `project`, `prd`, `label`, `path`, `file` (absolute, in the worktree while the run has it), `status`, `phase`, `queue`, `step`, `branch`, `worktree`, `port`, `cost`, `error`, `note`, `blocker` (`{step, questions}`), `after`, `afterReason`, `waitsFor` (the PRDs of `after` not merged yet), `devPid`, `log` (the step log); empty fields are left out. |
+| `status [<project>] [--all] [--json]` | Without `<project>` outside a project: all projects with a column `PROJECT`. A table of the PRDs sorted by label: phase (`waiting #<n>` with the position in the queue, `→ <prds>` while it waits for PRDs of `after`, with a line `<prd> waits for <prds>: <reason>` below the table), step (the running one, else the one `start` continues with), port (`dev` with a dev server), cost, status value. Below it the error and note of each run and the questions of `## Blocker` of a blocked run. Merged and discarded PRDs only with `--all`, or with an error. `--json` prints an array of objects with `project`, `prd`, `label`, `path`, `file` (absolute, in the worktree while it exists), `status`, `phase`, `queue`, `step`, `branch`, `worktree`, `port`, `cost`, `error`, `note`, `blocker` (`{step, questions}`), `after`, `afterReason`, `waitsFor` (the PRDs of `after` not merged yet), `resolved` (successful resolve steps), `devPid`, `log` (the step log); empty fields are left out. |
 | `start [<project>] <prd>` | Starts or continues the runner in the background (see Run). A PRD that waits prints why: `<prd> waits for <prds>: <reason>`, or `3 runners work already. <prd> waits and starts once one ends.` |
 | `after [<project>] <prd> [<prd>…]` | Overrides the order plan chose (see Run): `<prd> starts once <prds> are merged.`, without PRDs `<prd> waits for nothing and starts with the next free slot.` The project is optional only when the first argument is no project. |
 | `stop [<project>] <prd>` | SIGTERM to the runner, a waiting PRD becomes aborted. |
 | `discard [--yes] [<project>] <prd>` | Asks `Delete worktree and branch feat/<prd> of <id>? …`, `--yes` skips the question (see Run, `X`). |
-| `wait [<project>] [--json] [--timeout <duration>]` | Projects like `status`. Reads the overview every second and returns with the events of the first read that has any: a run that reaches blocked, error, aborted or merged (`<kind> <id>/<prd>: <error or questions joined with " \| ">`) and a run with a new note (`note <id>/<prd>: <note>`). A PRD seen first as merged gives no event. When no run works, sits in the merge queue or waits, it returns right away with `idle: no run works or waits`; after the timeout (Go duration, e.g. `30m`) with `timeout: no event within <duration>`. `--json` prints one object per event: `kind`, `project`, `prd`, `phase`, `from`, `text`, `item` (the object of `status --json`). Always exit code 0. |
+| `wait [<project>] [--json] [--timeout <duration>]` | Projects like `status`. Reads the overview every second and returns with the events of the first read that has any: a run that reaches blocked, error, aborted or merged (`<kind> <id>/<prd>: <error or questions joined with " \| ">`), a run with a new note (`note <id>/<prd>: <note>`) and a run whose resolve step answered the questions of a block (`resolved <id>/<prd>: Claude answered the open questions, see ## Entscheidungen in <file>`). A PRD seen first as merged gives no event. When no run works, sits in the merge queue or waits, it returns right away with `idle: no run works or waits`; after the timeout (Go duration, e.g. `30m`) with `timeout: no event within <duration>`. `--json` prints one object per event: `kind`, `project`, `prd`, `phase`, `from`, `text`, `item` (the object of `status --json`). Always exit code 0. |
 | `log [<project>] <prd> [-f]` | The step logs of the run in step order as `<time> <step> <kind> <text>`, the entries of the log tab. `-f` (`--follow`) reads new lines every second until the runner ends, then prints `-- <prd> <phase>`. Without run: `<prd> has no run`. |
 | `set-status [<project>] <prd> planned\|merged\|discarded` | The status picker (see Status): same checks, same commit, `Status of <label>: <status>, committed.` A PRD that only its worktree has: `<prd> is in the worktree of its run, its status belongs to the run`. |
 | `dev [<project>] <prd> [start\|stop]` | Starts or stops the dev server like `D`, without action it toggles. Start prints PID, port and log. Without run: `<prd> has no worktree yet, start it with lazydev start`. |
