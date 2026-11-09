@@ -4,6 +4,7 @@ package git
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,10 @@ import (
 // stderr.
 func Run(dir string, args ...string) (string, error) {
 	cmd := exec.Command("git", append([]string{"-C", dir, "-c", "core.quotePath=false"}, args...)...)
+	// lazydev polls status in folders the user works in. Without optional locks status does not
+	// refresh the index, so it never makes a git command of the user fail on index.lock. Locks a
+	// command needs, like a commit's, stay.
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	out, err := cmd.Output()
