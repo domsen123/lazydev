@@ -30,4 +30,4 @@ jede Entscheidung final ist.
 Arbeite jede Entscheidung in den passenden Abschnitt des PRDs ein, entferne `## Blocker` und setze die
 Statuszeile.
 
-Den Lauf setzt der Nutzer in lazydev fort.
+Den Lauf setzt der Nutzer mit `lazydev start` fort.

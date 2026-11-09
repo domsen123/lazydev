@@ -254,3 +254,23 @@ func TestCompletePathMultibytePrefix(t *testing.T) {
 		t.Errorf("CompletePath returned half a UTF-8 character: %q", got)
 	}
 }
+
+func TestAddRemoveProject(t *testing.T) {
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	if added, err := AddProject("/p/a"); err != nil || !added {
+		t.Fatalf("AddProject = %v, %v", added, err)
+	}
+	if added, err := AddProject("/p/a"); err != nil || added {
+		t.Fatalf("second AddProject = %v, %v", added, err)
+	}
+	AddProject("/p/b")
+	if err := RemoveProject("/p/a"); err != nil {
+		t.Fatal(err)
+	}
+	if err := RemoveProject("/p/x"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := LoadProjects(); len(got) != 1 || got[0] != "/p/b" {
+		t.Errorf("projects = %v", got)
+	}
+}

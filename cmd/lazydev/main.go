@@ -24,19 +24,36 @@ import (
 )
 
 const usage = `Usage:
-  lazydev                                  start the TUI
-  lazydev start <project> <prd>            start or continue the runner of a PRD in the background
-  lazydev stop <project> <prd>             stop the runner, the worktree stays
-  lazydev discard [--yes] <project> <prd>  throw away the run: worktree, branch and its commits
-  lazydev trust <project>                  check and trust hooks, allowed tools and databases of .lazydev/config.yaml
-  lazydev update                           install the newest release over this binary
-  lazydev prompt create [<description>]    print the create prompt of the project in the current folder
-  lazydev skill install                    install the Claude Code skill lazydev into ~/.claude/skills/
-  lazydev activity [--since 7d] [--json]   what you did in the TUI: time per pane, keys, runs, reaction times
-  lazydev version                          print the version, also --version and -v
+  lazydev                                          start the TUI
 
-<project> is the project ID (its folder name) or its path, <prd> the PRD file name without .md.
-Projects get added in the TUI. After an error or abort, start continues with the failed step.
+Projects:
+  lazydev add [<path>]                             add a folder, without path the repository of the working directory
+  lazydev remove <project>                         remove a project from the list, the folder stays
+  lazydev projects [--json]                        list the projects
+  lazydev trust [<project>]                        check and trust hooks, allowed tools and databases of .lazydev/config.yaml
+
+PRDs and runs:
+  lazydev status [<project>] [--all] [--json]      open PRDs with phase, step, port, cost and blockers
+  lazydev start [<project>] <prd>                  start or continue the runner of a PRD in the background
+  lazydev stop [<project>] <prd>                   stop the runner, the worktree stays
+  lazydev discard [--yes] [<project>] <prd>        throw away the run: worktree, branch and its commits
+  lazydev wait [<project>] [--json] [--timeout 30m]  block until a run gets blocked, fails, aborts or merges
+  lazydev log [<project>] <prd> [-f]               the step logs of a run, -f follows them
+  lazydev set-status [<project>] <prd> <status>    set the status line to planned, merged or discarded
+  lazydev dev [<project>] <prd> [start|stop]       start or stop the dev server in the worktree
+  lazydev prompt create [--auto] [<description>]   print the create prompt of the project in the current folder
+  lazydev prompt unblock [--auto] [<project>] <prd>  print the unblock prompt of a blocked run
+
+Other:
+  lazydev update                                   install the newest release over this binary
+  lazydev skill install                            install the Claude Code skill lazydev into ~/.claude/skills/
+  lazydev activity [--since 7d] [--json]           what you did in the TUI: time per pane, keys, runs, reaction times
+  lazydev version                                  print the version, also --version and -v
+
+<project> is the project ID (its folder name) or its path. Without it, the project of the working
+directory applies, also from inside the worktree of a run. <prd> is the PRD file name without .md.
+--auto makes Claude answer the questions itself instead of asking. After an error or abort, start
+continues with the failed step.
 
 Projects: %s
 State and logs: %s
@@ -86,23 +103,26 @@ func main() {
 		}
 		os.Exit(gitcmd.Main(rest[0], rest[1], rest[2], message))
 	case "trust":
-		if len(rest) != 1 {
-			usageError()
-		}
-		if err := trust(rest[0]); err != nil {
+		if err := trust(rest); err != nil {
 			fail(err)
 		}
 		return
 	case "prompt":
-		// Only the create prompt is printed: a normal Claude Code session writes a PRD with it.
+		// The prompts of the interactive steps: a normal Claude Code session works with them.
 		if len(rest) == 0 {
 			usageError()
 		}
-		if rest[0] != "create" {
+		var err error
+		switch rest[0] {
+		case "create":
+			err = promptCreate(rest[1:])
+		case "unblock":
+			err = promptUnblock(rest[1:])
+		default:
 			fmt.Fprintf(os.Stderr, "unknown step: %s\n\n", rest[0])
 			usageError()
 		}
-		if err := promptCreate(rest[1:]); err != nil {
+		if err != nil {
 			fail(err)
 		}
 		return
@@ -125,6 +145,15 @@ func main() {
 			fail(err)
 		}
 		return
+	case "add", "remove", "projects", "status", "wait", "log", "set-status", "dev":
+		commands := map[string]func([]string) error{
+			"add": addProject, "remove": removeProject, "projects": listProjects, "status": status,
+			"wait": wait, "log": showLog, "set-status": setStatus, "dev": dev,
+		}
+		if err := commands[cmd](rest); err != nil {
+			fail(err)
+		}
+		return
 	case "start", "stop", "discard":
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command: %s\n\n", cmd)
@@ -135,14 +164,11 @@ func main() {
 	if cmd == "discard" && len(rest) > 0 && rest[0] == "--yes" {
 		yes, rest = true, rest[1:]
 	}
-	if len(rest) != 2 {
-		usageError()
-	}
-	t, err := runner.Find(rest[0])
+	t, rest, err := targetArgs(rest, 1)
 	if err != nil {
 		fail(err)
 	}
-	prdName := rest[1]
+	prdName := rest[0]
 	switch cmd {
 	case "start":
 		started, err := runner.Start(t, prdName)
@@ -202,15 +228,14 @@ func update() error {
 // prompt n builds in the TUI. args join to $ARGUMENTS, without them the task comes from the
 // conversation. The command creates nothing, a project without .lazydev/ is an error.
 func promptCreate(args []string) error {
+	args, set := flags(args, "--auto")
 	dir, err := os.Getwd()
 	if err != nil {
 		return err
 	}
-	if top, err := git.Run(dir, "rev-parse", "--show-toplevel"); err == nil {
-		dir = top
-	}
+	dir = git.MainDir(dir)
 	if !fsutil.IsDir(filepath.Join(dir, repo.Dir)) {
-		return fmt.Errorf("%s has no %s/, add the project in lazydev first", dir, repo.Dir)
+		return fmt.Errorf("%s has no %s/, add the project with lazydev add first", dir, repo.Dir)
 	}
 	info := repo.Read(dir, filepath.Base(dir))
 	if info.Err != nil {
@@ -220,9 +245,13 @@ func promptCreate(args []string) error {
 	if arguments == "" {
 		arguments = "Die Aufgabe ergibt sich aus dem bisherigen Gespräch mit dem Nutzer."
 	}
-	prompt, err := prompts.Build(dir, dir, info.Config, "create", prompts.Vars{Arguments: arguments, Base: info.Config.Base(), Branch: git.CurrentBranch(dir)})
+	vars := prompts.Vars{Arguments: arguments, Base: info.Config.Base(), Branch: git.CurrentBranch(dir)}
+	prompt, err := prompts.Build(dir, dir, info.Config, "create", vars)
 	if err != nil {
 		return err
+	}
+	if set["--auto"] {
+		prompt += "\n" + prompts.Auto("create", vars)
 	}
 	fmt.Print(prompt)
 	return nil
@@ -230,8 +259,8 @@ func promptCreate(args []string) error {
 
 // trust shows hooks, allowed tools and databases of .lazydev/config.yaml and saves their hash
 // after "y".
-func trust(idOrPath string) error {
-	t, err := runner.Find(idOrPath)
+func trust(args []string) error {
+	t, _, err := targetArgs(args, 0)
 	if err != nil {
 		return err
 	}

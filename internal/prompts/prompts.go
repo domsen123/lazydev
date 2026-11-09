@@ -39,7 +39,7 @@ func Build(dir, workDir string, cfg repo.Config, step string, v Vars) (string, e
 	}
 	body, err := os.ReadFile(repo.PromptPath(dir, step))
 	if errors.Is(err, fs.ErrNotExist) {
-		return "", fmt.Errorf("%s/%s.md is missing, press i to add it", repo.Dir, step)
+		return "", fmt.Errorf("%s/%s.md is missing, lazydev add <project folder> or i in the TUI adds it", repo.Dir, step)
 	} else if err != nil {
 		return "", err
 	}
@@ -60,6 +60,18 @@ func Build(dir, workDir string, cfg repo.Config, step string, v Vars) (string, e
 		parts[i] = strings.TrimSpace(p)
 	}
 	return strings.Join(parts, "\n\n") + "\n", nil
+}
+
+// Auto is the block a prompt of step gets in autonomous mode ("lazydev prompt <step> --auto"):
+// Claude answers the questions itself instead of asking the user. It goes after the contract and
+// takes precedence over it. Steps without autonomous mode give "".
+func Auto(step string, v Vars) string {
+	data, err := contracts.ReadFile("contract/" + step + ".auto.md")
+	if err != nil {
+		return ""
+	}
+	r := strings.NewReplacer("$ARGUMENTS", v.Arguments, "$BASE", v.Base, "$BRANCH", v.Branch)
+	return strings.TrimSpace(r.Replace(string(data))) + "\n"
 }
 
 // Header is the first line of a prompt. It shows in the log and names the step, e.g.

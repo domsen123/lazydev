@@ -49,8 +49,14 @@ aus, bekommt denselben Prompt, den `n` baut, stellt seine nummerierten Fragen mi
 schreibt `prd/<bereich>/<name>.md`. Fragen zu lazydev beantwortet es aus der Spezifikation, die der Skill
 mitbringt.
 
+Der Skill kennt die CLI, Claude schickt dich also nie in die TUI, um eine Taste zu drücken: Es startet und
+stoppt Läufe, überwacht sie mit `lazydev wait`, liest `lazydev status` und löst Blocker mit
+`lazydev prompt unblock`. Sag „beantworte die Fragen selbst“, und es hängt `--auto` an: Claude beantwortet
+die Fragen von create oder unblock aus dem Gespräch und dem Code und hält sie im PRD unter
+`## Entscheidungen` fest.
+
 Die TUI schreibt den Skill beim Start, wenn er fehlt oder veraltet ist, so folgt er jedem Update.
-`lazydev skill install` macht dasselbe aus der Shell. `"skill": false` in `settings.json` schaltet das
+`lazydev add` und `lazydev skill install` machen dasselbe aus der Shell. `"skill": false` in `settings.json` schaltet das
 automatische Schreiben ab. Zum Entfernen den Ordner löschen und `"skill": false` setzen.
 
 ## Release
@@ -231,6 +237,9 @@ Fragen ab. Das ist kein Fehler: Der Lauf endet in der Phase `blocked`.
    (`geplant` bei implement, `umgesetzt (Datum)` bei merge). Es ändert nur das PRD und committet nichts.
 3. `s` setzt beim blockierten Schritt fort. Solange das PRD noch `blockiert` sagt, lehnt `s` ab.
 
+Ohne TUI gibt `lazydev prompt unblock [--auto] <projekt> <prd>` denselben Prompt für jede Claude-Code-Session
+aus, `lazydev start` setzt fort.
+
 Bemerkungen ohne Entscheidung stehen im Bericht von implement unter `## Hinweise` und blockieren nicht.
 
 ## Git-Cockpit
@@ -285,20 +294,37 @@ Versand, wiederholt der Runner ihn 3-mal im Abstand von 5 s. Danach bekommt das 
 
 ## CLI
 
+Die TUI ist optional, jede Aktion hat einen Befehl:
+
 ```sh
-lazydev start <projekt> <prd>            # im Hintergrund starten oder fortsetzen
-lazydev stop <projekt> <prd>
-lazydev discard [--yes] <projekt> <prd>
-lazydev trust <projekt>
-lazydev prompt create [<beschreibung>]   # Create-Prompt des Projekts im aktuellen Ordner ausgeben
-lazydev skill install                    # Claude-Code-Skill nach ~/.claude/skills/lazydev/ installieren
-lazydev activity [--since 7d] [--json]   # was du in der TUI getan hast: Zeit je Pane, Tasten, Läufe, Reaktionszeiten
-lazydev version                          # auch --version, -v
+lazydev add [<pfad>]                              # Projekt aufnehmen, ohne Pfad das Repo des aktuellen Ordners
+lazydev remove <projekt>                          # aus der Liste entfernen, der Ordner bleibt
+lazydev projects [--json]
+lazydev trust [<projekt>]
+lazydev status [<projekt>] [--all] [--json]       # PRDs mit Phase, Schritt, Port, Kosten und Blocker-Fragen
+lazydev start [<projekt>] <prd>                   # im Hintergrund starten oder fortsetzen
+lazydev stop [<projekt>] <prd>
+lazydev discard [--yes] [<projekt>] <prd>
+lazydev wait [<projekt>] [--json] [--timeout 30m] # blockiert, bis ein Lauf blockiert, scheitert, abbricht oder merged
+lazydev log [<projekt>] <prd> [-f]                # Schritt-Logs eines Laufs, -f folgt ihnen
+lazydev set-status [<projekt>] <prd> planned|merged|discarded
+lazydev dev [<projekt>] <prd> [start|stop]        # Dev-Server im Worktree
+lazydev prompt create [--auto] [<beschreibung>]   # Create-Prompt des Projekts im aktuellen Ordner ausgeben
+lazydev prompt unblock [--auto] [<projekt>] <prd> # Unblock-Prompt eines blockierten Laufs ausgeben
+lazydev skill install                             # Claude-Code-Skill nach ~/.claude/skills/lazydev/ installieren
+lazydev activity [--since 7d] [--json]            # was du in der TUI getan hast: Zeit je Pane, Tasten, Läufe, Reaktionszeiten
+lazydev version                                   # auch --version, -v
 ```
 
 `<projekt>` ist die ID (Ordnername) oder der Pfad eines Projekts der Liste, `<prd>` der Dateiname ohne
-`.md`. `prompt create` geht in jedem Ordner eines Projekts mit `.lazydev/`, das Projekt muss nicht in der
-Liste stehen.
+`.md`. Ohne `<projekt>` gilt das Projekt des aktuellen Ordners, auch aus dem Worktree eines Laufs heraus.
+`prompt create` geht in jedem Ordner eines Projekts mit `.lazydev/`, das Projekt muss nicht in der Liste
+stehen. `--auto` lässt Claude die Fragen selbst beantworten und unter `## Entscheidungen` festhalten.
+
+`wait` ist für eine Operator-Session gedacht: Es kehrt mit einer Zeile je Ereignis zurück (`blocked`,
+`error`, `aborted`, `merged`, `note`), mit `idle`, wenn nichts läuft oder wartet, und `--json` liefert die
+Details von `status --json` mit. Eine laufende TUI übernimmt Projekte, die `add` und `remove` ändern,
+innerhalb von 5 s.
 
 `activity` liest das Log, das die TUI während sie läuft schreibt: jede Taste außerhalb eines Terminals mit
 Pane, Tab und Dialog, die Zeit in jedem Terminal-Tab, Aktionen und die Phasenwechsel der Läufe. Der Bericht

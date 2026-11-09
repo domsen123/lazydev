@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"fmt"
 	"os/exec"
+	"path/filepath"
 	"strings"
 )
 
@@ -67,4 +68,17 @@ func Upstream(dir string) string {
 func CurrentBranch(dir string) string {
 	b, _ := Run(dir, "symbolic-ref", "--quiet", "--short", "HEAD")
 	return b
+}
+
+// MainDir is the main folder of the repository dir belongs to, also from a subfolder or a linked
+// worktree. Outside a repository or in a bare one it is dir.
+func MainDir(dir string) string {
+	common, err := Run(dir, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	if err == nil && filepath.Base(common) == ".git" {
+		return filepath.Dir(common)
+	}
+	if top, err := Run(dir, "rev-parse", "--show-toplevel"); err == nil {
+		return top
+	}
+	return dir
 }

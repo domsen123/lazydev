@@ -104,11 +104,6 @@ func loadProjects() ([]*projectEntry, error) {
 	return projects, err
 }
 
-// saveProjects writes the project list.
-func saveProjects(projects []*projectEntry) error {
-	return config.SaveProjects(projectPaths(projects))
-}
-
 func projectPaths(projects []*projectEntry) []string {
 	paths := make([]string, len(projects))
 	for i, p := range projects {

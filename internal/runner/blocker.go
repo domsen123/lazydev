@@ -43,7 +43,7 @@ func recordBlocker(prdName string, r *state.Run, b *blockedError, log *logger) e
 func checkBlocked(t Target, prdName string) error {
 	r, err := state.Load(t.ID, prdName)
 	if err == nil && project.BlockedIn(r.Worktree, r.PRD) {
-		return fmt.Errorf("%s is still blocked", prdName)
+		return fmt.Errorf("%s is still blocked, resolve it with lazydev prompt unblock %s or f in the TUI", prdName, prdName)
 	}
 	return nil
 }

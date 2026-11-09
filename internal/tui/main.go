@@ -234,6 +234,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if p := m.current(); p != nil && p.tree != nil {
 			p.tree.rebuild()
 		}
+		m.syncProjects()
 		m.readLazydev()
 		return m, tea.Batch(fetchGitInfo(m.projects), fetchPRDs(m.projects), gitTick())
 	case prdsMsg:
@@ -359,12 +360,13 @@ func (m *model) addProject(input string) error {
 		m.selectProject(i)
 		return nil
 	}
-	projects := append(slices.Clone(m.projects), &projectEntry{path: path})
-	if err := saveProjects(projects); err != nil {
+	if _, err := config.AddProject(path); err != nil {
 		return err
 	}
-	m.projects = projects
-	m.selectProject(len(projects) - 1)
+	m.syncProjects()
+	if i := slices.IndexFunc(m.projects, func(p *projectEntry) bool { return p.path == path }); i >= 0 {
+		m.selectProject(i)
+	}
 	m.focus = colCenter
 	return nil
 }
@@ -379,22 +381,55 @@ func (m model) updateConfirmRemove(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if p == nil {
 		return m, nil
 	}
-	projects := slices.Delete(slices.Clone(m.projects), m.selected, m.selected+1)
-	if err := saveProjects(projects); err != nil {
+	if err := config.RemoveProject(p.path); err != nil {
 		m.err = err.Error()
 		return m, nil
 	}
-	// The project is gone from the list, so its exitMsgs find nothing. Release here instead.
-	for _, t := range p.terminals() {
-		t.Hangup()
-		go func() {
-			<-t.Done()
-			t.Release()
-		}()
+	m.syncProjects()
+	return m, nil
+}
+
+// syncProjects takes the project list from projects.json, so projects that "lazydev add" and
+// "lazydev remove" changed show up. Entries keep their tabs, the selection stays on its project or
+// moves to its left neighbor. A removed project gets its terminals closed.
+func (m *model) syncProjects() {
+	paths, err := config.LoadProjects()
+	if err != nil || slices.Equal(paths, projectPaths(m.projects)) {
+		return
+	}
+	old := map[string]*projectEntry{}
+	for _, p := range m.projects {
+		old[p.path] = p
+	}
+	selected := ""
+	if p := m.current(); p != nil {
+		selected = p.path
+	}
+	projects := make([]*projectEntry, len(paths))
+	for i, path := range paths {
+		if p := old[path]; p != nil {
+			projects[i] = p
+			delete(old, path)
+		} else {
+			projects[i] = &projectEntry{path: path}
+		}
+	}
+	for _, p := range old {
+		// The project is gone from the list, so its exitMsgs find nothing. Release here instead.
+		for _, t := range p.terminals() {
+			t.Hangup()
+			go func() {
+				<-t.Done()
+				t.Release()
+			}()
+		}
 	}
 	m.projects = projects
-	m.selectProject(min(m.selected, len(projects)-1))
-	return m, nil
+	i := slices.IndexFunc(projects, func(p *projectEntry) bool { return p.path == selected })
+	if i < 0 {
+		i = min(m.selected, len(projects)-1)
+	}
+	m.selectProject(i)
 }
 
 // selectProject selects project i and starts Claude there if it has no tab yet. The focus stays

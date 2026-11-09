@@ -47,8 +47,14 @@ PRD": Claude runs `lazydev prompt create` in the main folder, gets the same prom
 numbered questions with options A to D and writes `prd/<area>/<name>.md`. Questions about lazydev go to
 the specification the skill carries along.
 
+The skill knows the CLI, so Claude never sends you to the TUI to press a key: it starts and stops runs,
+watches them with `lazydev wait`, reads `lazydev status` and resolves blockers with
+`lazydev prompt unblock`. Say "answer the questions yourself" and it adds `--auto`: Claude answers the
+questions of create or unblock from the conversation and the code and records them under
+`## Entscheidungen` in the PRD.
+
 The TUI writes the skill at its start when it is missing or out of date, so it follows every update.
-`lazydev skill install` does the same from the shell. `"skill": false` in `settings.json` switches the
+`lazydev add` and `lazydev skill install` do the same from the shell. `"skill": false` in `settings.json` switches the
 automatic write off. To remove the skill, delete the folder and set `"skill": false`.
 
 ## Release
@@ -228,6 +234,9 @@ That is no error: the run ends in phase `blocked`.
    implement, `umgesetzt (date)` for merge). It changes only the PRD and commits nothing.
 3. `s` continues with the blocked step. While the PRD still says `blockiert`, `s` refuses.
 
+Without the TUI, `lazydev prompt unblock [--auto] <project> <prd>` prints the same prompt for any Claude
+Code session, and `lazydev start` continues.
+
 Remarks without a decision go under `## Hinweise` in the report of implement and do not block.
 
 ## Git cockpit
@@ -280,19 +289,36 @@ goes on unchanged.
 
 ## CLI
 
+The TUI is optional, every action has a command:
+
 ```sh
-lazydev start <project> <prd>            # start or continue in the background
-lazydev stop <project> <prd>
-lazydev discard [--yes] <project> <prd>
-lazydev trust <project>
-lazydev prompt create [<description>]    # print the create prompt of the project in the current folder
-lazydev skill install                    # install the Claude Code skill into ~/.claude/skills/lazydev/
-lazydev activity [--since 7d] [--json]   # what you did in the TUI: time per pane, keys, runs, reaction times
-lazydev version                          # also --version, -v
+lazydev add [<path>]                              # add a project, without path the repo of the current folder
+lazydev remove <project>                          # remove it from the list, the folder stays
+lazydev projects [--json]
+lazydev trust [<project>]
+lazydev status [<project>] [--all] [--json]       # PRDs with phase, step, port, cost and blocker questions
+lazydev start [<project>] <prd>                   # start or continue in the background
+lazydev stop [<project>] <prd>
+lazydev discard [--yes] [<project>] <prd>
+lazydev wait [<project>] [--json] [--timeout 30m] # block until a run gets blocked, fails, aborts or merges
+lazydev log [<project>] <prd> [-f]                # step logs of a run, -f follows them
+lazydev set-status [<project>] <prd> planned|merged|discarded
+lazydev dev [<project>] <prd> [start|stop]        # dev server in the worktree
+lazydev prompt create [--auto] [<description>]    # print the create prompt of the project in the current folder
+lazydev prompt unblock [--auto] [<project>] <prd> # print the unblock prompt of a blocked run
+lazydev skill install                             # install the Claude Code skill into ~/.claude/skills/lazydev/
+lazydev activity [--since 7d] [--json]            # what you did in the TUI: time per pane, keys, runs, reaction times
+lazydev version                                   # also --version, -v
 ```
 
 `<project>` is the ID (folder name) or path of a project in the list, `<prd>` the file name without `.md`.
+Without `<project>`, the project of the current folder applies, also from inside the worktree of a run.
 `prompt create` works in any folder of a project with `.lazydev/`, the project needs no entry in the list.
+`--auto` makes Claude answer the questions itself and record them under `## Entscheidungen`.
+
+`wait` is made for an operator session: it returns with one line per event (`blocked`, `error`,
+`aborted`, `merged`, `note`), with `idle` when nothing runs or waits, and `--json` gives the details of
+`status --json` along. A running TUI picks up projects that `add` and `remove` change within 5 s.
 
 `activity` reads the log the TUI writes while it runs: every key outside a terminal with its pane, tab and
 dialog, the time spent in each terminal tab, actions, and the phase changes of runs. The report shows sessions

@@ -16,4 +16,4 @@ Diese Regeln haben Vorrang vor allem, was davor steht.
   - bei `Schritt: implement` auf `geplant`,
   - bei `Schritt: merge` auf `umgesetzt (<heute als YYYY-MM-DD>)`.
 - **Committe nicht.** Kein `git add`, kein `git commit`.
-- Nenne zum Schluss: `Weiter in lazydev mit s.`
+- Nenne zum Schluss: `Weiter mit lazydev start <prd> oder s in der TUI.`

@@ -19,6 +19,7 @@ import (
 	"lazydev/internal/claude"
 	"lazydev/internal/config"
 	"lazydev/internal/fsutil"
+	"lazydev/internal/git"
 	"lazydev/internal/notify"
 	"lazydev/internal/project"
 	"lazydev/internal/repo"
@@ -57,7 +58,18 @@ func Find(idOrPath string) (Target, error) {
 			return Target{ID: id, Dir: paths[i]}, nil
 		}
 	}
-	return Target{}, fmt.Errorf("no project %q in the list, add it in the TUI first", idOrPath)
+	return Target{}, fmt.Errorf("no project %q in the list, add it with lazydev add first", idOrPath)
+}
+
+// FindDir looks up the project the folder dir belongs to: the main folder of its repository, also
+// from a subfolder or the worktree of a run.
+func FindDir(dir string) (Target, error) {
+	main := git.MainDir(dir)
+	t, err := Find(main)
+	if err != nil {
+		return Target{}, fmt.Errorf("%s is no project in the list, add it with lazydev add or name the project", config.DisplayPath(main))
+	}
+	return t, nil
 }
 
 // Repo reads .lazydev/config.yaml again for every step, so uncommitted changes apply right away.

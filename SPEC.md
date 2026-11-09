@@ -13,7 +13,9 @@ Not goals: remote runs, pull requests, issue trackers, editing PRDs inside lazyd
 
 - The project list lives in `$XDG_CONFIG_HOME/lazydev/projects.json` (`{"projects": [<absolute path>]}`).
   `a` adds a folder (`~` expands, `Tab` completes folders), `d` removes it after `y`. Removing closes the
-  project's terminals and keeps the folder.
+  project's terminals and keeps the folder. `lazydev add` and `lazydev remove` do the same without the TUI
+  (see CLI). Every change reads the list right before writing it, and the TUI takes the list from the file
+  every 5 s, so a running TUI shows projects the CLI added and drops removed ones with their terminals.
 - Adding a project, also one already in the list, runs `.lazydev/` init (see below).
 - The project ID is the folder name. Projects that share a folder name get `-<first 6 hex of sha1(path)>`.
   IDs name state and worktree folders and are independent of the list order.
@@ -58,7 +60,7 @@ Folder in the main folder of a project, versioned with it. Nothing can be overri
   overwrites. Adding a project, opening the wizard, `n`, `f` and writing a prompt in the wizard run it, so a
   deleted `.lazydev/` comes back.
 - The workflow reads prompts from `.lazydev/<step>.md` only. A missing prompt fails the step with
-  `.lazydev/<step>.md is missing, press i to add it`.
+  `.lazydev/<step>.md is missing, lazydev add <project folder> or i in the TUI adds it`.
 - lazydev commits nothing under `.lazydev/` by itself. The commit of the git cockpit takes all changes,
   `.lazydev/` included.
 
@@ -549,10 +551,18 @@ needs a decision of the user, not another attempt.
 - **Dialog:** the contract makes Claude ask the questions of `## Blocker` numbered with options A to D, wait
   for the answers and work them into the PRD. Then it removes `## Blocker` and sets the status line to
   `geplant` after `Schritt: implement`, to `umgesetzt (<today>)` after `Schritt: merge`. It changes only the
-  PRD, commits nothing and ends with `Weiter in lazydev mit s.`. The dialog runs outside the runner, the
-  next step checks `.lazydev/` anyway.
+  PRD, commits nothing and ends with `Weiter mit lazydev start <prd> oder s in der TUI.`. The dialog runs
+  outside the runner, the next step checks `.lazydev/` anyway.
+- **Without the TUI:** `lazydev prompt unblock [--auto] [<project>] <prd>` prints the same prompt with the
+  absolute path of the PRD in the worktree as `$ARGUMENTS`, so a Claude Code session in any folder edits
+  the right file (see CLI). `--auto` appends the block `## Autonomer Modus`: Claude answers the questions
+  itself from the conversation and the code, writes them with the chosen option and a reason into
+  `## Entscheidungen`, asks the user only about questions it cannot answer responsibly (data loss, public
+  interfaces, running costs, a contradiction to an explicit requirement of the user) and continues the run
+  with `lazydev start`.
 - **Continue:** nothing starts by itself, `s` continues with the blocked step. While the PRD in the worktree
-  still says `blockiert`, the TUI refuses (see Run) and a runner ends with `<prd> is still blocked` without
+  still says `blockiert`, the TUI refuses (see Run) and `start` and a runner end with
+  `<prd> is still blocked, resolve it with lazydev prompt unblock <prd> or f in the TUI` without
   changing run state, phase or log. After implement the review commits the changed PRD with the rest, before
   the merge the runner commits it (see merge).
 
@@ -708,24 +718,31 @@ skill replaces no MCP server and no slash command.
 - **Writing:** every embedded file is written only when it is missing or its content differs, atomically
   through a temporary file, mode `0644`, folders `0755`. Files under `skills/lazydev/` that the binary
   does not have get deleted, empty subfolders after them. Nothing outside `skills/lazydev/` changes.
-- **When:** the TUI writes the skill at its start in the background, like `lazydev skill install`, so it
+- **When:** the TUI writes the skill at its start in the background, like `lazydev skill install`, and
+  `lazydev add` writes it before it ends, so it
   stays current after `lazydev update`, `install.sh` and `make install`. Success and an up-to-date skill
   show nothing. An error sets the footer note `skill install failed: <error>` unless an error or note
-  shows already. Runners, `lazydev git` and the other commands write nothing. `"skill": false` in
+  shows already, `lazydev add` prints `lazydev: skill not installed: <error>` on stderr and still ends with 0.
+  Runners, `lazydev git` and the other commands write nothing. `"skill": false` in
   `settings.json` switches the automatic write off, `lazydev skill install` works regardless. Removing
   the skill is manual: delete the folder and set `"skill": false`.
 - **`lazydev skill install`:** writes the skill and prints `Installed skill lazydev to <dir>.`, or
   `Skill lazydev in <dir> is up to date.` when nothing changed. Exit code 0, errors as `lazydev: <error>`
   with 1.
-- **`lazydev prompt create [<description>]`:** prints the create prompt of the project on stdout, the same
-  one `n` builds. The project folder is `git rev-parse --show-toplevel` of the working directory, without
-  a git repository the working directory itself. All arguments join with spaces to `$ARGUMENTS`, without
+- **`lazydev prompt create [--auto] [<description>]`:** prints the create prompt of the project on stdout,
+  the same one `n` builds. The project folder is the main folder of the repository of the working
+  directory (the parent of `git rev-parse --git-common-dir`, so a worktree of a run counts as its project),
+  without a git repository the working directory itself. All arguments join with spaces to `$ARGUMENTS`, without
   arguments it is `Die Aufgabe ergibt sich aus dem bisherigen Gespräch mit dem Nutzer.`. `$BASE` is the
   base branch of `config.yaml`, `$BRANCH` the checked out branch. Knowledge files must exist in the
   project folder. The command creates nothing: a folder without `.lazydev/` ends with
-  `lazydev: <dir> has no .lazydev/, add the project in lazydev first` and 1. Errors of `config.yaml`, a
-  missing knowledge file or a missing `create.md` end with the error and 1. Other steps end with
-  `unknown step: <step>` and the usage, exit code 2.
+  `lazydev: <dir> has no .lazydev/, add the project with lazydev add first` and 1. Errors of `config.yaml`, a
+  missing knowledge file or a missing `create.md` end with the error and 1. `--auto` appends the block
+  `## Autonomer Modus` after the contract: Claude answers its numbered questions itself, first from the
+  conversation, then from code, `CLAUDE.md`, `README.md` and existing PRDs, writes each with the chosen
+  option and a reason of one sentence into `## Entscheidungen` of the PRD, and asks the user only questions
+  it cannot decide and where a wrong choice is expensive. `prompt unblock` is described under Blocked runs.
+  Other steps end with `unknown step: <step>` and the usage, exit code 2.
 - lazydev changes no `CLAUDE.md` of a project.
 
 ### Releases
@@ -782,9 +799,34 @@ State files are written atomically. Merged runs keep their state until discarded
 
 ## CLI
 
-`lazydev` starts the TUI. `start`, `stop`, `discard [--yes]`, `trust` take a project ID or path from the list;
-`run` and `git` are internal. `update` installs the newest release over the binary (see Releases).
-`prompt create [<description>]` prints the create prompt of the project in the current folder and
-`skill install` writes the Claude Code skill (see Claude Code skill). `activity [--since 7d] [--json]` reports
-the activity log (see Activity log). `version`, `--version` and `-v` print
-`lazydev <version>` and end with 0. See `lazydev help`.
+`lazydev` starts the TUI. The TUI is optional: every action on projects, PRDs and runs has a command, so
+Claude Code and scripts work without it. `run` and `git` are internal. Errors print `lazydev: <error>` on
+stderr and end with 1, wrong arguments print the usage and end with 2. See `lazydev help`.
+
+`<project>` is a project ID or the path of a project in the list. Where the usage shows `[<project>]`, it
+is optional: without it, the project of the working directory applies, the main folder of its repository
+(parent of `git rev-parse --git-common-dir`), so subfolders and the worktree of a run count. A folder that
+is no project in the list ends with `<dir> is no project in the list, add it with lazydev add or name the
+project`, an unknown name with `no project "<name>" in the list, add it with lazydev add first`. `<prd>` is
+the PRD file name without `.md`.
+
+| Command | Does |
+|---|---|
+| `add [<path>]` | Adds the folder, without path the main folder of the repository of the working directory, runs `.lazydev/` init (see `.lazydev/`) and writes the skill (see Claude Code skill). Prints `Added <id> (<path>).`, for a folder in the list already `<id> (<path>) is in the list already, .lazydev/ is complete.` No folder: `not a folder: <path>`. |
+| `remove <project>` | Removes the project from the list. Folder, run state and worktrees stay, runners keep working (`Its runners keep working until they end.`). |
+| `projects [--json]` | ID and path of every project, `--json` as an array of `{id, path}`. |
+| `trust [<project>]` | Shows hooks, allowed tools and databases of `config.yaml` and saves their hash after `y` (see Trust). |
+| `status [<project>] [--all] [--json]` | Without `<project>` outside a project: all projects with a column `PROJECT`. A table of the PRDs sorted by label: phase (`waiting #<n>` with the position in the queue), step (the running one, else the one `start` continues with), port (`dev` with a dev server), cost, status value. Below it the error and note of each run and the questions of `## Blocker` of a blocked run. Merged and discarded PRDs only with `--all`, or with an error. `--json` prints an array of objects with `project`, `prd`, `label`, `path`, `file` (absolute, in the worktree while the run has it), `status`, `phase`, `queue`, `step`, `branch`, `worktree`, `port`, `cost`, `error`, `note`, `blocker` (`{step, questions}`), `devPid`, `log` (the step log); empty fields are left out. |
+| `start [<project>] <prd>` | Starts or continues the runner in the background (see Run). With `MaxParallel` reached the PRD waits: `3 runners work already. <prd> waits and starts once one ends.` |
+| `stop [<project>] <prd>` | SIGTERM to the runner, a waiting PRD becomes aborted. |
+| `discard [--yes] [<project>] <prd>` | Asks `Delete worktree and branch feat/<prd> of <id>? …`, `--yes` skips the question (see Run, `X`). |
+| `wait [<project>] [--json] [--timeout <duration>]` | Projects like `status`. Reads the overview every second and returns with the events of the first read that has any: a run that reaches blocked, error, aborted or merged (`<kind> <id>/<prd>: <error or questions joined with " \| ">`) and a run with a new note (`note <id>/<prd>: <note>`). A PRD seen first as merged gives no event. When no run works, sits in the merge queue or waits, it returns right away with `idle: no run works or waits`; after the timeout (Go duration, e.g. `30m`) with `timeout: no event within <duration>`. `--json` prints one object per event: `kind`, `project`, `prd`, `phase`, `from`, `text`, `item` (the object of `status --json`). Always exit code 0. |
+| `log [<project>] <prd> [-f]` | The step logs of the run in step order as `<time> <step> <kind> <text>`, the entries of the log tab. `-f` (`--follow`) reads new lines every second until the runner ends, then prints `-- <prd> <phase>`. Without run: `<prd> has no run`. |
+| `set-status [<project>] <prd> planned\|merged\|discarded` | The status picker (see Status): same checks, same commit, `Status of <label>: <status>, committed.` A PRD that only its worktree has: `<prd> is in the worktree of its run, its status belongs to the run`. |
+| `dev [<project>] <prd> [start\|stop]` | Starts or stops the dev server like `D`, without action it toggles. Start prints PID, port and log. Without run: `<prd> has no worktree yet, start it with lazydev start`. |
+| `prompt create [--auto] [<description>]` | See Claude Code skill. |
+| `prompt unblock [--auto] [<project>] <prd>` | Prints the unblock prompt of a blocked run (see Blocked runs). Not blocked: `<prd> is not blocked, phase <phase>`. |
+| `update` | Installs the newest release over the binary (see Releases). |
+| `skill install` | Writes the Claude Code skill (see Claude Code skill). |
+| `activity [--since 7d] [--json]` | Reports the activity log (see Activity log). |
+| `version`, `--version`, `-v` | Print `lazydev <version>` and end with 0. |

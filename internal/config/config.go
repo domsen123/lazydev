@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"unicode/utf8"
 
@@ -58,6 +59,33 @@ func SaveProjects(paths []string) error {
 		return err
 	}
 	return fsutil.WriteAtomic(projectsPath(), append(data, '\n'), 0o644)
+}
+
+// AddProject appends path to the project list. A path already in the list changes nothing and
+// added is false. The list is read right before, so a running TUI and the CLI do not overwrite
+// each other's projects.
+func AddProject(path string) (added bool, err error) {
+	paths, err := LoadProjects()
+	if err != nil {
+		return false, err
+	}
+	if slices.Contains(paths, path) {
+		return false, nil
+	}
+	return true, SaveProjects(append(paths, path))
+}
+
+// RemoveProject drops path from the project list. A path not in the list changes nothing.
+func RemoveProject(path string) error {
+	paths, err := LoadProjects()
+	if err != nil {
+		return err
+	}
+	i := slices.Index(paths, path)
+	if i < 0 {
+		return nil
+	}
+	return SaveProjects(slices.Delete(paths, i, i+1))
 }
 
 // Settings are the settings of the TUI and of the Claude steps of the runner.

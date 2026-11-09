@@ -262,7 +262,7 @@ func TestRunImplementBlockedContinues(t *testing.T) {
 
 	// Still blocked, nothing changes.
 	before, logBefore := read(t, state.Path("app", prdName)), log
-	if err := Run(context.Background(), target, prdName); err == nil || err.Error() != "new-token is still blocked" {
+	if err := Run(context.Background(), target, prdName); err == nil || !strings.HasPrefix(err.Error(), "new-token is still blocked") {
 		t.Fatalf("Run while blocked: %v", err)
 	}
 	if read(t, state.Path("app", prdName)) != before || read(t, state.LogPath("app", prdName, state.StepImplement)) != logBefore {

@@ -291,3 +291,14 @@ func TestSetRunInfoRoundTrip(t *testing.T) {
 		t.Errorf("round trip: %+v, %v, %v, %q", s, cost, hasCost, model)
 	}
 }
+
+func TestBlocker(t *testing.T) {
+	content := SetBlocker("# PRD: X\n\n## Ziel\n\nx\n", "implement", []string{"Welche Tabelle?", "Soll die API\n  versioniert sein?"})
+	step, points, ok := Blocker(content + "## Danach\n")
+	if !ok || step != "implement" || len(points) != 2 || points[0] != "Welche Tabelle?" || points[1] != "Soll die API versioniert sein?" {
+		t.Errorf("Blocker = %q, %q, %v", step, points, ok)
+	}
+	if _, _, ok := Blocker("# PRD: X\n"); ok {
+		t.Error("Blocker found a section in a PRD without one")
+	}
+}

@@ -93,3 +93,28 @@ func TestIsTrackedBranchCurrent(t *testing.T) {
 		t.Errorf("outside a repository: %q", got)
 	}
 }
+
+func TestMainDir(t *testing.T) {
+	t.Setenv("GIT_AUTHOR_NAME", "t")
+	t.Setenv("GIT_AUTHOR_EMAIL", "t@t")
+	t.Setenv("GIT_COMMITTER_NAME", "t")
+	t.Setenv("GIT_COMMITTER_EMAIL", "t@t")
+	root, _ := filepath.EvalSymlinks(t.TempDir())
+	main, wt := filepath.Join(root, "main"), filepath.Join(root, "wt")
+	if err := os.MkdirAll(filepath.Join(main, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"init", "-q", "-b", "main"}, {"commit", "-q", "--allow-empty", "-m", "init"}, {"worktree", "add", "-q", wt}} {
+		if _, err := Run(main, args...); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, dir := range []string{main, filepath.Join(main, "sub"), wt} {
+		if got := MainDir(dir); got != main {
+			t.Errorf("MainDir(%s) = %s, want %s", dir, got, main)
+		}
+	}
+	if got := MainDir(root); got != root {
+		t.Errorf("MainDir outside a repository = %s, want %s", got, root)
+	}
+}

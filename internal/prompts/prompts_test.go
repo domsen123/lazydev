@@ -112,13 +112,13 @@ func TestBuildUnblock(t *testing.T) {
 		"Kläre die Blocker des PRDs `prd/auth/token.md` mit dem Nutzer.",
 		"Du änderst ausschließlich das PRD `prd/auth/token.md`.",
 		"`## Blocker`",
-		"Weiter in lazydev mit s.",
+		"Weiter mit lazydev start <prd> oder s in der TUI.",
 	} {
 		if !strings.Contains(got, s) {
 			t.Errorf("prompt lacks %q:\n%s", s, got)
 		}
 	}
-	if !strings.HasSuffix(got, "- Nenne zum Schluss: `Weiter in lazydev mit s.`\n") {
+	if !strings.HasSuffix(got, "- Nenne zum Schluss: `Weiter mit lazydev start <prd> oder s in der TUI.`\n") {
 		t.Error("the contract does not come last")
 	}
 }
@@ -133,7 +133,7 @@ func TestImplementContractHasNotes(t *testing.T) {
 
 func TestBuildMissingPrompt(t *testing.T) {
 	_, err := Build(t.TempDir(), t.TempDir(), repo.Config{}, "merge", Vars{})
-	if err == nil || !strings.Contains(err.Error(), ".lazydev/merge.md") || !strings.Contains(err.Error(), "press i") {
+	if err == nil || !strings.Contains(err.Error(), ".lazydev/merge.md") || !strings.Contains(err.Error(), "lazydev add") {
 		t.Errorf("Build error = %v", err)
 	}
 }
@@ -196,5 +196,20 @@ func TestStripFrontmatter(t *testing.T) {
 		if got := stripFrontmatter(in); got != want {
 			t.Errorf("stripFrontmatter(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+func TestAuto(t *testing.T) {
+	for _, step := range []string{"create", "unblock"} {
+		got := Auto(step, Vars{Arguments: "/wt/prd/a/b.md"})
+		if !strings.HasPrefix(got, "## Autonomer Modus\n") || strings.Contains(got, "$ARGUMENTS") {
+			t.Errorf("Auto(%s) = %q", step, got)
+		}
+	}
+	if !strings.Contains(Auto("unblock", Vars{Arguments: "/wt/prd/a/b.md"}), "`/wt/prd/a/b.md`") {
+		t.Error("unblock auto lacks the PRD path")
+	}
+	if got := Auto("implement", Vars{}); got != "" {
+		t.Errorf("Auto(implement) = %q, want empty", got)
 	}
 }

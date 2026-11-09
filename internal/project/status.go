@@ -154,6 +154,29 @@ func RemoveBlocker(content string) string {
 	return before + "\n\n" + strings.Join(lines[end:], "\n")
 }
 
+// Blocker reads the section "## Blocker": the blocked step and its points, the continuation lines
+// of a point joined with a space. ok is false without the section.
+func Blocker(content string) (step string, points []string, ok bool) {
+	lines := strings.Split(content, "\n")
+	start, end, ok := blockerSection(lines)
+	if !ok {
+		return "", nil, false
+	}
+	for _, l := range lines[start+1 : end] {
+		t := strings.TrimSpace(l)
+		switch {
+		case t == "":
+		case strings.HasPrefix(t, blockerStep):
+			step = strings.TrimSpace(strings.TrimPrefix(t, blockerStep))
+		case strings.HasPrefix(t, "- "):
+			points = append(points, strings.TrimPrefix(t, "- "))
+		case len(points) > 0:
+			points[len(points)-1] += " " + t
+		}
+	}
+	return step, points, true
+}
+
 // blockerSection finds the lines of "## Blocker" up to the next "## " heading, end excluded.
 func blockerSection(lines []string) (start, end int, ok bool) {
 	start = slices.IndexFunc(lines, func(l string) bool { return strings.TrimSpace(l) == blockerHeading })
