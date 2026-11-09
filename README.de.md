@@ -292,6 +292,7 @@ lazydev discard [--yes] <projekt> <prd>
 lazydev trust <projekt>
 lazydev prompt create [<beschreibung>]   # Create-Prompt des Projekts im aktuellen Ordner ausgeben
 lazydev skill install                    # Claude-Code-Skill nach ~/.claude/skills/lazydev/ installieren
+lazydev activity [--since 7d] [--json]   # was du in der TUI getan hast: Zeit je Pane, Tasten, Läufe, Reaktionszeiten
 lazydev version                          # auch --version, -v
 ```
 
@@ -299,12 +300,18 @@ lazydev version                          # auch --version, -v
 `.md`. `prompt create` geht in jedem Ordner eines Projekts mit `.lazydev/`, das Projekt muss nicht in der
 Liste stehen.
 
+`activity` liest das Log, das die TUI während sie läuft schreibt: jede Taste außerhalb eines Terminals mit
+Pane, Tab und Dialog, die Zeit in jedem Terminal-Tab, Aktionen und die Phasenwechsel der Läufe. Der Bericht
+zeigt Sitzungen und aktive Zeit, Zeit und Tasten je Pane, die meistgenutzten Tasten und wie lange du nach
+einem blockierten, gescheiterten oder gemergten Lauf gebraucht hast, bis du reagiert hast. `--json` gibt die
+rohen Ereignisse aus, etwa für Claude. `"activity": false` in `settings.json` schaltet das Log ab.
+
 ## Dateien
 
 | Pfad | Inhalt |
 |---|---|
-| `~/.config/lazydev/` | `projects.json`, `settings.json` (`theme`, `allowedTools`, `permissionMode`, `discord`, `skill`), Rechte `0600` |
-| `~/.local/state/lazydev/` | `runs/<id>/<prd>.json` und Logs der Schritte, `trust/`, `locks/`, `usage.json`, `bin/` |
+| `~/.config/lazydev/` | `projects.json`, `settings.json` (`theme`, `allowedTools`, `permissionMode`, `discord`, `skill`, `activity`), Rechte `0600` |
+| `~/.local/state/lazydev/` | `runs/<id>/<prd>.json` und Logs der Schritte, `trust/`, `locks/`, `usage.json`, `activity.jsonl`, `bin/` |
 | `~/.local/share/lazydev/worktrees/<id>/<prd>/` | Worktrees |
 | `~/.claude/skills/lazydev/` | Claude-Code-Skill: `SKILL.md`, `references/spec.md` |
 

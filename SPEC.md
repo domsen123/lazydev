@@ -445,6 +445,31 @@ go back to the left column, `q` and `alt+m` close the menu. Hint: `↑/↓ selec
   is `No webhook URL set.`. Success shows the note `discord: test sent`, failure the error
   `discord: <error>`.
 
+### Activity log
+
+The TUI appends what the user does to `$XDG_STATE_HOME/lazydev/activity.jsonl`, one JSON object per
+line, so a week of use can be read back and turned into a plan. `"activity": false` in `settings.json`
+switches it off. Every line has `t` (RFC 3339) and `kind`:
+
+| `kind` | When | Fields |
+|---|---|---|
+| `session` | TUI start and end | `text` `start` (with `version`) or `end` |
+| `key` | a key outside a terminal tab | `key`, `pane` (`projects`, `center`, `explorer`, `details`), `tab` (`prds`, `files`, `details`, `docker`, `log`, `md`), `dialog` (`menu`, `menu-input`, `git`, `question`, `status`, `wizard`, `add`, `create`, `remove`), `project`, `prd`, `phase` |
+| `mouse` | a mouse press, not the wheel | like `key`, `key` is the event (`left press`) |
+| `terminal` | keys start going to a terminal tab, and when they stop | `text` `enter` or `leave`, `tab` `terminal:<program>`; `leave` carries `count` (keys sent) and `seconds` (active time: gaps over five minutes left out) |
+| `action` | the footer text of an action (start, stop, discard, unblock, status, git) | `text`, `err`, `project` |
+| `run` | the run poll shows a phase the poll before did not | `project`, `prd`, `phase`, `from` (empty when the TUI saw the run for the first time) |
+
+Keys inside a terminal tab are counted, not logged, and single characters typed into a dialog's input stay
+out of the log. `prd` and `phase` are the selected PRD and its phase: the run's, or the status line's without
+a run. Writing never fails the TUI; a line that cannot be written is lost. The file has the rights `0600`.
+
+`lazydev activity [--since 7d] [--json]` reads the log: without `--json` a report with sessions, active time
+(the gap to the next event, up to five minutes), time and keys per pane and tab and per terminal program, the
+keys used most, the actions, the runs the TUI saw with the time until the user did anything after `blocked`,
+`error` and `merged`, and a table per day. `--json` prints the events as JSON lines. `--since` takes days
+(`14d`), hours (`36h`) or a date (`2026-10-01`).
+
 ### Limits
 
 Runners save every `rate_limit_event` to `$XDG_STATE_HOME/lazydev/usage.json`. The footer shows
@@ -749,6 +774,7 @@ skill replaces no MCP server and no slash command.
 | `…/runs/<id>/<prd>.<step>.jsonl` | Step log: stream-json with `ts` and runner lines `{"type":"lazydev","time","text"}` |
 | `…/runs/<id>/<prd>.runner.log`, `.devpid`, `.dev.log` | Runner output, dev server PID and folder, dev server output |
 | `$XDG_STATE_HOME/lazydev/trust/<id>.json`, `usage.json`, `agents.json`, `bin/` | Trust, limits, agents, runner binary |
+| `$XDG_STATE_HOME/lazydev/activity.jsonl` | Activity log of the TUI (see Activity log) |
 | `$XDG_DATA_HOME/lazydev/worktrees/<id>/<prd>/` | Worktrees |
 | `$CLAUDE_CONFIG_DIR/skills/lazydev/` (without the variable `~/.claude/skills/lazydev/`) | Claude Code skill: `SKILL.md`, `references/spec.md` |
 
@@ -759,5 +785,6 @@ State files are written atomically. Merged runs keep their state until discarded
 `lazydev` starts the TUI. `start`, `stop`, `discard [--yes]`, `trust` take a project ID or path from the list;
 `run` and `git` are internal. `update` installs the newest release over the binary (see Releases).
 `prompt create [<description>]` prints the create prompt of the project in the current folder and
-`skill install` writes the Claude Code skill (see Claude Code skill). `version`, `--version` and `-v` print
+`skill install` writes the Claude Code skill (see Claude Code skill). `activity [--since 7d] [--json]` reports
+the activity log (see Activity log). `version`, `--version` and `-v` print
 `lazydev <version>` and end with 0. See `lazydev help`.

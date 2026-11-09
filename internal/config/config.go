@@ -74,11 +74,19 @@ type Settings struct {
 	// Skill nil and true let the TUI write the Claude Code skill lazydev at its start, false
 	// switches that off. lazydev skill install works either way.
 	Skill *bool `json:"skill,omitempty"`
+	// Activity nil and true let the TUI log what the user does to activity.jsonl (see
+	// lazydev activity), false switches that off.
+	Activity *bool `json:"activity,omitempty"`
 }
 
 // SkillEnabled reports whether the TUI writes the Claude Code skill at its start.
 func (s Settings) SkillEnabled() bool {
 	return s.Skill == nil || *s.Skill
+}
+
+// ActivityEnabled reports whether the TUI writes the activity log.
+func (s Settings) ActivityEnabled() bool {
+	return s.Activity == nil || *s.Activity
 }
 
 // Discord is the webhook runners post their notifications to, global and per project.

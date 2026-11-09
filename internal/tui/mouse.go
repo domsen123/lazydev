@@ -13,6 +13,7 @@ const wheelLines = 3
 // releasing during a selection. Unlike keys, they keep the footer error and note. In the same area
 // of an active viewer tab, the wheel scrolls it and a left click focuses the center, nothing else.
 func (m model) updateMouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
+	m.trackMouse(msg)
 	if m.menu != nil || m.cockpit != nil || m.question != nil || m.status != nil || m.wizardVisible() ||
 		m.adding || m.creating || m.confirmRemove {
 		return m, nil

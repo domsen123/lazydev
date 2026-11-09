@@ -32,6 +32,7 @@ const usage = `Usage:
   lazydev update                           install the newest release over this binary
   lazydev prompt create [<description>]    print the create prompt of the project in the current folder
   lazydev skill install                    install the Claude Code skill lazydev into ~/.claude/skills/
+  lazydev activity [--since 7d] [--json]   what you did in the TUI: time per pane, keys, runs, reaction times
   lazydev version                          print the version, also --version and -v
 
 <project> is the project ID (its folder name) or its path, <prd> the PRD file name without .md.
@@ -117,6 +118,11 @@ func main() {
 			fmt.Printf("Installed skill %s to %s.\n", skill.Name, skill.Dir())
 		} else {
 			fmt.Printf("Skill %s in %s is up to date.\n", skill.Name, skill.Dir())
+		}
+		return
+	case "activity":
+		if err := activityReport(rest); err != nil {
+			fail(err)
 		}
 		return
 	case "start", "stop", "discard":

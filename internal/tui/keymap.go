@@ -61,6 +61,7 @@ var globalKeys = map[string]action{
 // center column, then the focused column, and finally the plain key as its alt key.
 func (m model) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	m.err, m.note = "", ""
+	m.trackKey(msg.String())
 	switch {
 	case m.menu != nil:
 		return m.updateMenu(msg)

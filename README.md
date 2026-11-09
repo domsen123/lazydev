@@ -287,18 +287,25 @@ lazydev discard [--yes] <project> <prd>
 lazydev trust <project>
 lazydev prompt create [<description>]    # print the create prompt of the project in the current folder
 lazydev skill install                    # install the Claude Code skill into ~/.claude/skills/lazydev/
+lazydev activity [--since 7d] [--json]   # what you did in the TUI: time per pane, keys, runs, reaction times
 lazydev version                          # also --version, -v
 ```
 
 `<project>` is the ID (folder name) or path of a project in the list, `<prd>` the file name without `.md`.
 `prompt create` works in any folder of a project with `.lazydev/`, the project needs no entry in the list.
 
+`activity` reads the log the TUI writes while it runs: every key outside a terminal with its pane, tab and
+dialog, the time spent in each terminal tab, actions, and the phase changes of runs. The report shows sessions
+and active time, time and keys per pane, the keys you use most, and how long you took to react after a run
+blocked, failed or merged. `--json` prints the raw events, e.g. for Claude to read. `"activity": false` in
+`settings.json` switches the log off.
+
 ## Files
 
 | Path | Content |
 |---|---|
-| `~/.config/lazydev/` | `projects.json`, `settings.json` (`theme`, `allowedTools`, `permissionMode`, `discord`, `skill`), rights `0600` |
-| `~/.local/state/lazydev/` | `runs/<id>/<prd>.json` and step logs, `trust/`, `locks/`, `usage.json`, `bin/` |
+| `~/.config/lazydev/` | `projects.json`, `settings.json` (`theme`, `allowedTools`, `permissionMode`, `discord`, `skill`, `activity`), rights `0600` |
+| `~/.local/state/lazydev/` | `runs/<id>/<prd>.json` and step logs, `trust/`, `locks/`, `usage.json`, `activity.jsonl`, `bin/` |
 | `~/.local/share/lazydev/worktrees/<id>/<prd>/` | Worktrees |
 | `~/.claude/skills/lazydev/` | Claude Code skill: `SKILL.md`, `references/spec.md` |
 

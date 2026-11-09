@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 
+	"lazydev/internal/activity"
 	"lazydev/internal/claude"
 	"lazydev/internal/config"
 	"lazydev/internal/docker"
@@ -128,6 +129,8 @@ type model struct {
 	confirmRemove bool
 	// quitting is true while the programs end before lazydev exits.
 	quitting bool
+	// act is the state of the activity log, nil in tests that build the model by hand.
+	act *activityState
 }
 
 // quitMsg reports that all programs have ended.
@@ -140,6 +143,8 @@ func newModel(bus *sender) model {
 	create.Prompt = " New PRD, what is it about? "
 	create.Placeholder = "empty: Claude asks"
 	m := model{bus: bus, input: in, createInput: create, focus: colCenter, theme: loadTheme(), gitTabs: map[int]string{}}
+	activity.Enable(config.LoadSettings().ActivityEnabled())
+	m.act = newActivityState()
 	ctx, cancel := context.WithCancel(context.Background())
 	m.dockerEvents, m.stopDocker = docker.Events(ctx), cancel
 	projects, err := loadProjects()
@@ -173,6 +178,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case terminal.OutputMsg:
 		// Nothing to update, the view reads the emulator.
 	case terminal.ExitMsg:
+		// The tab goes, so the terminal span of the log ends here, not with the next key.
+		if m.act != nil && m.act.inTerm && m.centerTabName() == m.act.termTab {
+			m.act.leaveTerminal()
+		}
 		action, ok := m.gitTabs[msg.ID]
 		if !ok {
 			m.removeTerminal(msg.ID)
@@ -247,6 +256,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.err != nil {
 			m.err = msg.err.Error()
 		}
+		m.trackAction(msg.text, msg.err)
 		return m, tea.Batch(fetchPRDs(m.projects), m.fetchRuns())
 	case runTickMsg:
 		return m, tea.Batch(m.fetchRuns(), m.readLogs(), m.readViews(), runTick())
@@ -258,6 +268,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.waiting, m.last, m.devPIDs = msg.waiting, msg.last, msg.devPIDs
 		m.usage, m.hasUsage = msg.usage, msg.hasUsage
+		m.trackRuns()
 	case logReadMsg:
 		m.applyLogs(msg)
 	case mdReadMsg:
@@ -502,6 +513,7 @@ func (m *model) selectTab(i int) {
 func (m model) quit() (tea.Model, tea.Cmd) {
 	m.quitting = true
 	m.menu = nil
+	m.trackEnd()
 	m.stopDocker()
 	var terms []*terminal.Terminal
 	for _, p := range m.projects {
