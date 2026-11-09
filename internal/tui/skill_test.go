@@ -9,10 +9,34 @@ import (
 	"lazydev/internal/config"
 )
 
+// TestInstallSkillOff checks that skill: false writes no skill but still updates an installed mod.
 func TestInstallSkillOff(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", root)
+	stale := filepath.Join(root, "skills", "lazydev-runs", "hooks", "old.tsx")
+	os.MkdirAll(filepath.Dir(stale), 0o755)
+	os.WriteFile(stale, []byte("x"), 0o644)
 	off := false
-	if installSkill(config.Settings{Skill: &off}) != nil {
-		t.Error("installSkill runs with skill: false")
+	if msg := installSkill(config.Settings{Skill: &off})(); msg != nil {
+		t.Errorf("msg: %#v", msg)
+	}
+	if _, err := os.Stat(filepath.Join(root, "skills", "lazydev")); err == nil {
+		t.Error("skill written with skill: false")
+	}
+	if _, err := os.Stat(filepath.Join(root, "skills", "lazydev-runs", "hooks", "register.tsx")); err != nil {
+		t.Errorf("installed mod not updated: %v", err)
+	}
+	if _, err := os.Stat(stale); err == nil {
+		t.Error("stale mod file kept")
+	}
+}
+
+func TestInstallSkillLeavesModOut(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", root)
+	installSkill(config.Settings{})()
+	if _, err := os.Stat(filepath.Join(root, "skills", "lazydev-runs")); err == nil {
+		t.Error("the TUI installed the mod by itself")
 	}
 }
 

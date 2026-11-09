@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"lazydev/internal/project"
+	"lazydev/internal/state"
 )
 
 func TestChanges(t *testing.T) {
@@ -46,5 +47,30 @@ func TestBusy(t *testing.T) {
 		if !Busy([]Item{{Phase: ph}}) {
 			t.Errorf("not Busy with %s", ph)
 		}
+	}
+}
+
+func TestStepInfos(t *testing.T) {
+	ok, failed := 0, 1
+	cost := 0.5
+	r := &state.Run{Steps: []state.Step{
+		{Name: state.StepPlan, ExitCode: &ok, OK: true},
+		{Name: state.StepSetup, ExitCode: &ok, OK: true},
+		{Name: state.StepImplement, ExitCode: &failed, OK: false},
+		{Name: state.StepResolve, ExitCode: &ok, OK: true},
+		{Name: state.StepImplement, ExitCode: &ok, OK: true, CostUSD: &cost},
+		{Name: state.StepReview},
+	}}
+	var got []string
+	for _, s := range stepInfos(r) {
+		got = append(got, s.Name+":"+s.State)
+	}
+	// The runner of r does not live, so the unfinished review counts as failed.
+	want := "plan:done setup:done implement:done review:failed merge:pending"
+	if strings.Join(got, " ") != want {
+		t.Errorf("stepInfos = %v, want %s", got, want)
+	}
+	if stepInfos(r)[2].Cost != 0.5 {
+		t.Error("implement cost missing")
 	}
 }

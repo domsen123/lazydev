@@ -18,6 +18,7 @@ import (
 	"lazydev/internal/devserver"
 	"lazydev/internal/fsutil"
 	"lazydev/internal/git"
+	"lazydev/internal/mod"
 	"lazydev/internal/project"
 	"lazydev/internal/prompts"
 	"lazydev/internal/repo"
@@ -619,6 +620,33 @@ func promptUnblock(args []string) error {
 		prompt += "\n" + prompts.Auto("unblock", vars)
 	}
 	fmt.Print(prompt)
+	return nil
+}
+
+// modCommand is "lazydev mod install|uninstall": the Claude Code mod lazydev-runs.
+func modCommand(args []string) error {
+	if len(args) != 1 {
+		usageError()
+	}
+	switch args[0] {
+	case "install":
+		changed, err := mod.Install()
+		if err != nil {
+			return err
+		}
+		if changed {
+			fmt.Printf("Installed mod %s to %s. Claude Code loads it in new sessions, /reload-plugins in a running one; /lazydev-runs shows the pane.\n", mod.Name, mod.Dir())
+		} else {
+			fmt.Printf("Mod %s in %s is up to date.\n", mod.Name, mod.Dir())
+		}
+	case "uninstall":
+		if err := mod.Uninstall(); err != nil {
+			return err
+		}
+		fmt.Printf("Removed mod %s from %s.\n", mod.Name, mod.Dir())
+	default:
+		usageError()
+	}
 	return nil
 }
 

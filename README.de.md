@@ -59,6 +59,18 @@ Die TUI schreibt den Skill beim Start, wenn er fehlt oder veraltet ist, so folgt
 `lazydev add` und `lazydev skill install` machen dasselbe aus der Shell. `"skill": false` in `settings.json` schaltet das
 automatische Schreiben ab. Zum Entfernen den Ordner löschen und `"skill": false` setzen.
 
+## Claude-Code-Mod
+
+`lazydev mod install` fügt Claude Code ein Pane hinzu, das die Läufe des Projekts neben dem Chat zeigt, wie
+das Agents-Panel: oben Kosten, laufende und wartende Läufe, darunter jedes laufende PRD mit Phase, Modell,
+Port, `3/5 · implement` mit Fortschrittsbalken, Kosten und Zeit, die blockierten Läufe mit ihren Fragen, die
+Queue mit dem, worauf jedes PRD wartet, und die geplanten PRDs. Es öffnet sich von selbst, sobald ein Lauf
+arbeitet, wartet oder blockiert ist; `/lazydev-runs` blendet es ein oder aus. Es liest `lazydev status --json`
+alle 3 s.
+
+Der Mod liegt in `~/.claude/skills/lazydev-runs/`, die TUI hält ihn nach Updates aktuell, und
+`lazydev mod uninstall` entfernt ihn. Neue Claude-Code-Sessions laden ihn, eine laufende mit `/reload-plugins`.
+
 ## Release
 
 Pushe einen Tag `vX.Y.Z`. Eine GitHub Action führt `make test` aus, baut `linux/amd64` und `linux/arm64`
@@ -327,6 +339,7 @@ lazydev dev [<projekt>] <prd> [start|stop]        # Dev-Server im Worktree
 lazydev prompt create [--auto] [<beschreibung>]   # Create-Prompt des Projekts im aktuellen Ordner ausgeben
 lazydev prompt unblock [--auto] [<projekt>] <prd> # Unblock-Prompt eines blockierten Laufs ausgeben
 lazydev skill install                             # Claude-Code-Skill nach ~/.claude/skills/lazydev/ installieren
+lazydev mod install|uninstall                     # Claude-Code-Pane mit Queue und Schritten der Läufe
 lazydev activity [--since 7d] [--json]            # was du in der TUI getan hast: Zeit je Pane, Tasten, Läufe, Reaktionszeiten
 lazydev version                                   # auch --version, -v
 ```

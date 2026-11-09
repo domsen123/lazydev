@@ -799,6 +799,42 @@ skill replaces no MCP server and no slash command.
   Other steps end with `unknown step: <step>` and the usage, exit code 2.
 - lazydev changes no `CLAUDE.md` of a project.
 
+### Claude Code mod
+
+`lazydev mod install` adds the mod `lazydev-runs` to Claude Code: a pane beside the chat with the PRD runs,
+like Claude Code's agents panel. It is opt-in, unlike the skill.
+
+- **Place:** `$CLAUDE_CONFIG_DIR/skills/lazydev-runs/`, without the variable
+  `$HOME/.claude/skills/lazydev-runs/`. Claude Code loads a folder under `skills/` that holds
+  `.claude-plugin/plugin.json` as a plugin (`lazydev-runs@skills-dir`). The skill `lazydev` keeps its own
+  folder, so it stays a skill.
+- **Files:** `.claude-plugin/plugin.json` (name `lazydev-runs`, license MIT), `hooks/hooks.json`,
+  `hooks/register.tsx` (the hooks module), `types/index.d.ts` (the shape of `lazydev status --json` and the
+  state contract) and `README.md`, embedded from `internal/mod/files/` and written like the skill: changed
+  files only, files the binary does not have get deleted.
+- **When:** `lazydev mod install` writes it and prints `Installed mod lazydev-runs to <dir>. …` or
+  `Mod lazydev-runs in <dir> is up to date.`; `lazydev mod uninstall` deletes the folder and prints
+  `Removed mod lazydev-runs from <dir>.`. The TUI rewrites an installed mod at its start, with the skill
+  but also with `"skill": false`, and never adds a missing one.
+- **Data:** the mod runs `lazydev status --json` in the folder of the Claude Code session (so the project of
+  that folder, all projects outside one) every 3 s while its pane is open and every 15 s while it is
+  closed. A failed run shows its stderr, a missing `lazydev` `lazydev not found in PATH: <error>`.
+- **Pane:** id `lazydev-runs`, title `lazydev`. It opens by itself once a run works, waits or needs the user
+  (blocked, error, aborted), unless the person closed it in this session. `/lazydev-runs` opens or closes
+  it. On top cards `Cost` (`≈$x.xx`, the cost of the running and stopped runs), `Running`, `Waiting` and,
+  with stopped runs, `Needs you`. Below them the groups with `<group> · <n>`:
+  - `Running` (plan, setup, implement, resolve, review, merge-queue, merge): the phase symbol and label,
+    then phase, model without `claude-` and `port <n>` (`dev` with a dev server), `unblocked by Claude`
+    after a resolve, then `<done>/<steps> · <step>`, a bar of the done steps (half a step for the running
+    one), cost and the time since the start, and the note of the run.
+  - `Needs you` (blocked, error, aborted): `blocked in <step>` with the questions of `## Blocker`, or
+    `<phase> in <step>` with the error, and the cost.
+  - `Waiting`, sorted by queue position: `#<n>`, `after <prds>` and the reason of plan.
+  - `Planned`: PRDs without run.
+  Several projects prefix the label with `<project>/`. Colors are theme keys of Claude Code.
+- **Tests:** `make test-mod` validates the mod and runs `internal/mod/testdata/*.test.tsx` with
+  `claude plugin test` in a temporary copy; the tests are not shipped. `make test` needs no `claude`.
+
 ### Releases
 
 - `internal/version.Version` is the version of the binary, `dev` by default. `make build` and `make install`
@@ -848,6 +884,7 @@ skill replaces no MCP server and no slash command.
 | `$XDG_STATE_HOME/lazydev/activity.jsonl` | Activity log of the TUI (see Activity log) |
 | `$XDG_DATA_HOME/lazydev/worktrees/<id>/<prd>/` | Worktrees |
 | `$CLAUDE_CONFIG_DIR/skills/lazydev/` (without the variable `~/.claude/skills/lazydev/`) | Claude Code skill: `SKILL.md`, `references/spec.md` |
+| `$CLAUDE_CONFIG_DIR/skills/lazydev-runs/` | Claude Code mod (see Claude Code mod), only after `lazydev mod install` |
 
 State files are written atomically. Merged runs keep their state until discarded.
 
@@ -871,7 +908,7 @@ the PRD file name without `.md`.
 | `projects [--json]` | ID and path of every project, `--json` as an array of `{id, path}`. |
 | `auto-unblock [<project>] [on\|off]` | Prints or sets `autoUnblock` of the project: `Auto-unblock of <id> is on: Claude answers the questions of blocked runs itself, at most 2 times per run.` or `Auto-unblock of <id> is off: blocked runs wait for you.` (see Blocked runs). |
 | `trust [<project>]` | Shows hooks, allowed tools and databases of `config.yaml` and saves their hash after `y` (see Trust). |
-| `status [<project>] [--all] [--json]` | Without `<project>` outside a project: all projects with a column `PROJECT`. A table of the PRDs sorted by label: phase (`waiting #<n>` with the position in the queue, `→ <prds>` while it waits for PRDs of `after`, with a line `<prd> waits for <prds>: <reason>` below the table), step (the running one, else the one `start` continues with), port (`dev` with a dev server), cost, status value. Below it the error and note of each run and the questions of `## Blocker` of a blocked run. Merged and discarded PRDs only with `--all`, or with an error. `--json` prints an array of objects with `project`, `prd`, `label`, `path`, `file` (absolute, in the worktree while it exists), `status`, `phase`, `queue`, `step`, `branch`, `worktree`, `port`, `cost`, `error`, `note`, `blocker` (`{step, questions}`), `after`, `afterReason`, `waitsFor` (the PRDs of `after` not merged yet), `resolved` (successful resolve steps), `devPid`, `log` (the step log); empty fields are left out. |
+| `status [<project>] [--all] [--json]` | Without `<project>` outside a project: all projects with a column `PROJECT`. A table of the PRDs sorted by label: phase (`waiting #<n>` with the position in the queue, `→ <prds>` while it waits for PRDs of `after`, with a line `<prd> waits for <prds>: <reason>` below the table), step (the running one, else the one `start` continues with), port (`dev` with a dev server), cost, status value. Below it the error and note of each run and the questions of `## Blocker` of a blocked run. Merged and discarded PRDs only with `--all`, or with an error. `--json` prints an array of objects with `project`, `prd`, `label`, `path`, `file` (absolute, in the worktree while it exists), `status`, `phase`, `queue`, `step`, `branch`, `worktree`, `port`, `cost`, `error`, `note`, `blocker` (`{step, questions}`), `after`, `afterReason`, `waitsFor` (the PRDs of `after` not merged yet), `resolved` (successful resolve steps), `startedAt`, `model` (of implement), `steps` (each step of the order from plan to merge with `name`, `state` done, running, failed or pending, `cost`, `startedAt`, `endedAt` of its last attempt), `devPid`, `log` (the step log); empty fields are left out. |
 | `start [<project>] <prd>` | Starts or continues the runner in the background (see Run). A PRD that waits prints why: `<prd> waits for <prds>: <reason>`, or `3 runners work already. <prd> waits and starts once one ends.` |
 | `after [<project>] <prd> [<prd>…]` | Overrides the order plan chose (see Run): `<prd> starts once <prds> are merged.`, without PRDs `<prd> waits for nothing and starts with the next free slot.` The project is optional only when the first argument is no project. |
 | `stop [<project>] <prd>` | SIGTERM to the runner, a waiting PRD becomes aborted. |
@@ -883,6 +920,7 @@ the PRD file name without `.md`.
 | `prompt create [--auto] [<description>]` | See Claude Code skill. |
 | `prompt unblock [--auto] [<project>] <prd>` | Prints the unblock prompt of a blocked run (see Blocked runs). Not blocked: `<prd> is not blocked, phase <phase>`. |
 | `update` | Installs the newest release over the binary (see Releases). |
+| `mod install`, `mod uninstall` | Adds or removes the Claude Code mod `lazydev-runs` (see Claude Code mod). |
 | `skill install` | Writes the Claude Code skill (see Claude Code skill). |
 | `activity [--since 7d] [--json]` | Reports the activity log (see Activity log). |
 | `version`, `--version`, `-v` | Print `lazydev <version>` and end with 0. |

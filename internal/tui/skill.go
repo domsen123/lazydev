@@ -1,9 +1,12 @@
 package tui
 
 import (
+	"fmt"
+
 	tea "github.com/charmbracelet/bubbletea"
 
 	"lazydev/internal/config"
+	"lazydev/internal/mod"
 	"lazydev/internal/skill"
 )
 
@@ -14,15 +17,18 @@ import (
 // skillMsg reports a failed installation of the skill.
 type skillMsg struct{ err error }
 
-// installSkill writes the skill in the background, nil when the settings switch it off. The
-// command returns a message only on error.
+// installSkill writes the skill in the background unless the settings switch it off, and updates an
+// installed mod (see package mod) either way. The command returns a message only on error.
 func installSkill(s config.Settings) tea.Cmd {
-	if !s.SkillEnabled() {
-		return nil
-	}
 	return func() tea.Msg {
-		if _, err := skill.Install(); err != nil {
-			return skillMsg{err: err}
+		if s.SkillEnabled() {
+			if _, err := skill.Install(); err != nil {
+				return skillMsg{err: err}
+			}
+		}
+		// An installed mod follows the binary like the skill; a missing one stays missing.
+		if _, err := mod.Update(); err != nil {
+			return skillMsg{err: fmt.Errorf("mod %s: %w", mod.Name, err)}
 		}
 		return nil
 	}

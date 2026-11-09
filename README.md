@@ -57,6 +57,17 @@ The TUI writes the skill at its start when it is missing or out of date, so it f
 `lazydev add` and `lazydev skill install` do the same from the shell. `"skill": false` in `settings.json` switches the
 automatic write off. To remove the skill, delete the folder and set `"skill": false`.
 
+## Claude Code mod
+
+`lazydev mod install` adds a pane to Claude Code that shows the runs of the project beside the chat, like
+the agents panel: cost, running and waiting runs at the top, then each running PRD with phase, model, port,
+`3/5 · implement` with a progress bar, cost and time, the blocked runs with their questions, the queue
+with what each PRD waits for, and the planned PRDs. It opens by itself once a run works, waits or is
+blocked; `/lazydev-runs` shows or hides it. It reads `lazydev status --json` every 3 s.
+
+The mod lives in `~/.claude/skills/lazydev-runs/`, the TUI keeps it current after updates, and
+`lazydev mod uninstall` removes it. New Claude Code sessions load it, `/reload-plugins` a running one.
+
 ## Release
 
 Push a tag `vX.Y.Z`. A GitHub Action runs `make test`, builds `linux/amd64` and `linux/arm64` with
@@ -318,6 +329,7 @@ lazydev dev [<project>] <prd> [start|stop]        # dev server in the worktree
 lazydev prompt create [--auto] [<description>]    # print the create prompt of the project in the current folder
 lazydev prompt unblock [--auto] [<project>] <prd> # print the unblock prompt of a blocked run
 lazydev skill install                             # install the Claude Code skill into ~/.claude/skills/lazydev/
+lazydev mod install|uninstall                     # the Claude Code pane with queue and steps of the runs
 lazydev activity [--since 7d] [--json]            # what you did in the TUI: time per pane, keys, runs, reaction times
 lazydev version                                   # also --version, -v
 ```

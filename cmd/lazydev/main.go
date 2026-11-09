@@ -49,6 +49,7 @@ PRDs and runs:
 Other:
   lazydev update                                   install the newest release over this binary
   lazydev skill install                            install the Claude Code skill lazydev into ~/.claude/skills/
+  lazydev mod install|uninstall                    add or remove the Claude Code pane lazydev-runs (queue and steps)
   lazydev activity [--since 7d] [--json]           what you did in the TUI: time per pane, keys, runs, reaction times
   lazydev version                                  print the version, also --version and -v
 
@@ -141,6 +142,11 @@ func main() {
 			fmt.Printf("Installed skill %s to %s.\n", skill.Name, skill.Dir())
 		} else {
 			fmt.Printf("Skill %s in %s is up to date.\n", skill.Name, skill.Dir())
+		}
+		return
+	case "mod":
+		if err := modCommand(rest); err != nil {
+			fail(err)
 		}
 		return
 	case "activity":

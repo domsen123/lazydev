@@ -27,31 +27,44 @@ const Name = "lazydev"
 // Dir is the folder of the skill: $CLAUDE_CONFIG_DIR/skills/lazydev, without the variable
 // $HOME/.claude/skills/lazydev.
 func Dir() string {
+	return SkillsDir(Name)
+}
+
+// SkillsDir is the folder name under $CLAUDE_CONFIG_DIR/skills, without the variable
+// $HOME/.claude/skills. Claude Code loads a folder there as a skill, or as a plugin when it holds
+// .claude-plugin/plugin.json.
+func SkillsDir(name string) string {
 	root := os.Getenv("CLAUDE_CONFIG_DIR")
 	if root == "" {
 		home, _ := os.UserHomeDir()
 		root = filepath.Join(home, ".claude")
 	}
-	return filepath.Join(root, "skills", Name)
+	return filepath.Join(root, "skills", name)
 }
 
 // Install writes the skill into Dir. Every embedded file is written only when it is missing or
 // differs, atomically. Files in the folder that the binary does not have get deleted, empty
 // subfolders after them. changed is true when something was written or deleted.
 func Install() (changed bool, err error) {
-	dir := Dir()
+	return Sync(files, "files", Dir())
+}
+
+// Sync makes dir hold exactly the files under root of src: missing or different files get
+// written atomically, files src does not have get deleted, empty subfolders after them.
+// changed is true when something was written or deleted. dir must be a folder lazydev owns.
+func Sync(src fs.FS, root, dir string) (changed bool, err error) {
 	keep := map[string]bool{}
-	err = fs.WalkDir(files, "files", func(path string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(src, root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, _ := filepath.Rel("files", path)
+		rel, _ := filepath.Rel(root, path)
 		target := filepath.Join(dir, rel)
 		if d.IsDir() {
 			return os.MkdirAll(target, 0o755)
 		}
 		keep[rel] = true
-		want, err := files.ReadFile(path)
+		want, err := fs.ReadFile(src, path)
 		if err != nil {
 			return err
 		}
@@ -64,8 +77,7 @@ func Install() (changed bool, err error) {
 	if err != nil {
 		return changed, err
 	}
-	// Deleting happens under dir only, and Dir always ends in skills/lazydev, so nothing outside
-	// the skill folder can go.
+	// Deleting happens under dir only, so nothing outside the folder can go.
 	var dirs []string
 	err = filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {

@@ -1,0 +1,8 @@
+{
+  "name": "lazydev-runs",
+  "version": "0.1.0",
+  "description": "A pane with the lazydev PRD runs of the project: queue, steps, cost and blockers.",
+  "types": "./types/index.d.ts",
+  "license": "MIT",
+  "homepage": "https://github.com/domsen123/lazydev"
+}

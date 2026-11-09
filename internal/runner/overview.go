@@ -42,10 +42,54 @@ type Item struct {
 	WaitsFor    []string `json:"waitsFor,omitempty"`
 	// Blocker holds the open questions of a blocked run.
 	Blocker *Blocker `json:"blocker,omitempty"`
+	// StartedAt is when the run started, Model the model of its implement.
+	StartedAt string `json:"startedAt,omitempty"`
+	Model     string `json:"model,omitempty"`
+	// Steps are the steps of the order (plan to merge) with their state, for a progress view.
+	Steps []StepInfo `json:"steps,omitempty"`
 	// Resolved counts the resolve steps that answered the questions of a blocked step.
 	Resolved int `json:"resolved,omitempty"`
 	DevPID   int `json:"devPid,omitempty"`
 	Log     string   `json:"log,omitempty"`
+}
+
+// StepInfo is one step of the order in a run: its last attempt.
+type StepInfo struct {
+	Name string `json:"name"`
+	// State is done, running, failed or pending (not started).
+	State     string  `json:"state"`
+	Cost      float64 `json:"cost,omitempty"`
+	StartedAt string  `json:"startedAt,omitempty"`
+	EndedAt   string  `json:"endedAt,omitempty"`
+}
+
+// stepInfos lists the steps of the order with the state of their last attempt in r.
+func stepInfos(r *state.Run) []StepInfo {
+	infos := make([]StepInfo, len(state.Steps))
+	for i, name := range state.Steps {
+		info := StepInfo{Name: name, State: "pending"}
+		for j := len(r.Steps) - 1; j >= 0; j-- {
+			s := r.Steps[j]
+			if s.Name != name {
+				continue
+			}
+			info.StartedAt, info.EndedAt = s.StartedAt, s.EndedAt
+			if s.CostUSD != nil {
+				info.Cost = *s.CostUSD
+			}
+			switch {
+			case s.ExitCode == nil && r.Running():
+				info.State = "running"
+			case s.ExitCode == nil || !s.OK:
+				info.State = "failed"
+			default:
+				info.State = "done"
+			}
+			break
+		}
+		infos[i] = info
+	}
+	return infos
 }
 
 // Blocker is the section "## Blocker" of a blocked PRD.
@@ -100,6 +144,7 @@ func fillRun(it *Item, id string, r *state.Run, queue []string) {
 	it.Queue = slices.Index(queue, id+"/"+it.PRD) + 1
 	it.Branch, it.Worktree, it.Port, it.Note = r.Branch, r.Worktree, r.Port, r.Note
 	it.After, it.AfterReason = r.After, r.AfterReason
+	it.StartedAt, it.Model, it.Steps = r.StartedAt, r.ImplementModel(), stepInfos(r)
 	if r.NextStep() == state.StepSetup {
 		it.WaitsFor = PendingAfter(id, r)
 	}
