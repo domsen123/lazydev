@@ -221,11 +221,23 @@ func overview(targets []runner.Target) ([]runner.Item, error) {
 	return items, errors.Join(errs...)
 }
 
-// status is "lazydev status [<project>] [--all] [--json]": the open PRDs with phase, step, port and
-// cost, blocked runs with their questions. --all adds merged and discarded PRDs.
+// status is "lazydev status [<project>] [--all] [--here] [--json]": the open PRDs with phase, step,
+// port and cost, blocked runs with their questions. --all adds merged and discarded PRDs, --here
+// shows only the project of the working directory and never falls back to all projects.
 func status(args []string) error {
-	args, set := flags(args, "--json", "--all")
-	targets, err := scopeTargets(args)
+	args, set := flags(args, "--json", "--all", "--here")
+	var targets []runner.Target
+	var err error
+	if set["--here"] {
+		if len(args) > 0 {
+			usageError()
+		}
+		var t runner.Target
+		t, err = cwdTarget()
+		targets = []runner.Target{t}
+	} else {
+		targets, err = scopeTargets(args)
+	}
 	if err != nil {
 		return err
 	}

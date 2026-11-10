@@ -48,9 +48,9 @@ type Item struct {
 	// Steps are the steps of the order (plan to merge) with their state, for a progress view.
 	Steps []StepInfo `json:"steps,omitempty"`
 	// Resolved counts the resolve steps that answered the questions of a blocked step.
-	Resolved int `json:"resolved,omitempty"`
-	DevPID   int `json:"devPid,omitempty"`
-	Log     string   `json:"log,omitempty"`
+	Resolved int    `json:"resolved,omitempty"`
+	DevPID   int    `json:"devPid,omitempty"`
+	Log      string `json:"log,omitempty"`
 }
 
 // StepInfo is one step of the order in a run: its last attempt.

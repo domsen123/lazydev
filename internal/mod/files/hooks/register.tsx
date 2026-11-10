@@ -1,5 +1,5 @@
 // lazydev-runs: a pane with the PRD runs of lazydev, like the agents panel. It reads
-// "lazydev status --json" in the session's folder (the project of that folder, all projects
+// "lazydev status --here --json" in the session's folder (only the project of that folder, nothing
 // outside one) every 3 s while the pane is open, every 15 s while it is closed, and opens the pane
 // by itself once a run works, waits or is blocked, unless the person closed it this session.
 // /lazydev-runs opens and closes it.
@@ -78,7 +78,7 @@ function cut(text: string, width: number): string {
 async function poll($: EngineInterface): Promise<Snapshot> {
   const at = await $.clock.now()
   try {
-    const run = await $.process.run(['lazydev', 'status', '--json'], { timeoutMs: 15000 })
+    const run = await $.process.run(['lazydev', 'status', '--here', '--json'], { timeoutMs: 15000 })
     if (run.exitCode !== 0) {
       return { items: [], error: (run.stderr || run.stdout).trim() || `lazydev status ended with ${run.exitCode}`, at }
     }

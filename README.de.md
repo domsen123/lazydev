@@ -65,8 +65,8 @@ automatische Schreiben ab. Zum Entfernen den Ordner löschen und `"skill": false
 das Agents-Panel: oben Kosten, laufende und wartende Läufe, darunter jedes laufende PRD mit Phase, Modell,
 Port, `3/5 · implement` mit Fortschrittsbalken, Kosten und Zeit, die blockierten Läufe mit ihren Fragen, die
 Queue mit dem, worauf jedes PRD wartet, und die geplanten PRDs. Es öffnet sich von selbst, sobald ein Lauf
-arbeitet, wartet oder blockiert ist; `/lazydev-runs` blendet es ein oder aus. Es liest `lazydev status --json`
-alle 3 s.
+arbeitet, wartet oder blockiert ist; `/lazydev-runs` blendet es ein oder aus. Es liest `lazydev status --here --json`
+alle 3 s und zeigt so nur das Projekt des Ordners der Session.
 
 Der Mod liegt in `~/.claude/skills/lazydev-runs/`, die TUI hält ihn nach Updates aktuell, und
 `lazydev mod uninstall` entfernt ihn. Neue Claude-Code-Sessions laden ihn, eine laufende mit `/reload-plugins`.
@@ -327,7 +327,7 @@ lazydev remove <projekt>                          # aus der Liste entfernen, der
 lazydev projects [--json]
 lazydev trust [<projekt>]
 lazydev auto-unblock [<projekt>] [on|off]         # Claude löst blockierte Läufe des Projekts selbst
-lazydev status [<projekt>] [--all] [--json]       # PRDs mit Phase, Schritt, Port, Kosten und Blocker-Fragen
+lazydev status [<projekt>] [--all] [--here] [--json]  # PRDs mit Phase, Schritt, Port, Kosten und Blocker-Fragen
 lazydev start [<projekt>] <prd>                   # im Hintergrund starten oder fortsetzen
 lazydev stop [<projekt>] <prd>
 lazydev discard [--yes] [<projekt>] <prd>

@@ -5,7 +5,7 @@ beside the chat, like the agents panel: cost, running and waiting runs at the to
 with its phase, model, port, the steps done (`3/5 · implement`) as a progress bar, cost and time, the
 blocked runs with their open questions, the queue with what each PRD waits for, and the planned PRDs.
 
-It reads `lazydev status --json` in the folder of the session every 3 s while the pane is open. The pane
+It reads `lazydev status --here --json` in the folder of the session (only its project) every 3 s while the pane is open. The pane
 opens by itself once a run works, waits or is blocked; `/lazydev-runs` shows or hides it.
 
 lazydev installs it with `lazydev mod install` into `~/.claude/skills/lazydev-runs/` and keeps it current

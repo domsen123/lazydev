@@ -34,7 +34,7 @@ Projects:
   lazydev auto-unblock [<project>] [on|off]        let Claude answer the questions of blocked runs itself
 
 PRDs and runs:
-  lazydev status [<project>] [--all] [--json]      open PRDs with phase, step, port, cost and blockers
+  lazydev status [<project>] [--all] [--here] [--json]  open PRDs with phase, step, port, cost and blockers
   lazydev start [<project>] <prd>                  start or continue the runner of a PRD in the background
   lazydev stop [<project>] <prd>                   stop the runner, the worktree stays
   lazydev discard [--yes] [<project>] <prd>        throw away the run: worktree, branch and its commits

@@ -63,7 +63,7 @@ automatic write off. To remove the skill, delete the folder and set `"skill": fa
 the agents panel: cost, running and waiting runs at the top, then each running PRD with phase, model, port,
 `3/5 · implement` with a progress bar, cost and time, the blocked runs with their questions, the queue
 with what each PRD waits for, and the planned PRDs. It opens by itself once a run works, waits or is
-blocked; `/lazydev-runs` shows or hides it. It reads `lazydev status --json` every 3 s.
+blocked; `/lazydev-runs` shows or hides it. It reads `lazydev status --here --json` every 3 s, so it shows only the project of the session's folder.
 
 The mod lives in `~/.claude/skills/lazydev-runs/`, the TUI keeps it current after updates, and
 `lazydev mod uninstall` removes it. New Claude Code sessions load it, `/reload-plugins` a running one.
@@ -317,7 +317,7 @@ lazydev remove <project>                          # remove it from the list, the
 lazydev projects [--json]
 lazydev trust [<project>]
 lazydev auto-unblock [<project>] [on|off]         # let Claude resolve blocked runs of the project itself
-lazydev status [<project>] [--all] [--json]       # PRDs with phase, step, port, cost and blocker questions
+lazydev status [<project>] [--all] [--here] [--json]  # PRDs with phase, step, port, cost and blocker questions
 lazydev start [<project>] <prd>                   # start or continue in the background
 lazydev stop [<project>] <prd>
 lazydev discard [--yes] [<project>] <prd>
