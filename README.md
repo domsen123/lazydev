@@ -4,158 +4,166 @@
   <b>English</b> · <a href="README.de.md">Deutsch</a>
 </p>
 
-Terminal UI for the PRD workflow with Claude Code. Projects on the left, terminal tabs in the center,
-files and PRDs on the right. You write a PRD with Claude in a tab, start it with one key, and follow its
-log. Each PRD runs in its own Git worktree with its own port, and lazydev fast-forwards it into the
-project's base branch. [SPEC.md](SPEC.md) describes the behavior in full.
+PRD workflow for Claude Code. You write a PRD with Claude, lazydev implements, reviews and merges it without
+you: every PRD in its own Git worktree with its own port, fast-forwarded into the project's base branch.
+You drive it from any Claude Code session, from the shell or from the optional terminal UI.
+[SPEC.md](SPEC.md) describes the behavior in full.
+
+## How it works
+
+```
+prd/<area>/<name>.md  (geplant)
+  │  lazydev start
+  ▼
+plan ─► setup ─► implement ─► review ─► merge  ─►  base branch  (umgesetzt)
+               │                         │
+               └──── blocked: open questions ────► you or Claude answer ─► continue
+```
+
+| Step | Does |
+|---|---|
+| plan | Only with other open runs in the project: Claude reads their PRDs and the code, decides whether the PRD runs in parallel or waits until some are merged. Read-only |
+| setup | Worktree on `feat/<prd>`, untracked PRD moved and committed, databases, setup hook |
+| implement | Claude implements the PRD. Success: `## Ergebnis` `umgesetzt` and status `umgesetzt (date)` |
+| review | Claude reviews and commits. Worktree must be clean afterwards |
+| merge | Rebase on the base branch (Claude on conflicts), check hook (Claude on red), cost into the status line, `git merge --ff-only`, teardown hook, cleanup |
+
+- No human between start and merge. Nothing reaches the base branch without a green check hook.
+- Max 3 runs at a time, the rest waits in a queue. Ports from 3500.
+- Every step is repeatable: after an error or a stop, `lazydev start` continues at the failed step.
+- Claude may not touch `.lazydev/`. Prompts, PRD status values and the reports Claude writes stay German.
 
 ## Requirements
 
 - Linux (`/proc`, `setsid`, `flock`), Go 1.27+ to build.
 - `git` and [Claude Code](https://claude.com/claude-code) (`claude`) in `PATH`.
-- Optional: `docker` for the Docker tab, `$VISUAL`/`$EDITOR` for opening files.
+- Optional: `docker` for databases per worktree and the Docker tab, `$VISUAL`/`$EDITOR` for opening files.
 
 ## Install
-
-`install.sh` downloads a release from GitHub. It needs `curl`, `tar`, `sha256sum` and `uname`.
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/domsen123/lazydev/main/install.sh | sh
 sh install.sh v0.2.0  # a specific release instead of the newest
+lazydev update        # later: install the newest release over the binary
 ```
 
-The script checks the checksum and installs `lazydev` to `$PREFIX/bin`, `PREFIX` defaults to `~/.local`.
-`lazydev version` prints the installed version. On start the TUI checks for a newer release and shows it in
-yellow in the footer and in the menu tab `General`. `alt+u` installs it over the running binary, `lazydev
-update` does the same from the shell. Running `install.sh` again works too.
-
-From source, with Go 1.27+:
-
-```sh
-make install          # ~/.local/bin/lazydev, PREFIX overridable
-go run ./cmd/lazydev  # without installing
-```
-
-Runners keep the code they started with. After an update, restart lazydev.
-
-## Claude Code skill
-
-lazydev installs a skill `lazydev` for Claude Code into `~/.claude/skills/lazydev/`. With it, a normal
-Claude Code session outside lazydev knows what lazydev is, how PRDs and `.lazydev/` work, and how to write
-a PRD. Discuss a feature in any Claude Code session in a lazydev project and say "make this a lazydev
-PRD": Claude runs `lazydev prompt create` in the main folder, gets the same prompt `n` builds, asks its
-numbered questions with options A to D and writes `prd/<area>/<name>.md`. Questions about lazydev go to
-the specification the skill carries along.
-
-The skill knows the CLI, so Claude never sends you to the TUI to press a key: it starts and stops runs,
-watches them with `lazydev wait`, reads `lazydev status` and resolves blockers with
-`lazydev prompt unblock`. Say "answer the questions yourself" and it adds `--auto`: Claude answers the
-questions of create or unblock from the conversation and the code and records them under
-`## Entscheidungen` in the PRD.
-
-The TUI writes the skill at its start when it is missing or out of date, so it follows every update.
-`lazydev add` and `lazydev skill install` do the same from the shell. `"skill": false` in `settings.json` switches the
-automatic write off. To remove the skill, delete the folder and set `"skill": false`.
-
-## Claude Code mod
-
-`lazydev mod install` adds a pane to Claude Code that shows the runs of the project beside the chat, like
-the agents panel: cost, running and waiting runs at the top, then each running PRD with phase, model, port,
-`3/5 · implement` with a progress bar, cost and time, the blocked runs with their questions, the queue
-with what each PRD waits for, and the planned PRDs. It opens by itself once a run works, waits or is
-blocked; `/lazydev-runs` shows or hides it. It reads `lazydev status --here --json` every 3 s, so it shows only the project of the session's folder.
-
-The mod lives in `~/.claude/skills/lazydev-runs/`, the TUI keeps it current after updates, and
-`lazydev mod uninstall` removes it. New Claude Code sessions load it, `/reload-plugins` a running one.
-
-## Release
-
-Push a tag `vX.Y.Z`. A GitHub Action runs `make test`, builds `linux/amd64` and `linux/arm64` with
-GoReleaser and creates the release with the archives and `checksums.txt`. The release notes come from the
-commits since the previous tag, grouped into Features, Fixes, Performance and Other. Commits of type `docs`,
-`test`, `chore`, `ci`, `style` and `build` do not show.
-
-```sh
-git tag v0.2.0
-git push origin v0.2.0
-```
+`install.sh` needs `curl`, `tar`, `sha256sum` and `uname`, checks the checksum and installs to
+`$PREFIX/bin` (`PREFIX` defaults to `~/.local`). From source: `make install` or `go run ./cmd/lazydev`.
+Running runners keep the code they started with.
 
 ## Get started
 
-1. `lazydev`, then `a` in the left pane and a project path (`Tab` completes). lazydev creates
-   `.lazydev/` with the prompts of the simple workflow. Commit it.
-2. Right pane, tab `PRDs`: `n` and a sentence about the feature. Claude Code opens as a center tab and
-   writes `prd/<area>/<name>.md` with you.
-3. Select the PRD, `s`. Plan, setup, implement, review and merge run in the background.
-4. The details pane below the terminals lists the runs of the project with phase, step, cost and the last
-   log line. `l` on a run opens its complete log as a center tab, `z` there folds the header.
+```sh
+cd ~/code/shop
+lazydev add            # adds the project, creates .lazydev/, installs the Claude Code skill
+lazydev mod install    # optional: pane with the runs beside the Claude Code chat
+git add .lazydev && git commit -m "chore: add lazydev"
+```
 
-## Layout
+Then, in a Claude Code session in the project:
 
-| Pane | Content |
+1. Discuss the feature, then say "make this a lazydev PRD". Claude asks numbered questions with options A to
+   D and writes `prd/<area>/<name>.md` with status `geplant`.
+2. Say "start it". Claude runs `lazydev start <prd>` and watches the run with `lazydev wait`.
+3. If the run blocks, Claude asks you the open questions, writes the answers into the PRD and continues.
+4. After the merge the PRD says `umgesetzt (date) · Kosten: … · Modell: …` on the base branch.
+
+The same from the shell:
+
+```sh
+lazydev start login-form   # runs in the background, no session needed
+lazydev status             # phase, step, port, cost, blocker questions
+lazydev log login-form -f  # follow the step logs
+lazydev wait               # block until a run blocks, fails, aborts or merges
+```
+
+## PRDs
+
+`prd/<area>/<name>.md`, status line within the first 20 lines:
+
+```markdown
+# PRD: Login form
+
+> Status: geplant · Scope: …
+```
+
+| Status | Meaning |
 |---|---|
-| Projects (left) | Projects with branch and commits ahead/behind upstream |
-| Center | Terminal tabs, log tabs and Markdown viewers of the project. Claude Code starts in a project without a tab |
-| Below center | `Details`: runs of the project, without runs the `.lazydev/` setup. `Docker`: compose services and containers |
-| Explorer (right) | `PRDs`: PRDs with phase, newest first, done ones folded. `Files`: file tree |
+| `geplant` | planned, can start |
+| `blockiert (date)` | run waits for answers, see `## Blocker` |
+| `umgesetzt (date) · Kosten: x.xx USD · Modell: …` | merged |
+| `verworfen (date)` | discarded |
 
-## Keys
+Sections lazydev and Claude add: `## Blocker` (open questions of a blocked run), `## Entscheidungen`
+(questions Claude answered itself, with option and reason), `## Hinweise` in the implement report (remarks
+that do not block). `lazydev set-status <prd> planned|merged|discarded` changes the status by hand and
+commits a tracked PRD.
 
-`alt` works everywhere, inside a terminal too. Outside a terminal, `alt` is optional.
+## Runs
 
-| Key | Action |
-|---|---|
-| `alt+←/→`, `tab` | pane |
-| `alt+shift+←/→` | tab within the pane |
-| `alt+j/k`, `alt+1…9` | project, center tab |
-| `alt+t` / `alt+w` | new shell tab / close tab |
-| `alt+g` | git cockpit: fetch, pull, push, commit |
-| `alt+c` | copy mode of the terminal tab |
-| `alt+v` | Markdown viewer of the selected file or PRD |
-| `alt+u` | install the newer release, if one is shown |
-| `alt+m` / `alt+q` | menu (theme, Discord, git) / quit |
-| `j/k`, `l`/`enter`, `h` | move, open, back (lists, tree) |
-| `a` / `d` / `i` | add / remove project / `.lazydev/` wizard (Projects) |
-| `n` | new PRD with Claude Code (PRDs) |
-| `s` / `x` / `X` | start or continue / stop / discard run (PRDs, Runs) |
-| `D` | dev server of the PRD's worktree on/off (PRDs, Runs) |
-| `f` | resolve a blocked run with Claude Code in its worktree (PRDs, Runs) |
-| `L` / `l` | log of the run as a tab (PRDs / Runs) |
-| `c` | status: planned, merged, discarded. Commits tracked PRDs (PRDs) |
-| `z` | zoom the details pane, header in the log tab |
-| `l` | logs of the container as a tab (Docker) |
+### Order and parallelism
 
-## Copying from terminal tabs
+With other open runs in the project, plan decides whether the PRD may start next to them. A held-back PRD
+waits without taking a slot and starts once the PRDs it waits for are merged or discarded. `lazydev status`
+shows `waiting → <prds>` and the reason.
 
-Copying takes the content of the tab only, without projects, explorer and borders. Lines that wrapped at
-the tab width come out as one line.
+```sh
+lazydev after login-form user-model   # override plan: start only after user-model is merged
+lazydev after login-form              # wait for nothing
+```
 
-- **Copy mode:** `alt+c` freezes the tab with its scrollback. `j/k`, `ctrl+d/u` and `g/G` move the mark, `v`
-  starts a selection of whole lines, `y` copies and leaves, `esc` or `q` leave. The tab label ends with
-  ` [copy]`. The program keeps running, its output shows once you leave.
-- **Drag:** drag with the left button in the tab to select exact to the character. Releasing copies.
-- **Wheel:** scrolls through the scrollback. Wheel down to the end shows the running output again.
-- **Native selection:** hold Shift while dragging, like in most terminal programs.
+### Stop, continue, discard
 
-lazydev copies through OSC 52 to its terminal, so it works over SSH too, and outside SSH also into the local
-clipboard. Some terminals turn OSC 52 off or limit its size.
+```sh
+lazydev stop <prd>             # the step records an abort
+lazydev start <prd>            # continues at the failed, blocked or next step
+lazydev discard [--yes] <prd>  # worktree, branch and commits gone, PRD back to geplant
+```
 
-## Reading Markdown
+The merge waits while the main folder is not on the base branch or has changes outside `prd/` and
+`.lazydev/`. If the base branch moved meanwhile, it rebases again.
 
-`alt+v` (or `v` outside a terminal) opens the Markdown file marked in the `Files` tab, or the PRD marked in the
-`PRDs` tab, rendered in a center tab `md <file>`. A PRD in the worktree of a run shows from there, and its
-viewer closes with the run. `j/k`, `ctrl+d/u` and `g/G` scroll, so does the mouse wheel. `e` opens the file in
-the editor as a new tab, the viewer stays. The viewer renders again within about a second when the file
-changes, and closes with a note when the file is gone. `alt+w` closes it.
+### Blocked runs
+
+When the PRD leaves a decision open, Claude aborts implement or the merge with open questions. That is no
+error: the run ends in phase `blocked`, the PRD in the worktree gets `blockiert (date)` and `## Blocker`.
+
+- **In Claude Code:** the skill runs `lazydev prompt unblock <prd>`, asks you the questions, works the
+  answers into the PRD and runs `lazydev start <prd>`. Say "answer the questions yourself" for `--auto`.
+- **Auto-unblock** (`lazydev auto-unblock on`, per project): the runner lets Claude answer the questions
+  itself in the worktree, records them under `## Entscheidungen` and runs the blocked step again, at most 2
+  times per run. Questions about data loss, security, public interfaces or costs it may not decide, then the
+  run stays blocked.
+- `lazydev start` refuses while the PRD still says `blockiert`.
+
+## Claude Code integration
+
+### Skill
+
+`~/.claude/skills/lazydev/`, written by `lazydev add`, `lazydev skill install` and every TUI start, so it
+follows each update. A normal Claude Code session then knows lazydev and its CLI: it writes PRDs with
+`lazydev prompt create` (the same prompt and questions as `n` in the TUI), starts, stops and watches runs,
+resolves blockers and answers questions about lazydev from the bundled spec. It never sends you to the TUI.
+`"skill": false` in `settings.json` stops the automatic write; to remove, delete the folder too.
+
+### Mod
+
+`lazydev mod install` adds a pane beside the Claude Code chat, like the agents panel: cost, running and
+waiting runs, then each running PRD with phase, model, port, `3/5 · implement` with progress bar, cost and
+time, blocked runs with their questions, the queue with what each PRD waits for, and the planned PRDs. It
+opens once a run works, waits or is blocked; `/lazydev-runs` toggles it. It reads
+`lazydev status --here --json` every 3 s, so it shows the project of the session's folder only. Lives in
+`~/.claude/skills/lazydev-runs/`, `lazydev mod uninstall` removes it, `/reload-plugins` loads it into a running
+session.
 
 ## `.lazydev/`
 
-Versioned in the project, the same for everyone. Adding a project and the wizard create missing files.
+Versioned in the project, the same for everyone. `lazydev add` creates missing files, never overwrites.
 
 | File | Content |
 |---|---|
 | `config.yaml` | `baseBranch`, `knowledge`, `allowedTools`, `hooks`, `databases` |
-| `create.md`, `implement.md`, `review.md`, `merge.md`, `unblock.md` | Prompts of the steps. The workflow reads them from here only |
+| `create.md`, `implement.md`, `review.md`, `merge.md`, `unblock.md` | Prompts of the steps |
 
 ```yaml
 baseBranch: develop          # default main
@@ -171,17 +179,16 @@ hooks:                       # scripts, relative to the main folder
   dev: scripts/lazydev-dev.sh
 ```
 
-- Each prompt = header + knowledge block + `.lazydev/<step>.md` + built-in contract. The contract cannot be
+- Prompt = header + knowledge block + `.lazydev/<step>.md` + built-in contract. The contract cannot be
   changed per project.
 - Hooks get `LAZYDEV_PROJECT`, `LAZYDEV_WORKTREE`, `LAZYDEV_BRANCH`, `LAZYDEV_PORT`, `LAZYDEV_SLUG`. The
-  dev server also gets `PORT`.
-- Hooks, `allowedTools` and `databases` need trust. `s` asks, or `lazydev trust <project>`. Changing them
-  asks again.
+  dev server (`lazydev dev <prd>`) also gets `PORT`.
+- Hooks, `allowedTools` and `databases` need trust: `lazydev trust`. Changing them asks again.
 
 ### Databases per worktree
 
 For projects with Postgres in Docker Compose, `databases` gives every worktree its own empty database
-`<name>_<slug>`. The wizard (`i`) finds Postgres services in the compose file and writes the section.
+`<name>_<slug>`. The TUI wizard (`i`) finds Postgres services in the compose file and writes the section.
 
 ```yaml
 databases:
@@ -196,19 +203,14 @@ databases:
       key: NUXT_DATABASE_NAME
 ```
 
-- With `DATABASE_URL="postgres://app:secret@localhost:5432/app?sslmode=disable"` in the main folder and the
-  slug `login_form`, the worktree gets `DATABASE_URL="postgres://app:secret@localhost:5432/app_login_form?sslmode=disable"`.
-  In a URL only the path changes, a plain value like `app_test` becomes `app_test_login_form`.
-- The setup copies the env files into the worktree, starts a stopped service with `docker compose up -d`,
-  creates the empty databases and then runs the setup hook. An existing database stays.
-- The user is `POSTGRES_USER` of the service, `postgres` without it. lazydev runs everything through
-  `docker exec`.
-- If the base branch moved before the merge, lazydev creates the databases again after the rebase and runs
-  the setup hook again before the check hook.
-- The merge and `X` drop the databases after the teardown hook. lazydev only drops names ending in
-  `_<slug>`, the main databases stay.
+- `DATABASE_URL="postgres://app:secret@localhost:5432/app?sslmode=disable"` and slug `login_form` give the
+  worktree `…/app_login_form?sslmode=disable`. A plain value like `app_test` becomes `app_test_login_form`.
+- Setup copies the env files into the worktree, starts a stopped service, creates the databases, then runs
+  the setup hook. User is `POSTGRES_USER` of the service, else `postgres`, everything via `docker exec`.
+- If the base branch moved before the merge, the databases and the setup hook run again before the check.
+- Merge and discard drop them after the teardown hook, only names ending in `_<slug>`.
 
-Migrations and seeds stay in the setup hook, e.g.:
+Migrations and seeds stay in the setup hook:
 
 ```sh
 #!/bin/sh
@@ -218,76 +220,25 @@ pnpm install --frozen-lockfile --prefer-offline
 pnpm db:migrate
 ```
 
-## Runs
+### Global settings
 
-- Steps: plan (only with other open runs in the project: Claude reads the PRDs and the code and decides
-  whether the PRD runs in parallel or waits until some of them are merged) → setup (worktree on `feat/<prd>`, untracked PRD moved and committed, databases, setup hook) →
-  implement → review → merge (rebase, Claude on conflicts, databases again if the base moved, check hook,
-  cost into the status line, fast-forward, teardown hook, dropping the databases, cleanup).
-- Max 3 runners at a time, the rest waits. A PRD that plan holds back waits without taking a slot and starts
-  once the PRDs it waits for are merged or discarded. `lazydev after <prd> [<prd>…]` overrides the order,
-  `lazydev status` and the run list show what a PRD waits for and why. Ports from 3500.
-- After an error or `x`, `s` continues with the failed step. `X` throws away worktree, branch and its
-  commits, the PRD goes back with status `geplant` and without `## Blocker`.
-- The merge waits while the main folder is not on the base branch or has changes outside `prd/` and
-  `.lazydev/`. If the base branch moved meanwhile, it rebases again.
-- PRD status values stay German (`geplant`, `umgesetzt (date)`, `verworfen (date)`, `blockiert (date)`), like
-  the prompts.
-- Phases: `○` planned, `◌` waiting, `●` plan/setup/implement/resolve/review/merge, `◐` merge-queue, `✓` merged, `■`
-  aborted, `✗` error/discarded, `⊘` blocked (yellow).
+`~/.config/lazydev/settings.json` (rights `0600`), applies to every Claude step of all projects:
 
-### Blocked runs
+```json
+{
+  "permissionMode": "auto",
+  "allowedTools": ["Bash(head:*)", "Bash(tail:*)", "Bash(sed -n:*)", "Bash(grep:*)"]
+}
+```
 
-When the PRD leaves a decision open, Claude aborts implement or the Claude step merge with open questions.
-That is no error: the run ends in phase `blocked`.
-
-1. The runner sets the PRD in the worktree to `blockiert (date)`, appends `## Blocker` with the step and all
-   questions and commits only the PRD. Discord gets `⊘ Blocked`.
-2. `f` on the run opens Claude Code in the worktree as tab `unblock`. It asks the questions with options A
-   to D, works your answers into the PRD, removes `## Blocker` and sets the status back (`geplant` for
-   implement, `umgesetzt (date)` for merge). It changes only the PRD and commits nothing.
-3. `s` continues with the blocked step. While the PRD still says `blockiert`, `s` refuses.
-
-Without the TUI, `lazydev prompt unblock [--auto] <project> <prd>` prints the same prompt for any Claude
-Code session, and `lazydev start` continues.
-
-**Auto-unblock** (opt-in per project: `lazydev auto-unblock on` or `alt+m` → General): when a run gets
-blocked, the runner lets Claude answer the questions itself in the worktree. It records each answer with a
-reason under `## Entscheidungen`, commits the PRD alone and runs the blocked step again; Discord gets
-`↻ Unblocked by Claude` with the decisions. Questions about data loss, security, public interfaces or costs
-it may not decide, then the run stops as before. At most 2 times per run.
-
-Remarks without a decision go under `## Hinweise` in the report of implement and do not block.
-
-## Git cockpit
-
-`alt+g` shows branch, upstream, changes and the last 5 commits of the selected project's main folder. Each
-action runs as a center tab, so passphrase and credential prompts work like in a shell.
-
-| Key | Action | Git |
-|---|---|---|
-| `f` | Fetch | `git fetch` |
-| `p` | Pull | `git pull --ff-only` |
-| `P` | Push | `git push`, without upstream `git push -u origin <branch>` |
-| `c` | Commit | `git add -A` and `git commit -m <message>` |
-
-- On success the tab closes and the footer shows `git <action>: done`. On failure the tab stays open until
-  you press `enter`.
-- Pull and push do not wait for a running merge of a PRD. They end with an error, try again once the merge
-  is done.
-- Commit takes all changes, untracked files, `.lazydev/` and `prd/` included.
+`permissionMode` is `acceptEdits` (default) or `auto`; any other value fails the step before Claude starts.
+In `auto` a classifier of Claude Code decides each tool call, not deterministic. `allowedTools` here need no
+trust and come before those of `config.yaml`.
 
 ## Discord
 
-Runners post to a Discord webhook when a PRD is merged, a step fails or blocks, Claude resolves a blocker
-(auto-unblock), `x` aborts a runner or the merge starts to wait for the main folder. They post without a running TUI too.
-
-1. In Discord, create a webhook for a channel and copy its URL.
-2. `alt+m`, tab `Discord`, `enter`. Select `Global URL`, press `enter`, paste the URL and press `enter`.
-3. Switch on `Notifications`. `Send test` posts a test message right away.
-
-A project can mute itself or use its own URL. The URL lands in `~/.config/lazydev/settings.json` only, never
-in a repository. The menu shows it shortened to `…/<last 4 characters>`.
+Runners post to a Discord webhook when a PRD is merged, a step fails or blocks, Claude resolves a blocker, a
+run is stopped or the merge waits for the main folder. No TUI needed.
 
 ```json
 {
@@ -302,14 +253,11 @@ in a repository. The menu shows it shortened to `…/<last 4 characters>`.
 }
 ```
 
-Each message is an embed with project, branch, cost, duration and model, without error text. A blocked run
-(`⊘ Blocked`) adds the field `Blocker` with its open questions. A failed
-delivery retries 3 times 5 s apart, then the step log gets `Discord notification failed: <error>`. The run
-goes on unchanged.
+The URL lives in `settings.json` only, never in a repository. The TUI menu (`alt+m` → `Discord`) sets it too
+and has `Send test`. Each message is an embed with project, branch, cost, duration and model; `⊘ Blocked`
+adds the questions. Failed deliveries retry 3 times 5 s apart, then the step log notes it, the run goes on.
 
 ## CLI
-
-The TUI is optional, every action has a command:
 
 ```sh
 lazydev add [<path>]                              # add a project, without path the repo of the current folder
@@ -328,55 +276,74 @@ lazydev after [<project>] <prd> [<prd>...]        # override plan: start only af
 lazydev dev [<project>] <prd> [start|stop]        # dev server in the worktree
 lazydev prompt create [--auto] [<description>]    # print the create prompt of the project in the current folder
 lazydev prompt unblock [--auto] [<project>] <prd> # print the unblock prompt of a blocked run
-lazydev skill install                             # install the Claude Code skill into ~/.claude/skills/lazydev/
+lazydev skill install                             # install the Claude Code skill
 lazydev mod install|uninstall                     # the Claude Code pane with queue and steps of the runs
-lazydev activity [--since 7d] [--json]            # what you did in the TUI: time per pane, keys, runs, reaction times
+lazydev update                                    # install the newest release
+lazydev activity [--since 7d] [--json]            # usage report of the TUI
 lazydev version                                   # also --version, -v
+lazydev                                           # start the TUI
 ```
 
-`<project>` is the ID (folder name) or path of a project in the list, `<prd>` the file name without `.md`.
-Without `<project>`, the project of the current folder applies, also from inside the worktree of a run.
-`prompt create` works in any folder of a project with `.lazydev/`, the project needs no entry in the list.
-`--auto` makes Claude answer the questions itself and record them under `## Entscheidungen`.
+- `<project>` is the ID (folder name) or path of a project in the list, `<prd>` the file name without `.md`.
+  Without `<project>` the project of the current folder applies, also inside the worktree of a run.
+- `--auto` makes Claude answer the questions of create or unblock itself and record them under
+  `## Entscheidungen`.
+- `wait` is made for an operator session: one line per event (`blocked`, `error`, `aborted`, `merged`,
+  `note`, `resolved`), `idle` when nothing runs or waits, `--json` with the details of `status --json`.
 
-`wait` is made for an operator session: it returns with one line per event (`blocked`, `error`,
-`aborted`, `merged`, `note`, `resolved`), with `idle` when nothing runs or waits, and `--json` gives the details of
-`status --json` along. A running TUI picks up projects that `add` and `remove` change within 5 s.
+## TUI
 
-`activity` reads the log the TUI writes while it runs: every key outside a terminal with its pane, tab and
-dialog, the time spent in each terminal tab, actions, and the phase changes of runs. The report shows sessions
-and active time, time and keys per pane, the keys you use most, and how long you took to react after a run
-blocked, failed or merged. `--json` prints the raw events, e.g. for Claude to read. `"activity": false` in
-`settings.json` switches the log off.
+`lazydev` without arguments opens a terminal UI: projects left, terminal tabs center (Claude Code starts in
+each project), details pane below with the runs of the project, PRDs and files right. Useful to watch
+several projects and to keep shells, logs and Claude sessions in one place. Everything it does on runs the
+CLI does too.
+
+| Key | Action |
+|---|---|
+| `alt+←/→`, `tab` / `alt+shift+←/→` | pane / tab within the pane |
+| `alt+j/k`, `alt+1…9` | project, center tab |
+| `alt+t` / `alt+w` | new shell tab / close tab |
+| `n` | new PRD with Claude Code (PRDs) |
+| `s` / `x` / `X` | start or continue / stop / discard run (PRDs, Runs) |
+| `f` | resolve a blocked run with Claude Code in its worktree |
+| `L` / `l` | log of the run as a tab (PRDs / Runs), `z` folds its header |
+| `D` | dev server of the PRD's worktree on/off |
+| `c` | status: planned, merged, discarded |
+| `a` / `d` / `i` | add / remove project / `.lazydev/` wizard (Projects) |
+| `alt+g` | git cockpit: fetch, pull (`--ff-only`), push, commit (`add -A`), each as a tab |
+| `alt+v` | Markdown viewer of the selected file or PRD, `e` opens the editor |
+| `alt+c` | copy mode: `j/k`, `v` select lines, `y` copy |
+| `alt+u` | install the newer release shown in the footer |
+| `alt+m` / `alt+q` | menu (theme, Discord, auto-unblock) / quit |
+
+- `alt` works everywhere, inside a terminal too. Outside a terminal it is optional.
+- Copying (copy mode, mouse drag) takes the tab content only and joins wrapped lines. It goes through OSC 52,
+  so it works over SSH. Shift+drag gives the native selection.
+- Pull and push of the git cockpit fail during a running merge, try again after it.
+- Phases: `○` planned, `◌` waiting, `●` working, `◐` merge-queue, `✓` merged, `■` aborted, `✗`
+  error/discarded, `⊘` blocked.
+- `lazydev activity` reports how you use the TUI (time per pane, keys, reaction times after a run blocked or
+  merged). `"activity": false` in `settings.json` switches the log off.
 
 ## Files
 
 | Path | Content |
 |---|---|
-| `~/.config/lazydev/` | `projects.json`, `settings.json` (`theme`, `allowedTools`, `permissionMode`, `discord`, `skill`, `activity`), rights `0600` |
+| `~/.config/lazydev/` | `projects.json`, `settings.json` (`theme`, `allowedTools`, `permissionMode`, `discord`, `skill`, `autoUnblock`, `activity`), rights `0600` |
 | `~/.local/state/lazydev/` | `runs/<id>/<prd>.json` and step logs, `trust/`, `locks/`, `usage.json`, `activity.jsonl`, `bin/` |
 | `~/.local/share/lazydev/worktrees/<id>/<prd>/` | Worktrees |
-| `~/.claude/skills/lazydev/` | Claude Code skill: `SKILL.md`, `references/spec.md` |
+| `~/.claude/skills/lazydev/`, `lazydev-runs/` | Claude Code skill and mod |
 
 `XDG_CONFIG_HOME`, `XDG_STATE_HOME` and `XDG_DATA_HOME` apply, `CLAUDE_CONFIG_DIR` replaces `~/.claude`.
 
-`allowedTools` in `settings.json` apply to every Claude step of all projects, after the built-in tools and
-before `allowedTools` from `config.yaml`. They need no trust. `permissionMode` is `acceptEdits` (default) or
-`auto`. Any other value fails the Claude step before Claude starts.
-
-```json
-{
-  "permissionMode": "auto",
-  "allowedTools": ["Bash(head:*)", "Bash(tail:*)", "Bash(sed -n:*)", "Bash(grep:*)"]
-}
-```
-
-In mode `auto` a classifier of Claude Code decides on each tool call instead of the prefix list. The outcome
-is not deterministic.
-
-## Development
+## Development and release
 
 ```sh
 make test   # go vet ./... and go test ./...
 make build  # bin/lazydev
+git tag v0.2.0 && git push origin v0.2.0
 ```
+
+A tag `vX.Y.Z` starts a GitHub Action: `make test`, GoReleaser builds `linux/amd64` and `linux/arm64`,
+release with archives and `checksums.txt`. Release notes come from the commits since the previous tag
+(Features, Fixes, Performance, Other; `docs`, `test`, `chore`, `ci`, `style`, `build` drop out).
