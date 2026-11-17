@@ -4,12 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"lazydev/internal/claude"
 	"lazydev/internal/config"
+	"lazydev/internal/fsutil"
 	"lazydev/internal/git"
 	"lazydev/internal/project"
 	"lazydev/internal/prompts"
@@ -20,25 +22,41 @@ import (
 // Values under "## Ergebnis" in the reports of the Claude steps, set by the contracts.
 const (
 	resultImplemented = "umgesetzt"
+	resultVerified    = "verifiziert"
 	resultAborted     = "abgebrochen"
 	resultMergeReady  = "bereit für fast-forward"
 )
 
-// claudeStep runs implement or review in the worktree and checks the outcome: after implement the
-// report and the status line of the PRD, after review a clean worktree.
+// The files of the evidence folder that lazydev writes or reads itself.
+const (
+	evidenceReport = "report.md"
+	evidencePR     = "pr.md"
+)
+
+// claudeStep runs implement, verify or review in the worktree and checks the outcome: after
+// implement the report and the status line of the PRD, after verify the report and its evidence,
+// after review a clean worktree and with merge: pr the description of the pull request.
 func claudeStep(ctx context.Context, t Target, prdName string, r *state.Run, step string, log *logger) (int, error) {
 	args := ""
-	if step == state.StepImplement {
+	if step == state.StepImplement || step == state.StepVerify {
 		args = r.PRD
 	}
-	s, exitCode, err := runClaude(ctx, t, prdName, r, step, args, log)
+	evidence := state.EvidenceDir(t.ID, prdName)
+	if usesEvidence(step) {
+		// Existing evidence stays, verify overwrites it.
+		if err := os.MkdirAll(evidence, 0o755); err != nil {
+			return 1, err
+		}
+	}
+	s, exitCode, err := runClaude(ctx, t, prdName, r, step, args, "", log)
 	if err != nil {
 		return exitCode, err
 	}
 	if err := checkSummary(s, exitCode); err != nil {
 		return exitCode, err
 	}
-	if step == state.StepImplement {
+	switch step {
+	case state.StepImplement:
 		if err := checkReport(s.Result, step, resultImplemented, "Offene Fragen"); err != nil {
 			return 0, err
 		}
@@ -49,15 +67,77 @@ func claudeStep(ctx context.Context, t Target, prdName string, r *state.Run, ste
 		if d.Status.Kind != project.StatusImplemented {
 			return 0, fmt.Errorf("status line of %s is %q instead of „%s (date)“", r.PRD, d.Status.Value, project.ValueImplemented)
 		}
-	} else if err := requireClean(r.Worktree, "worktree after the review"); err != nil {
-		return 0, err
+	case state.StepVerify:
+		if err := os.WriteFile(filepath.Join(evidence, evidenceReport), []byte(s.Result), 0o644); err != nil {
+			return 0, err
+		}
+		if err := checkVerify(s.Result, evidence); err != nil {
+			return 0, err
+		}
+	default:
+		if err := requireClean(r.Worktree, "worktree after the review"); err != nil {
+			return 0, err
+		}
+		cfg, err := t.Repo()
+		if err != nil {
+			return 0, err
+		}
+		if cfg.MergeMode() == repo.MergePR {
+			if _, _, err := readPullRequestFile(filepath.Join(evidence, evidencePR)); err != nil {
+				return 0, err
+			}
+		}
 	}
-	return 0, checkLazydevUntouched(r)
+	return 0, checkLazydevUntouched(r, r.Base)
 }
 
-// runClaude builds the prompt of the step and starts claude in the worktree. Session, model and
-// cost go into the last step as they come. Several calls in one step add up their cost.
-func runClaude(ctx context.Context, t Target, prdName string, r *state.Run, step, args string, log *logger) (claude.Summary, int, error) {
+// usesEvidence is true for the steps that get the evidence folder.
+func usesEvidence(step string) bool {
+	return step == state.StepVerify || step == state.StepReview
+}
+
+// checkVerify checks the report of verify: verifiziert, at least one file under "## Belege" and each
+// of them in the evidence folder dir.
+func checkVerify(report, dir string) error {
+	if err := checkReport(report, state.StepVerify, resultVerified, "Offene Fragen"); err != nil {
+		var b *blockedError
+		if errors.As(err, &b) || err.Error() == state.StepVerify+" aborted" {
+			return err
+		}
+		return fmt.Errorf("verify: %w", err)
+	}
+	section, _ := claude.Section(report, "Belege")
+	files := evidenceFiles(section, dir)
+	if len(files) == 0 {
+		return errors.New("verify: no evidence under „## Belege“")
+	}
+	for _, f := range files {
+		if !fsutil.Exists(filepath.Join(dir, f)) {
+			return fmt.Errorf("verify: evidence file %s missing in %s", f, dir)
+		}
+	}
+	return nil
+}
+
+// evidenceFiles reads the file names of the lines "- <file>: <what it shows>" under "## Belege".
+// Backticks and a leading path of the evidence folder dir go.
+func evidenceFiles(section, dir string) []string {
+	var files []string
+	for _, p := range reportPoints(section) {
+		name, _, _ := strings.Cut(p, ": ")
+		name = strings.Trim(strings.TrimSpace(name), "`")
+		name = strings.TrimPrefix(name, dir+"/")
+		if name != "" {
+			files = append(files, name)
+		}
+	}
+	return files
+}
+
+// runClaude builds the prompt of the step and starts claude in the worktree. base replaces the
+// base branch of the run as $BASE, empty keeps it. Session, model and cost go into the last step as
+// they come. Several calls in one step add up their cost.
+func runClaude(ctx context.Context, t Target, prdName string, r *state.Run, step, args, base string, log *logger) (claude.Summary, int, error) {
 	cfg, err := t.Repo()
 	if err != nil {
 		return claude.Summary{}, 1, err
@@ -69,16 +149,25 @@ func runClaude(ctx context.Context, t Target, prdName string, r *state.Run, step
 		return claude.Summary{}, 1, err
 	}
 	tools := allowedTools(claude.DefaultAllowedTools, settings.AllowedTools, cfg.AllowedTools)
-	prompt, err := prompts.Build(t.Dir, r.Worktree, cfg, step, prompts.Vars{Arguments: args, Base: r.Base, Branch: r.Branch})
+	if base == "" {
+		base = r.Base
+	}
+	v := prompts.Vars{Arguments: args, Base: base, Branch: r.Branch}
+	var addDirs []string
+	if usesEvidence(step) {
+		v.Evidence, v.Port = state.EvidenceDir(t.ID, prdName), r.Port
+		addDirs = []string{v.Evidence}
+	}
+	prompt, err := prompts.Build(t.Dir, r.Worktree, cfg, step, v)
 	if err != nil {
 		return claude.Summary{}, 1, err
 	}
-	return callClaude(ctx, t, prdName, r, r.Worktree, prompt, tools, mode, log)
+	return callClaude(ctx, t, prdName, r, r.Worktree, prompt, tools, mode, addDirs, log)
 }
 
-// callClaude runs claude -p with prompt in dir. Session, model and cost go into the last step as
-// they come.
-func callClaude(ctx context.Context, t Target, prdName string, r *state.Run, dir, prompt string, tools []string, mode string, log *logger) (claude.Summary, int, error) {
+// callClaude runs claude -p with prompt in dir, addDirs as further folders Claude may work in.
+// Session, model and cost go into the last step as they come.
+func callClaude(ctx context.Context, t Target, prdName string, r *state.Run, dir, prompt string, tools []string, mode string, addDirs []string, log *logger) (claude.Summary, int, error) {
 	baseCost := 0.0
 	if c := r.LastStep().CostUSD; c != nil {
 		baseCost = *c
@@ -88,6 +177,7 @@ func callClaude(ctx context.Context, t Target, prdName string, r *state.Run, dir
 		Prompt:         prompt,
 		AllowedTools:   tools,
 		PermissionMode: mode,
+		AddDirs:        addDirs,
 		Log:            log,
 		OnChange: func(s claude.Summary) {
 			last := r.LastStep()
@@ -188,9 +278,10 @@ func reportPoints(section string) []string {
 }
 
 // checkLazydevUntouched makes sure Claude changed nothing under .lazydev/ in the worktree, neither
-// in commits since the base branch nor uncommitted.
-func checkLazydevUntouched(r *state.Run) error {
-	committed, err := git.Run(r.Worktree, "diff", "--name-only", r.Base+"...HEAD", "--", repo.Dir)
+// in commits since base nor uncommitted. base is the base branch, or origin/<base> after the rebase
+// of a pull request.
+func checkLazydevUntouched(r *state.Run, base string) error {
+	committed, err := git.Run(r.Worktree, "diff", "--name-only", base+"...HEAD", "--", repo.Dir)
 	if err != nil {
 		return err
 	}

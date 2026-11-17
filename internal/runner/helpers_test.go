@@ -62,8 +62,11 @@ echo "teardown $(pwd -P)" >> "$LAZYDEV_PROJECT/hooks.log"
 // lazydev (implement creates .lazydev/neu.md), sleep (implement sleeps until a signal ends it).
 // abortonce (implement blocks the first time only). FAKE_RESOLVE: ok (default), decline (abgebrochen,
 // scribbles into the PRD), dirty (also writes other.txt).
-// FAKE_MERGE_MODE: ok (rebase -X theirs), noop (no rebase), abort. FAKE_PLAN is the line "Nach:" of
-// plan, "keine" by default.
+// FAKE_MERGE_MODE: ok (rebase -X theirs onto FAKE_MERGE_BASE, main by default), noop (no rebase),
+// abort. FAKE_PLAN is the line "Nach:" of plan, "keine" by default. FAKE_VERIFY: ok (default, writes
+// list.png into the evidence folder of the prompt), missing (names list.png without writing it),
+// blockonce (abgebrochen with a question the first time only). FAKE_REVIEW_PR: ok (default, review
+// writes pr.md when the prompt asks for it), none.
 const fakeScript = `#!/bin/sh
 # printf instead of echo, dash's echo turns "\n" into a newline.
 { printf '%s\n' "$@"; echo "GIT_EDITOR=$GIT_EDITOR"; echo "PWD=$(pwd -P)"; } >> "$FAKE_ARGS"
@@ -93,9 +96,24 @@ case "$2" in
 	echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"x.ts"}}]}}'
 	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.5,"result":"## Ergebnis\numgesetzt\n\n## Offene Fragen\n- keine\n\n## Hinweise\n- einmal cd benutzt\n"}'
 	;;
+"# lazydev verify: "*)
+	ev=$(printf '%s\n' "$2" | sed -n 's/.*nur unter .\(\/[^ ]*\.evidence\). ab.*/\1/p' | head -n 1)
+	case "$FAKE_VERIFY" in
+	missing) ;;
+	blockonce) if [ ! -f "$FAKE_ARGS.verifyblocked" ]; then touch "$FAKE_ARGS.verifyblocked"
+			printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\nabgebrochen\n\n## Belege\n- keine\n\n## Offene Fragen\n- Welcher Browser?\n"}'; exit 0
+		fi
+		echo png > "$ev/list.png" ;;
+	*) echo png > "$ev/list.png" ;;
+	esac
+	echo fix > verify-fix.txt
+	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nverifiziert\n\n## Belege\n- list.png: die Liste mit Token\n\n## Offene Fragen\n- keine\n"}'
+	;;
 "# lazydev review: "*)
 	echo change > review.txt
 	if [ "$mode" != dirty ]; then git add -A && git commit -q -m "feat: review"; fi
+	ev=$(printf '%s\n' "$2" | sed -n 's/.*nach .\(\/[^ ]*\.evidence\)\/pr\.md.*/\1/p' | head -n 1)
+	if [ -n "$ev" ] && [ "$FAKE_REVIEW_PR" != none ]; then printf '# feat(auth): add tokens\n\n## Summary\n\nTokens.\n' > "$ev/pr.md"; fi
 	echo '{"type":"result","is_error":false,"total_cost_usd":0.3,"result":"fertig"}'
 	;;
 "# lazydev resolve: "*)
@@ -105,7 +123,9 @@ case "$2" in
 		printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Datenverlust möglich\n"}'; exit 0 ;;
 	dirty) echo x > other.txt ;;
 	esac
-	sed -i -e 's/^> Status: blockiert ([0-9-]*)/> Status: geplant/' -e '/^## Blocker/,$d' "$prd"
+	status=geplant
+	if grep -q '^Schritt: verify' "$prd"; then status='umgesetzt (2026-10-20)'; fi
+	sed -i -e "s/^> Status: blockiert ([0-9-]*)/> Status: $status/" -e '/^## Blocker/,$d' "$prd"
 	printf '## Entscheidungen\n\n- Feld: A, passt zum Code\n' >> "$prd"
 	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\ngeklärt\n\n## Entscheidungen\n- Feld fehlt im PRD: A, passt zum Code\n\n## Offene Fragen\n- keine\n"}'
 	;;
@@ -118,7 +138,7 @@ case "$2" in
 	abort)
 		printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\nabgebrochen\n\n## Offene Punkte\n- Konflikt in review.txt\n"}'
 		exit 0 ;;
-	*) git rebase -q -X theirs main >/dev/null 2>&1 || true ;;
+	*) git rebase -q -X theirs "${FAKE_MERGE_BASE:-main}" >/dev/null 2>&1 || true ;;
 	esac
 	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\nbereit für Fast-Forward\n"}'
 	;;
@@ -160,6 +180,43 @@ exec)
 esac
 `
 
+// fakeGHScript imitates gh with files in $FAKE_GH: url, state and head of the one pull request,
+// title and body as gh got them, count of created pull requests. calls logs every call. noauth
+// fails auth status, viewfail fails pr view. The test sets state to MERGED or CLOSED.
+const fakeGHScript = `#!/bin/sh
+d="$FAKE_GH"
+printf '%s\n' "$*" >> "$d/calls"
+case "$1 $2" in
+"auth status")
+	if [ -f "$d/noauth" ]; then echo "You are not logged into any GitHub hosts." >&2; exit 1; fi ;;
+"pr view")
+	if [ -f "$d/viewfail" ]; then echo "HTTP 502: bad gateway" >&2; exit 1; fi
+	if [ ! -f "$d/url" ]; then echo "no pull requests found for branch \"$3\"" >&2; exit 1; fi
+	printf '{"url":"%s","state":"%s","headRefOid":"%s"}\n' "$(cat "$d/url")" "$(cat "$d/state")" "$(cat "$d/head")" ;;
+"pr create"|"pr edit")
+	action=$2
+	shift 2
+	while [ $# -gt 0 ]; do
+		case "$1" in
+		--title) printf '%s' "$2" > "$d/title"; shift ;;
+		--body-file) cp "$2" "$d/body"; shift ;;
+		esac
+		shift
+	done
+	git rev-parse HEAD > "$d/head"
+	if [ "$action" = create ]; then
+		n=$(( $(cat "$d/count" 2>/dev/null || echo 0) + 1 ))
+		echo "$n" > "$d/count"
+		echo "https://github.com/o/r/pull/$n" > "$d/url"
+		echo OPEN > "$d/state"
+		echo "Creating pull request for feat into main"
+		cat "$d/url"
+	fi ;;
+"pr close")
+	echo CLOSED > "$d/state" ;;
+esac
+`
+
 // fakeDocker replaces docker.Binary with fakeDockerScript and returns its state folder.
 func fakeDocker(t *testing.T) string {
 	t.Helper()
@@ -196,12 +253,55 @@ func isolate(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("FAKE_ARGS", filepath.Join(bin, "args"))
+	t.Setenv("FAKE_VERIFY", "ok")
+	t.Setenv("FAKE_REVIEW_PR", "ok")
+	t.Setenv("FAKE_MERGE_BASE", "main")
+	fakeGH := filepath.Join(bin, "gh")
+	if err := os.WriteFile(fakeGH, []byte(fakeGHScript), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_GH", t.TempDir())
 
-	oldCommand, oldPoll, oldExe := claude.Command, MergePollInterval, Executable
+	oldCommand, oldPoll, oldExe, oldGH, oldPRPoll := claude.Command, MergePollInterval, Executable, GH, PRPollInterval
 	claude.Command = []string{fake}
+	GH = []string{fakeGH}
 	MergePollInterval = 10 * time.Millisecond
+	PRPollInterval = 10 * time.Millisecond
 	Executable = func() (string, error) { return "", errors.New("no runner spawns in tests") }
-	t.Cleanup(func() { claude.Command, MergePollInterval, Executable = oldCommand, oldPoll, oldExe })
+	t.Cleanup(func() {
+		claude.Command, MergePollInterval, Executable, GH, PRPollInterval = oldCommand, oldPoll, oldExe, oldGH, oldPRPoll
+	})
+}
+
+// withOrigin gives the project a bare repository as origin with main pushed and returns its path.
+func withOrigin(t *testing.T, target Target) string {
+	t.Helper()
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	runGit(t, target.Dir, "init", "-q", "--bare", "-b", "main", origin)
+	runGit(t, target.Dir, "remote", "add", "origin", origin)
+	runGit(t, target.Dir, "push", "-q", "-u", "origin", "main")
+	return origin
+}
+
+// ghFile reads a file of the fake gh, empty if it is missing.
+func ghFile(t *testing.T, name string) string {
+	t.Helper()
+	data, _ := os.ReadFile(filepath.Join(os.Getenv("FAKE_GH"), name))
+	return strings.TrimSpace(string(data))
+}
+
+// setGHFile writes a file of the fake gh, e.g. the state of the pull request.
+func setGHFile(t *testing.T, name, content string) {
+	t.Helper()
+	write(t, os.Getenv("FAKE_GH"), name, content+"\n")
+}
+
+// withVerify commits .lazydev/verify.md, so the step verify runs Claude.
+func withVerify(t *testing.T, target Target) {
+	t.Helper()
+	write(t, target.Dir, ".lazydev/verify.md", "Prüfe $ARGUMENTS auf Port $PORT, Belege nach $EVIDENCE.\n")
+	runGit(t, target.Dir, "add", ".lazydev/verify.md")
+	runGit(t, target.Dir, "commit", "-q", "-m", "verify")
 }
 
 // newProject creates a committed repo with .lazydev/ (default prompts, config.yaml as given) and

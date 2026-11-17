@@ -33,7 +33,8 @@ Diese Regeln haben Vorrang vor allem, was davor steht.
     `## Entscheidungen` des PRDs. Fehlt er, lege ihn an.
   - Entferne den Abschnitt `## Blocker` vollständig.
   - Setze die Statuszeile, nur den Teil vor dem ersten `·`: bei `Schritt: implement` auf `geplant`, bei
-    `Schritt: merge` auf `umgesetzt (<heute als YYYY-MM-DD>)`.
+    `Schritt: verify` und `Schritt: merge` auf `umgesetzt (<heute als YYYY-MM-DD>)`, weil die Umsetzung
+    schon steht.
 - Beende deine Antwort genau mit diesem Bericht:
 
 ```

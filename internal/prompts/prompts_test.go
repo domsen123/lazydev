@@ -123,6 +123,76 @@ func TestBuildUnblock(t *testing.T) {
 	}
 }
 
+func TestBuildVerify(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	dir := t.TempDir()
+	if err := repo.Init(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.WritePrompt(dir, "verify"); err != nil {
+		t.Fatal(err)
+	}
+	v := Vars{Arguments: "prd/auth/token.md", Base: "main", Branch: "feat/token", Evidence: "/state/runs/app/token.evidence", Port: 3501}
+	got, err := Build(dir, t.TempDir(), repo.Config{}, "verify", v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{
+		"# lazydev verify: prd/auth/token.md\n",
+		"Prüfe das Feature des PRDs `prd/auth/token.md` in der laufenden App",
+		"Port `3501`",
+		"nur unter `/state/runs/app/token.evidence` ab",
+		"## Belege\n",
+		"verifiziert | abgebrochen",
+	} {
+		if !strings.Contains(got, s) {
+			t.Errorf("verify prompt lacks %q:\n%s", s, got)
+		}
+	}
+	if strings.Contains(got, "$EVIDENCE") || strings.Contains(got, "$PORT") {
+		t.Errorf("placeholders left:\n%s", got)
+	}
+	// Without a port and evidence folder the placeholders go away too.
+	got, _ = Build(dir, t.TempDir(), repo.Config{}, "verify", Vars{Arguments: "prd/x.md"})
+	if strings.Contains(got, "$EVIDENCE") || strings.Contains(got, "$PORT") || strings.Contains(got, "Port `0`") {
+		t.Errorf("placeholders left:\n%s", got)
+	}
+}
+
+func TestBuildReviewPullRequest(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, dir, ".lazydev/review.md", "Review $BRANCH.\n")
+	v := Vars{Base: "main", Branch: "feat/x", Evidence: "/ev"}
+	ff, err := Build(dir, t.TempDir(), repo.Config{}, "review", v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(ff, "pr.md") {
+		t.Errorf("review without merge: pr writes a pull request:\n%s", ff)
+	}
+	pr, err := Build(dir, t.TempDir(), repo.Config{Merge: repo.MergePR}, "review", v)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range []string{"`/ev/pr.md`", "# <Titel>", ".github/pull_request_template.md", "## Evidence", "`/ev/report.md`",
+		"No runtime verification ran (.lazydev/verify.md is missing)."} {
+		if !strings.Contains(pr, s) {
+			t.Errorf("review with merge: pr lacks %q:\n%s", s, pr)
+		}
+	}
+	if !strings.HasPrefix(pr, strings.TrimSuffix(ff, "\n")) {
+		t.Errorf("the block does not come after the contract:\n%s", pr)
+	}
+}
+
+func TestUnblockAndResolveKnowVerify(t *testing.T) {
+	for _, step := range []string{"unblock", "resolve"} {
+		if c := contract(t, step); !strings.Contains(c, "`Schritt: verify` und `Schritt: merge` auf `umgesetzt (<heute als YYYY-MM-DD>)`") {
+			t.Errorf("contract %s does not set umgesetzt after verify", step)
+		}
+	}
+}
+
 func TestImplementContractHasNotes(t *testing.T) {
 	c := contract(t, "implement")
 	q, n, u := strings.Index(c, "## Offene Fragen\n"), strings.Index(c, "## Hinweise\n"), strings.Index(c, "## Nicht geprüft\n")

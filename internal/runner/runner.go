@@ -1,5 +1,5 @@
-// Package runner works through the steps of a PRD: setup (worktree, PRD, setup hook), implement,
-// review and merge (rebase, check hook, fast-forward, cleanup). Each PRD runs in a detached
+// Package runner works through the steps of a PRD: plan, setup (worktree, PRD, setup hook),
+// implement, verify, review and merge (rebase, check hook, fast-forward or pull request, cleanup). Each PRD runs in a detached
 // process "lazydev run", the TUI only reads its state and log files. Every step must be
 // repeatable, a new start continues with the failed step.
 package runner
@@ -38,6 +38,7 @@ var stepPhases = map[string]project.Phase{
 	state.StepPlan:      project.PhasePlan,
 	state.StepSetup:     project.PhaseSetup,
 	state.StepImplement: project.PhaseImplement,
+	state.StepVerify:    project.PhaseVerify,
 	state.StepReview:    project.PhaseReview,
 	state.StepMerge:     project.PhaseMergeQueue,
 }
@@ -153,10 +154,12 @@ func startWaiting() error {
 	return errors.Join(errs...)
 }
 
+// countRunning counts the runners that take a slot. A runner in phase pr only waits for a human to
+// merge its pull request.
 func countRunning(entries []state.Entry) int {
 	n := 0
 	for _, e := range entries {
-		if e.Run.Running() {
+		if e.Run.Running() && e.Run.Phase != project.PhasePR {
 			n++
 		}
 	}
@@ -384,6 +387,8 @@ func runStep(ctx context.Context, t Target, prdName string, r *state.Run, step s
 		if err = setup(t, prdName, r, log); err != nil {
 			exitCode = 1
 		}
+	case state.StepVerify:
+		exitCode, err = verify(ctx, t, prdName, r, log)
 	case state.StepMerge:
 		if err = merge(ctx, t, prdName, r, log); err != nil {
 			exitCode = 1

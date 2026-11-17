@@ -1,6 +1,6 @@
 ---
 name: lazydev
-description: lazydev und seine PRDs. Nutze diesen Skill bei lazydev, lazydev PRD, PRD erstellen, PRD schreiben, „mach daraus ein PRD“, „make this a lazydev PRD“, Dateien unter prd/, der Statuszeile „> Status:“, .lazydev/config.yaml, Hooks, Worktrees, Runs, Schritten (create, implement, review, merge, unblock), Läufe starten, überwachen und Blocker lösen, Projekt hinzufügen und Fragen zu lazydev.
+description: lazydev und seine PRDs. Nutze diesen Skill bei lazydev, lazydev PRD, PRD erstellen, PRD schreiben, „mach daraus ein PRD“, „make this a lazydev PRD“, Dateien unter prd/, der Statuszeile „> Status:“, .lazydev/config.yaml, Hooks, Worktrees, Runs, Schritten (create, implement, verify, review, merge, unblock), Pull Requests, Läufe starten, überwachen und Blocker lösen, Projekt hinzufügen und Fragen zu lazydev.
 ---
 
 <!-- Diese Datei verwaltet lazydev. Sie wird beim Start der TUI, bei "lazydev add" und bei "lazydev skill install" überschrieben. -->
@@ -9,7 +9,10 @@ description: lazydev und seine PRDs. Nutze diesen Skill bei lazydev, lazydev PRD
 
 lazydev setzt PRDs (Product Requirements Documents) mit Claude Code um. Ein PRD beschreibt ein Feature so
 vollständig, dass ein Agent es ohne Mensch umsetzt. lazydev setzt jedes PRD in einem eigenen Git-Worktree
-um: plan → setup → implement → review → merge, und bringt es per Fast-Forward in den Basis-Branch des Projekts.
+um: plan → setup → implement → verify → review → merge, und bringt es per Fast-Forward in den Basis-Branch
+des Projekts. `verify` prüft das Feature in der laufenden App und legt Belege ab, nur wenn
+`.lazydev/verify.md` existiert. Mit `merge: pr` in `config.yaml` öffnet der Merge stattdessen einen Pull
+Request mit `gh` und der Lauf wartet in Phase `pr`, bis ein Mensch ihn auf GitHub merged.
 Ein Projekt erkennst du am Ordner `.lazydev/` mit `config.yaml` und den Prompts der Schritte, die PRDs
 liegen unter `prd/<bereich>/<name>.md`.
 
@@ -37,7 +40,7 @@ Nutzer nie in die TUI, um eine Taste zu drücken, sondern nutze den passenden Be
 | Stand der PRDs und Läufe | `lazydev status [<projekt>] [--json]`: Phase, Schritt, Port, Kosten, Fehler und die Fragen blockierter Läufe. `--all` zeigt auch erledigte PRDs. |
 | Lauf starten, fortsetzen, stoppen, verwerfen | `lazydev start [<projekt>] <prd>`, `lazydev stop …`, `lazydev discard --yes …`. Höchstens 3 Läufe arbeiten gleichzeitig, weitere warten in der Queue und starten von selbst. `start` setzt nach Fehler oder Abbruch beim fehlgeschlagenen Schritt fort. Starte neue PRDs einfach, auch wenn andere laufen: Der erste Schritt `plan` entscheidet selbst, ob das PRD parallel läuft oder auf andere wartet. |
 | Reihenfolge ändern | `lazydev after [<projekt>] <prd> [<prd>…]` überschreibt die Entscheidung von `plan`, ohne PRDs wartet es auf nichts. `lazydev status` zeigt `waiting → <prds>` und den Grund. |
-| Läufe überwachen | `lazydev wait [<projekt>] [--json] [--timeout 30m]` blockiert, bis ein Lauf blockiert, fehlschlägt, abbricht, gemergt wird oder einen Hinweis bekommt, und gibt die Ereignisse aus. `idle` heißt: nichts läuft oder wartet. In Claude Code eignet sich dafür das Werkzeug `Monitor` oder ein Hintergrund-Befehl. |
+| Läufe überwachen | `lazydev wait [<projekt>] [--json] [--timeout 30m]` blockiert, bis ein Lauf blockiert, fehlschlägt, abbricht, gemergt wird, einen Pull Request öffnet (`pr`) oder einen Hinweis bekommt, und gibt die Ereignisse aus. `idle` heißt: nichts läuft oder wartet, ein offener Pull Request wartet auf einen Menschen und zählt nicht. In Claude Code eignet sich dafür das Werkzeug `Monitor` oder ein Hintergrund-Befehl. |
 | Log eines Laufs | `lazydev log [<projekt>] <prd>`, `-f` folgt ihm bis zum Ende des Laufs. |
 | Läufe in Claude Code sehen | `lazydev mod install` installiert das Pane `lazydev-runs` (Queue, Schritte, Kosten, Blocker), `/lazydev-runs` blendet es ein. Neue Sessions laden es, eine laufende mit `/reload-plugins`. |
 | Blocker automatisch lösen lassen | `lazydev auto-unblock [<projekt>] on` lässt den Runner blockierte Läufe selbst klären (höchstens 2-mal pro Lauf), `off` schaltet es ab. Nur auf Wunsch des Nutzers. |

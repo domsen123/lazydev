@@ -15,6 +15,7 @@ func TestChanges(t *testing.T) {
 		{Project: "p", PRD: "c", Phase: project.PhaseMerged},
 		{Project: "p", PRD: "d", Phase: project.PhaseReview},
 		{Project: "p", PRD: "f", Phase: project.PhaseResolve},
+		{Project: "p", PRD: "g", Phase: project.PhaseMerge},
 	}
 	after := []Item{
 		{Project: "p", PRD: "a", Phase: project.PhaseBlocked, Blocker: &Blocker{Step: "implement", Questions: []string{"Q1", "Q2"}}},
@@ -23,10 +24,14 @@ func TestChanges(t *testing.T) {
 		{Project: "p", PRD: "d", Phase: project.PhaseMerge},
 		{Project: "p", PRD: "e", Phase: project.PhaseMerged},
 		{Project: "p", PRD: "f", Phase: project.PhaseImplement, Resolved: 1, File: "/wt/f.md"},
+		{Project: "p", PRD: "g", Phase: project.PhasePR, PullRequest: "https://github.com/o/r/pull/7"},
 	}
 	got := Changes(before, after)
-	if len(got) != 3 {
-		t.Fatalf("Changes = %+v, want 2 events", got)
+	if len(got) != 4 {
+		t.Fatalf("Changes = %+v, want 4 events", got)
+	}
+	if e := got[3]; e.Kind != "pr" || e.PRD != "g" || e.From != project.PhaseMerge || e.Text != "https://github.com/o/r/pull/7" {
+		t.Errorf("event 3 = %+v", e)
 	}
 	if e := got[0]; e.Kind != "blocked" || e.PRD != "a" || e.From != project.PhaseImplement || e.Text != "Q1 | Q2" {
 		t.Errorf("event 0 = %+v", e)
@@ -40,10 +45,10 @@ func TestChanges(t *testing.T) {
 }
 
 func TestBusy(t *testing.T) {
-	if Busy([]Item{{Phase: project.PhaseMerged}, {Phase: project.PhaseBlocked}}) {
-		t.Error("Busy with only merged and blocked")
+	if Busy([]Item{{Phase: project.PhaseMerged}, {Phase: project.PhaseBlocked}, {Phase: project.PhasePR}}) {
+		t.Error("Busy with only merged, blocked and pr")
 	}
-	for _, ph := range []project.Phase{project.PhaseWaiting, project.PhaseMergeQueue, project.PhaseImplement} {
+	for _, ph := range []project.Phase{project.PhaseWaiting, project.PhaseMergeQueue, project.PhaseImplement, project.PhaseVerify} {
 		if !Busy([]Item{{Phase: ph}}) {
 			t.Errorf("not Busy with %s", ph)
 		}
@@ -66,7 +71,7 @@ func TestStepInfos(t *testing.T) {
 		got = append(got, s.Name+":"+s.State)
 	}
 	// The runner of r does not live, so the unfinished review counts as failed.
-	want := "plan:done setup:done implement:done review:failed merge:pending"
+	want := "plan:done setup:done implement:done verify:pending review:failed merge:pending"
 	if strings.Join(got, " ") != want {
 		t.Errorf("stepInfos = %v, want %s", got, want)
 	}

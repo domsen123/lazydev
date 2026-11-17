@@ -46,7 +46,8 @@ func projectDetailsView(info repo.Info, width, height int, t theme) string {
 		return muted.Render(pad(label, w)) + value
 	}
 
-	project := column{title: "Project", max: 28, rows: []string{field("base", 7, text.Render(info.Config.Base()))}}
+	base := text.Render(info.Config.Base()) + muted.Render(" · ") + text.Render("merge "+info.Config.MergeMode())
+	project := column{title: "Project", max: 28, rows: []string{field("base", 7, base)}}
 	switch info.Trust {
 	case repo.TrustNone:
 		project.rows = append(project.rows, field("trust", 7, muted.Render("–")))
@@ -60,9 +61,13 @@ func projectDetailsView(info repo.Info, width, height int, t theme) string {
 
 	prompts := column{title: "Prompts", max: 20}
 	for i, step := range repo.Steps {
-		if info.Prompts[i] {
+		switch {
+		case info.Prompts[i]:
 			prompts.rows = append(prompts.rows, ok.Render("✓ ")+text.Render(step))
-		} else {
+		case step == repo.StepVerify:
+			// verify is opt-in, without its prompt the step is off.
+			prompts.rows = append(prompts.rows, muted.Render("– "+step+" off"))
+		default:
 			prompts.rows = append(prompts.rows, warn.Render("✗ "+step))
 		}
 	}

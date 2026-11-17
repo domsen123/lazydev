@@ -200,9 +200,11 @@ func movePRD(mainDir, wt, rel string, log *logger) error {
 
 // hookEnv are the variables hooks and the dev server get.
 func hookEnv(t Target, r *state.Run) []string {
+	prdName := strings.TrimPrefix(r.Branch, project.FeaturePrefix)
 	return []string{
 		"LAZYDEV_PROJECT=" + t.Dir, "LAZYDEV_WORKTREE=" + r.Worktree, "LAZYDEV_BRANCH=" + r.Branch,
 		"LAZYDEV_PORT=" + strconv.Itoa(r.Port), "LAZYDEV_SLUG=" + r.Slug,
+		"LAZYDEV_EVIDENCE=" + state.EvidenceDir(t.ID, prdName),
 	}
 }
 
@@ -275,6 +277,11 @@ func StartDev(t Target, prdName string) (int, error) {
 // removeWorktree removes worktree and branch. force also throws away unmerged commits and local
 // changes, without it only a clean worktree and a merged branch go.
 func removeWorktree(mainDir, path, branch string, force bool) error {
+	return errors.Join(removeWorktreeOnly(mainDir, path, force), deleteBranch(mainDir, branch, force))
+}
+
+// removeWorktreeOnly removes the worktree at path, with force also with local changes.
+func removeWorktreeOnly(mainDir, path string, force bool) error {
 	var errs []error
 	if fsutil.Exists(path) {
 		args := []string{"worktree", "remove", path}
@@ -289,16 +296,20 @@ func removeWorktree(mainDir, path, branch string, force bool) error {
 	if _, err := git.Run(mainDir, "worktree", "prune"); err != nil {
 		errs = append(errs, err)
 	}
-	if git.BranchExists(mainDir, branch) {
-		flag := "-d"
-		if force {
-			flag = "-D"
-		}
-		if _, err := git.Run(mainDir, "branch", flag, branch); err != nil {
-			errs = append(errs, err)
-		}
-	}
 	return errors.Join(errs...)
+}
+
+// deleteBranch deletes the local branch if it exists, with force also when it is not merged.
+func deleteBranch(mainDir, branch string, force bool) error {
+	if !git.BranchExists(mainDir, branch) {
+		return nil
+	}
+	flag := "-d"
+	if force {
+		flag = "-D"
+	}
+	_, err := git.Run(mainDir, "branch", flag, branch)
+	return err
 }
 
 func requireClean(dir, what string) error {

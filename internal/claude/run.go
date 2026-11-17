@@ -38,6 +38,9 @@ type Options struct {
 	AllowedTools []string
 	// PermissionMode is the value of --permission-mode, empty means acceptEdits.
 	PermissionMode string
+	// AddDirs are folders outside Dir that Claude may work in, each as --add-dir. acceptEdits writes
+	// without asking only there and in Dir.
+	AddDirs []string
 	// Log gets every stdout line with a timestamp and every stderr line as an event of type
 	// stderr.
 	Log io.Writer
@@ -104,6 +107,9 @@ func Run(ctx context.Context, o Options) (s Summary, exitCode int, err error) {
 		"--permission-mode", mode,
 		"--allowedTools", strings.Join(o.AllowedTools, ","),
 		"--agents", agents)
+	for _, d := range o.AddDirs {
+		args = append(args, "--add-dir", d)
+	}
 	cmd := exec.CommandContext(ctx, Command[0], args...)
 	cmd.Dir = o.Dir
 	// Without GIT_EDITOR, git rebase --continue opens an editor and waits.

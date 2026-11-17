@@ -14,6 +14,7 @@ Diese Regeln haben Vorrang vor allem, was davor steht.
 - Entferne danach den Abschnitt `## Blocker` vollständig.
 - Setze die Statuszeile. Ändere nur den Teil vor dem ersten `·`, der Freitext danach bleibt:
   - bei `Schritt: implement` auf `geplant`,
-  - bei `Schritt: merge` auf `umgesetzt (<heute als YYYY-MM-DD>)`.
+  - bei `Schritt: verify` und `Schritt: merge` auf `umgesetzt (<heute als YYYY-MM-DD>)`, weil die
+    Umsetzung schon steht.
 - **Committe nicht.** Kein `git add`, kein `git commit`.
 - Nenne zum Schluss: `Weiter mit lazydev start <prd> oder s in der TUI.`

@@ -1,6 +1,6 @@
 # PRD: Pull Requests statt Fast-Forward und ein Schritt verify mit Belegen
 
-> Status: geplant · Scope: `merge: pr` in `.lazydev/config.yaml` lässt den Merge den Branch pushen und mit `gh` einen Pull Request öffnen, statt per Fast-Forward zu mergen. Der Lauf wartet in der neuen Phase `pr`, bis der PR auf GitHub gemergt oder geschlossen ist. Ein neuer optionaler Schritt `verify` zwischen implement und review lässt Claude die laufende App prüfen und Belege in einen Ordner des Laufs schreiben. Im PR-Modus schreibt review daraus Titel und Beschreibung des PR.
+> Status: umgesetzt (2026-11-17) · Scope: `merge: pr` in `.lazydev/config.yaml` lässt den Merge den Branch pushen und mit `gh` einen Pull Request öffnen, statt per Fast-Forward zu mergen. Der Lauf wartet in der neuen Phase `pr`, bis der PR auf GitHub gemergt oder geschlossen ist. Ein neuer optionaler Schritt `verify` zwischen implement und review lässt Claude die laufende App prüfen und Belege in einen Ordner des Laufs schreiben. Im PR-Modus schreibt review daraus Titel und Beschreibung des PR.
 
 ## Context
 

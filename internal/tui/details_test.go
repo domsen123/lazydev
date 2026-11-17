@@ -21,6 +21,24 @@ func TestTrustSummaryDatabases(t *testing.T) {
 	}
 }
 
+func TestProjectDetailsMergeAndVerify(t *testing.T) {
+	info := projectInfo()
+	view := ansi.Strip(projectDetailsView(info, 200, 10, themes[0]))
+	for _, want := range []string{"base   main · merge ff", "– verify off", "✗ implement"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view lacks %q:\n%s", want, view)
+		}
+	}
+	info.Config.Merge = repo.MergePR
+	info.Prompts[2] = true
+	view = ansi.Strip(projectDetailsView(info, 200, 10, themes[0]))
+	for _, want := range []string{"main · merge pr", "✓ verify"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view lacks %q:\n%s", want, view)
+		}
+	}
+}
+
 func TestProjectDetailsDatabases(t *testing.T) {
 	info := projectInfo(
 		repo.Database{Service: "db", Env: repo.DatabaseEnv{File: ".env", Key: "DATABASE_URL"}},

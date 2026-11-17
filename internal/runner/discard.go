@@ -13,8 +13,8 @@ import (
 	"lazydev/internal/state"
 )
 
-// Discard throws away the run of a PRD: dev server, teardown hook, databases, worktree, branch and
-// state. A PRD that is missing in the main folder goes back there untracked with status geplant
+// Discard throws away the run of a PRD: dev server, open pull request, teardown hook, databases,
+// worktree, branch, state and evidence. A PRD that is missing in the main folder goes back there untracked with status geplant
 // first. It works without state too, so a half created run can be cleaned up.
 func Discard(t Target, prdName string) error {
 	r, err := state.Load(t.ID, prdName)
@@ -30,6 +30,11 @@ func Discard(t Target, prdName string) error {
 	var errs []error
 	if err := devserver.Stop(t.ID, prdName); err != nil {
 		errs = append(errs, err)
+	}
+	if r.PullRequest != "" {
+		if err := closePullRequest(t.Dir, r.PullRequest); err != nil {
+			errs = append(errs, err)
+		}
 	}
 	if fsutil.Exists(r.Worktree) {
 		if err := runHook(t, r, log, "teardown"); err != nil {

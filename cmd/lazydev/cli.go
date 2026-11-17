@@ -308,6 +308,9 @@ func printStatus(out io.Writer, items []runner.Item, withProject bool) {
 		if it.Note != "" {
 			fmt.Fprintf(out, "\n%s: %s\n", name, it.Note)
 		}
+		if it.PullRequest != "" {
+			fmt.Fprintf(out, "\n%s: pull request %s\n", name, it.PullRequest)
+		}
 		if len(it.WaitsFor) > 0 && it.Phase == project.PhaseWaiting {
 			fmt.Fprintf(out, "\n%s waits for %s: %s\n", name, strings.Join(it.WaitsFor, ", "), it.AfterReason)
 		}
@@ -321,8 +324,9 @@ func printStatus(out io.Writer, items []runner.Item, withProject bool) {
 }
 
 // wait is "lazydev wait [<project>] [--json] [--timeout <duration>]": it blocks until a run gets
-// blocked, fails, aborts or merges, or gets a note, and prints the events. With nothing running or
-// waiting it returns right away with "idle".
+// blocked, fails, aborts, merges or opens its pull request, or gets a note, and prints the events.
+// With nothing running or waiting it returns right away with "idle", a run in phase pr waits for a
+// human and does not count.
 func wait(args []string) error {
 	args, timeoutText, hasTimeout := valueFlag(args, "--timeout")
 	args, set := flags(args, "--json")

@@ -84,7 +84,7 @@ func TestWorkflowHasAllSteps(t *testing.T) {
 			t.Errorf("workflow prompt %s is empty", step)
 		}
 	}
-	if !slices.Equal(KnowledgeKeys, []string{"all", "create", "implement", "review", "merge", "unblock"}) {
+	if !slices.Equal(KnowledgeKeys, []string{"all", "create", "implement", "verify", "review", "merge", "unblock"}) {
 		t.Errorf("KnowledgeKeys = %v", KnowledgeKeys)
 	}
 }
@@ -99,6 +99,13 @@ func TestInitMain(t *testing.T) {
 		t.Errorf("config.yaml = %q, want empty", got)
 	}
 	for _, step := range Steps {
+		if step == StepVerify {
+			// verify is opt-in, Init never creates it.
+			if _, err := os.Stat(PromptPath(dir, step)); err == nil {
+				t.Error("Init created verify.md")
+			}
+			continue
+		}
 		if got := readFile(t, PromptPath(dir, step)); got != workflowPrompt(t, step) {
 			t.Errorf("%s.md differs from the workflow", step)
 		}
@@ -145,7 +152,7 @@ func TestInitWithoutGit(t *testing.T) {
 		t.Errorf("config.yaml = %q", got)
 	}
 	info := Read(dir, "p")
-	if !info.Initialized || !slices.Equal(info.Prompts, []bool{true, true, true, true, true}) {
+	if !info.Initialized || !slices.Equal(info.Prompts, []bool{true, true, false, true, true, true}) {
 		t.Errorf("Read = %+v", info)
 	}
 }
@@ -206,12 +213,40 @@ func TestWritePrompt(t *testing.T) {
 	if err := WritePrompt(dir, "deploy"); err == nil {
 		t.Error("no error for an unknown step")
 	}
+	// The template of verify exists for the wizard, Init leaves it out.
+	if err := WritePrompt(dir, StepVerify); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, PromptPath(dir, StepVerify)); got != workflowPrompt(t, StepVerify) || !strings.Contains(got, "$EVIDENCE") || !strings.Contains(got, "$PORT") {
+		t.Errorf("verify.md = %q", got)
+	}
+}
+
+func TestReadMerge(t *testing.T) {
+	setupEnv(t)
+	for content, want := range map[string]string{"": MergeFF, "merge: ff\n": MergeFF, "merge: pr\n": MergePR, "merge: \"\"\n": MergeFF} {
+		dir := t.TempDir()
+		writeFile(t, dir, ".lazydev/config.yaml", content)
+		info := Read(dir, "p")
+		if info.Err != nil || info.Config.MergeMode() != want {
+			t.Errorf("Read(%q) = %+v, MergeMode %q", content, info, info.Config.MergeMode())
+		}
+	}
+	dir := t.TempDir()
+	writeFile(t, dir, ".lazydev/config.yaml", "merge: squash\n")
+	if info := Read(dir, "p"); info.Err == nil || info.Err.Error() != `config.yaml: merge must be ff or pr, not "squash"` {
+		t.Errorf("Read = %+v", info)
+	}
+	// merge runs no code, it does not change the trust hash.
+	if (Config{Merge: MergePR}).TrustHash() != "" {
+		t.Error("merge is part of the trust hash")
+	}
 }
 
 func TestReadWithoutLazydev(t *testing.T) {
 	setupEnv(t)
 	info := Read(t.TempDir(), "p")
-	if info.Initialized || info.Err != nil || info.ID != "p" || !slices.Equal(info.Prompts, []bool{false, false, false, false, false}) {
+	if info.Initialized || info.Err != nil || info.ID != "p" || !slices.Equal(info.Prompts, []bool{false, false, false, false, false, false}) {
 		t.Errorf("Read = %+v", info)
 	}
 }
@@ -222,7 +257,7 @@ func TestReadPromptFlags(t *testing.T) {
 	writeFile(t, dir, ".lazydev/implement.md", "x")
 	writeFile(t, dir, ".lazydev/merge.md", "x")
 	info := Read(dir, "p")
-	if info.Initialized || !slices.Equal(info.Prompts, []bool{false, true, false, true, false}) {
+	if info.Initialized || !slices.Equal(info.Prompts, []bool{false, true, false, false, true, false}) {
 		t.Errorf("Read = %+v", info)
 	}
 }

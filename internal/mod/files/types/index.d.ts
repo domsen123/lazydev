@@ -24,6 +24,9 @@ export type Item = {
   model?: string
   steps?: Step[]
   devPid?: number
+  // pullRequest is the URL of the pull request (merge: pr), evidence the folder of the evidence.
+  pullRequest?: string
+  evidence?: string
 }
 
 // Snapshot is the last read: the items, an error of the read, and when it was taken (ms).

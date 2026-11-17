@@ -33,6 +33,8 @@ func notifyRun(t Target, r *state.Run, event notify.Event, log *logger, blocker 
 		Cost:     r.Cost(),
 		Duration: duration,
 		Blocker:  strings.Join(blocker, "\n"),
+		// Only the event pr shows it.
+		PullRequest: r.PullRequest,
 	})
 	if err == nil {
 		err = notify.Deliver(url, body)

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"lazydev/internal/claude"
+	"lazydev/internal/fsutil"
 	"lazydev/internal/project"
 	"lazydev/internal/state"
 
@@ -66,6 +67,8 @@ type logContext struct {
 	queue int
 	dev   bool
 	theme int
+	// evidence is the evidence folder of the run once it exists, empty before.
+	evidence string
 }
 
 func newLogView(id int, projectID, prd string) *logView {
@@ -88,6 +91,9 @@ func (m model) logContext(lv *logView) logContext {
 	ctx := logContext{queue: m.queuePos(lv.projectID, lv.prd), dev: m.devPIDs[lv.prd] != 0, theme: m.theme}
 	if p := m.current(); p != nil {
 		ctx.run = p.runs[lv.prd]
+	}
+	if dir := state.EvidenceDir(lv.projectID, lv.prd); ctx.run != nil && fsutil.Exists(dir) {
+		ctx.evidence = dir
 	}
 	return ctx
 }
@@ -259,7 +265,8 @@ func (lv *logView) body() []string {
 }
 
 // headerLines shows the run: unfolded phase, branch, port, cost and dev, then the databases of the
-// worktree, then the steps, then an error or note, and a separator. Folded, one line with phase,
+// worktree, the pull request and the evidence folder, then the steps, then an error or note, and a
+// separator. Folded, one line with phase,
 // current step and cost.
 func (lv *logView) headerLines(t theme) []string {
 	text := lipgloss.NewStyle().Foreground(t.text)
@@ -293,6 +300,12 @@ func (lv *logView) headerLines(t theme) []string {
 			dbs = append(dbs, text.Render(db.Name)+muted.Render(" ("+db.Service+")"))
 		}
 		lines = append(lines, " "+field("databases", strings.Join(dbs, dot)))
+	}
+	if r.PullRequest != "" {
+		lines = append(lines, " "+field("pull request", text.Render(r.PullRequest)))
+	}
+	if lv.ctx.evidence != "" {
+		lines = append(lines, " "+field("evidence", text.Render(lv.ctx.evidence)))
 	}
 	lines = append(lines, " "+strings.Join(stepMarks(r, t), dot))
 	switch {

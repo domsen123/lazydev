@@ -97,6 +97,7 @@ func TestPayloadTitles(t *testing.T) {
 		{MainFolder, "◐ Waiting for main folder: a/b", 0xf1c40f},
 		{Blocked, "⊘ Blocked: a/b", 0xe67e22},
 		{Resolved, "↻ Unblocked by Claude: a/b", 0x1abc9c},
+		{PR, "⇡ Pull request: a/b", 0x9b59b6},
 	} {
 		body, err := Payload(Message{Event: tc.event, PRD: "a/b"})
 		if err != nil {
@@ -131,8 +132,12 @@ func TestPayloadBlocker(t *testing.T) {
 	if f := fields(Message{Event: Resolved, PRD: "a/b", Blocker: "Feld: A, passt"}); len(f) != 6 || f[5] != (field{"Decisions", "Feld: A, passt", false}) {
 		t.Errorf("fields of resolved: %+v", f)
 	}
-	// Other events show no blocker, also with one given.
-	if f := fields(Message{Event: Failed, PRD: "a/b", Blocker: "x"}); len(f) != 5 {
+	url := "https://github.com/o/r/pull/7"
+	if f := fields(Message{Event: PR, PRD: "a/b", PullRequest: url}); len(f) != 6 || f[5] != (field{"Pull request", url, false}) {
+		t.Errorf("fields of pr: %+v", f)
+	}
+	// Other events show no blocker and no pull request, also with one given.
+	if f := fields(Message{Event: Failed, PRD: "a/b", Blocker: "x", PullRequest: url}); len(f) != 5 {
 		t.Errorf("fields of failed: %+v", f)
 	}
 	long := strings.Repeat("ä", 1030)

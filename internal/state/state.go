@@ -23,18 +23,21 @@ const (
 	StepPlan      = "plan"
 	StepSetup     = "setup"
 	StepImplement = "implement"
-	StepReview    = "review"
-	StepMerge     = "merge"
+	// StepVerify checks the feature in the running app. Without .lazydev/verify.md it ends without
+	// Claude.
+	StepVerify = "verify"
+	StepReview = "review"
+	StepMerge  = "merge"
 )
 
-var Steps = []string{StepPlan, StepSetup, StepImplement, StepReview, StepMerge}
+var Steps = []string{StepPlan, StepSetup, StepImplement, StepVerify, StepReview, StepMerge}
 
 // StepResolve is no step of the order: with auto-unblock on, it answers the questions of a blocked
-// implement or merge, which then runs again. NextStep skips it.
+// implement, verify or merge, which then runs again. NextStep skips it.
 const StepResolve = "resolve"
 
 // LogSteps are the steps with a log file, in the order the log tab shows them.
-var LogSteps = []string{StepPlan, StepSetup, StepImplement, StepResolve, StepReview, StepMerge}
+var LogSteps = []string{StepPlan, StepSetup, StepImplement, StepVerify, StepResolve, StepReview, StepMerge}
 
 // BinaryName is the name runners run under. IsRunner recognizes them by it.
 const BinaryName = "lazydev"
@@ -56,6 +59,12 @@ func RunnerLogPath(id, name string) string { return filepath.Join(RunsDir(id), n
 // LogPath is the log of one step, e.g. "setup" or "implement".
 func LogPath(id, prdName, step string) string {
 	return filepath.Join(RunsDir(id), prdName+"."+step+".jsonl")
+}
+
+// EvidenceDir is the folder of the evidence of a run: what verify proves, its report and the
+// description of the pull request. It stays after the merge.
+func EvidenceDir(id, prdName string) string {
+	return filepath.Join(RunsDir(id), prdName+".evidence")
 }
 
 // Step is one started step of a run.
@@ -95,6 +104,9 @@ type Run struct {
 	AfterReason string   `json:"afterReason,omitempty"`
 	// Databases are the databases the setup created for the worktree.
 	Databases []Database `json:"databases,omitempty"`
+	// PullRequest is the URL of the pull request of the merge with merge: pr. It stays after the
+	// merge.
+	PullRequest string `json:"pullRequest,omitempty"`
 }
 
 // Database is a database of a worktree in a compose service.
@@ -122,7 +134,7 @@ func Save(id, prdName string, r *Run) error {
 	return fsutil.WriteAtomic(Path(id, prdName), append(data, '\n'), 0o644)
 }
 
-// Remove deletes state and logs of a PRD.
+// Remove deletes state, logs and evidence of a PRD.
 func Remove(id, prdName string) error {
 	files := []string{Path(id, prdName), RunnerLogPath(id, prdName), DevPIDPath(id, prdName), DevLogPath(id, prdName)}
 	for _, step := range LogSteps {
@@ -133,6 +145,9 @@ func Remove(id, prdName string) error {
 		if err := os.Remove(f); err != nil && !errors.Is(err, fs.ErrNotExist) {
 			errs = append(errs, err)
 		}
+	}
+	if err := os.RemoveAll(EvidenceDir(id, prdName)); err != nil {
+		errs = append(errs, err)
 	}
 	return errors.Join(errs...)
 }

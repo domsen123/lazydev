@@ -53,6 +53,38 @@ test('the pane shows running, blocked, waiting and planned PRDs on every surface
   }
 })
 
+const VERIFY_STEPS = ['plan', 'setup', 'implement', 'verify', 'review', 'merge'].map((name, i) => ({
+  name,
+  state: i < 3 ? 'done' : i === 3 ? 'running' : 'pending',
+}))
+
+const PR_ITEMS = [
+  { project: 'shop', prd: 'token', label: 'auth/token', phase: 'verify', step: 'verify', port: 3500, cost: 0.5,
+    startedAt: '2026-11-09T10:00:00Z', steps: VERIFY_STEPS },
+  { project: 'shop', prd: 'cart', label: 'shop/cart', phase: 'pr', step: 'merge', cost: 1.25,
+    pullRequest: 'https://github.com/o/shop/pull/7' },
+]
+
+test('verify runs like the other steps and an open pull request needs the person', async ($, on) => {
+  on('command.register', () => ({ value: { command: 'lazydev-runs' } }))
+  on('ui.open', () => ({ value: { isPlaced: true } }))
+  on('ui.panes', () => ({ value: [] }))
+  on('clock.now', () => ({ value: Date.parse('2026-11-09T10:12:03Z') }))
+  on('clock.every', () => ({ value: { cancel: () => {} } }))
+  on('process.run', () => ({ value: { exitCode: 0, stdout: JSON.stringify(PR_ITEMS), stderr: '' } }))
+  on('session.start', (_, e) => ({ cwd: e.cwd }))
+
+  await $.session.start({ cwd: '/shop', surface: 'terminal', isInteractive: true })
+  await $.command.run({ command: 'lazydev-runs', args: '' })
+
+  const ui = await $.ui.mount({ ...PANE, surface: 'terminal' })
+  for (const text of [/Running · 1/, /3\/6 · verify/, /Needs you · 1/, /pull request open/,
+    /https:\/\/github\.com\/o\/shop\/pull\/7/, /≈\$1\.75/]) {
+    expect(await ui.find({ type: 'Text', text })).toBeDefined()
+  }
+  await ui.unmount()
+})
+
 test('a missing lazydev shows as an error', async ($, on) => {
   on('command.register', () => ({ value: { command: 'lazydev-runs' } }))
   on('ui.open', () => ({ value: { isPlaced: true } }))

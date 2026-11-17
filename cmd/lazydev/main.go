@@ -38,7 +38,7 @@ PRDs and runs:
   lazydev start [<project>] <prd>                  start or continue the runner of a PRD in the background
   lazydev stop [<project>] <prd>                   stop the runner, the worktree stays
   lazydev discard [--yes] [<project>] <prd>        throw away the run: worktree, branch and its commits
-  lazydev wait [<project>] [--json] [--timeout 30m]  block until a run gets blocked, fails, aborts or merges
+  lazydev wait [<project>] [--json] [--timeout 30m]  block until a run gets blocked, fails, aborts, merges or opens a PR
   lazydev log [<project>] <prd> [-f]               the step logs of a run, -f follows them
   lazydev after [<project>] <prd> [<prd>...]       override plan: start <prd> only after these are merged
   lazydev set-status [<project>] <prd> <status>    set the status line to planned, merged or discarded

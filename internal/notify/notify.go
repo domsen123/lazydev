@@ -22,6 +22,8 @@ const (
 	MainFolder Event = "main folder"
 	Blocked    Event = "blocked"
 	Resolved   Event = "resolved"
+	// PR is a run that opened its pull request and waits for a human to merge it (merge: pr).
+	PR Event = "pr"
 )
 
 // maxFieldValue is the longest value of an embed field Discord takes, in characters.
@@ -45,6 +47,8 @@ type Message struct {
 	Cost                              float64
 	Duration                          time.Duration
 	Blocker                           string
+	// PullRequest is the URL of the pull request, the field of PR.
+	PullRequest string
 }
 
 // titles holds the title prefix and the color of each event.
@@ -58,6 +62,7 @@ var titles = map[Event]struct {
 	MainFolder: {"◐ Waiting for main folder: ", 0xf1c40f},
 	Blocked:    {"⊘ Blocked: ", 0xe67e22},
 	Resolved:   {"↻ Unblocked by Claude: ", 0x1abc9c},
+	PR:         {"⇡ Pull request: ", 0x9b59b6},
 }
 
 // testColor is the color of the test message.
@@ -103,6 +108,8 @@ func Payload(m Message) ([]byte, error) {
 		fields = append(fields, field{"Blocker", truncate(m.Blocker, maxFieldValue), false})
 	case Resolved:
 		fields = append(fields, field{"Decisions", truncate(m.Blocker, maxFieldValue), false})
+	case PR:
+		fields = append(fields, field{"Pull request", truncate(m.PullRequest, maxFieldValue), false})
 	}
 	return build(t.prefix+m.PRD, t.color, fields)
 }

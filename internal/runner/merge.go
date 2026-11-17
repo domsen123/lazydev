@@ -21,34 +21,25 @@ import (
 // folder. Tests shorten it.
 var MergePollInterval = 5 * time.Second
 
-// merge rebases the branch onto the base branch, checks it and fast-forwards the main folder. Per
-// project only one runner merges, the others wait in the merge queue. Merges always run right
-// after the review.
+// merge rebases the branch onto the base branch, checks it and fast-forwards the main folder, or
+// with merge: pr opens a pull request and waits for it. Per project only one runner merges, the
+// others wait in the merge queue. Merges always run right after the review.
 func merge(ctx context.Context, t Target, prdName string, r *state.Run, log *logger) error {
-	unlock, err := waitMergeLock(ctx, t.ID, log)
+	cfg, err := t.Repo()
+	if err != nil {
+		return err
+	}
+	if cfg.MergeMode() == repo.MergePR {
+		return mergePullRequest(ctx, t, prdName, r, log)
+	}
+	unlock, err := beginMerge(ctx, t, prdName, r, log)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	r.Phase, r.Note = project.PhaseMerge, ""
-	if err := state.Save(t.ID, prdName, r); err != nil {
-		return err
-	}
-	if pid := devserver.PID(t.ID, prdName); pid != 0 {
-		log.printf("Stopping the dev server of the worktree (PID %d)", pid)
-		if err := devserver.Stop(t.ID, prdName); err != nil {
-			return err
-		}
-	}
 	wt := r.Worktree
-	if err := commitResolvedPRD(prdName, r, log); err != nil {
-		return err
-	}
-	if err := requireClean(wt, "worktree"); err != nil {
-		return err
-	}
 	for {
-		if err := rebaseAndCheck(ctx, t, prdName, r, log); err != nil {
+		if err := rebaseAndCheck(ctx, t, prdName, r, r.Base, log); err != nil {
 			return err
 		}
 		if err := recordRunInfo(prdName, r, log); err != nil {
@@ -68,6 +59,16 @@ func merge(ctx context.Context, t Target, prdName string, r *state.Run, log *log
 		return err
 	}
 	log.printf("%s is at %s", r.Base, r.Branch)
+	if note := cleanupMerged(t, r, log, false); note != "" {
+		r.Note = note
+	}
+	return nil
+}
+
+// cleanupMerged runs the teardown hook, drops the databases and removes worktree and branch of a
+// merged run, forceBranch deletes a branch that is no ancestor of the base branch. It returns the
+// note `cleanup incomplete: …`, empty when everything went.
+func cleanupMerged(t Target, r *state.Run, log *logger, forceBranch bool) string {
 	var errs []error
 	if err := runHook(t, r, log, "teardown"); err != nil {
 		errs = append(errs, err)
@@ -76,28 +77,65 @@ func merge(ctx context.Context, t Target, prdName string, r *state.Run, log *log
 		errs = append(errs, err)
 	}
 	log.printf("Removing worktree %s and branch %s", r.Worktree, r.Branch)
-	if err := removeWorktree(t.Dir, r.Worktree, r.Branch, false); err != nil {
+	if err := removeWorktreeOnly(t.Dir, r.Worktree, false); err != nil {
 		errs = append(errs, err)
 	}
-	if err := errors.Join(errs...); err != nil {
-		log.printf("Cleanup incomplete: %v", err)
-		r.Note = "cleanup incomplete: " + err.Error()
+	if err := deleteBranch(t.Dir, r.Branch, forceBranch); err != nil {
+		errs = append(errs, err)
 	}
-	return nil
+	err := errors.Join(errs...)
+	if err == nil {
+		return ""
+	}
+	log.printf("Cleanup incomplete: %v", err)
+	return "cleanup incomplete: " + err.Error()
 }
 
-// rebaseAndCheck brings the branch onto the base branch and runs the check hook. A conflict or a
-// red check goes to the Claude step merge. If the base branch moved, the databases of the worktree
-// get created again before the check, so the migrations of the base branch apply.
-func rebaseAndCheck(ctx context.Context, t Target, prdName string, r *state.Run, log *logger) error {
-	_, onBase := git.Run(r.Worktree, "merge-base", "--is-ancestor", r.Base, "HEAD")
-	log.printf("$ git rebase %s", r.Base)
-	if _, err := git.Run(r.Worktree, "rebase", r.Base); err != nil {
+// beginMerge waits for the merge slot of the project, stops the dev server of the worktree, commits
+// a PRD resolved by the dialog of f and requires a clean worktree. The caller frees the slot with
+// unlock.
+func beginMerge(ctx context.Context, t Target, prdName string, r *state.Run, log *logger) (unlock func(), err error) {
+	unlock, err = waitMergeLock(ctx, t.ID, log)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			unlock()
+		}
+	}()
+	r.Phase, r.Note = project.PhaseMerge, ""
+	if err := state.Save(t.ID, prdName, r); err != nil {
+		return nil, err
+	}
+	if pid := devserver.PID(t.ID, prdName); pid != 0 {
+		log.printf("Stopping the dev server of the worktree (PID %d)", pid)
+		if err := devserver.Stop(t.ID, prdName); err != nil {
+			return nil, err
+		}
+	}
+	if err := commitResolvedPRD(prdName, r, log); err != nil {
+		return nil, err
+	}
+	if err := requireClean(r.Worktree, "worktree"); err != nil {
+		return nil, err
+	}
+	return unlock, nil
+}
+
+// rebaseAndCheck brings the branch onto onto (the base branch, or origin/<base> for a pull request)
+// and runs the check hook. A conflict or a red check goes to the Claude step merge. If onto moved,
+// the databases of the worktree get created again before the check, so the migrations of the base
+// branch apply.
+func rebaseAndCheck(ctx context.Context, t Target, prdName string, r *state.Run, onto string, log *logger) error {
+	_, onBase := git.Run(r.Worktree, "merge-base", "--is-ancestor", onto, "HEAD")
+	log.printf("$ git rebase %s", onto)
+	if _, err := git.Run(r.Worktree, "rebase", onto); err != nil {
 		log.printf("Conflict in the rebase: %v", err)
 		if _, err := git.Run(r.Worktree, "rebase", "--abort"); err != nil {
 			log.printf("git rebase --abort: %v", err)
 		}
-		if err := mergeClaude(ctx, t, prdName, r, "", log); err != nil {
+		if err := mergeClaude(ctx, t, prdName, r, onto, "", log); err != nil {
 			return err
 		}
 	}
@@ -114,7 +152,7 @@ func rebaseAndCheck(ctx context.Context, t Target, prdName string, r *state.Run,
 	}
 	if err := runHook(t, r, log, "check"); err != nil {
 		log.printf("Check red: %v", err)
-		if err := mergeClaude(ctx, t, prdName, r, "Prüfung nach dem Rebase fehlgeschlagen: "+err.Error(), log); err != nil {
+		if err := mergeClaude(ctx, t, prdName, r, onto, "Prüfung nach dem Rebase fehlgeschlagen: "+err.Error(), log); err != nil {
 			return err
 		}
 		if err := runHook(t, r, log, "check"); err != nil {
@@ -124,13 +162,14 @@ func rebaseAndCheck(ctx context.Context, t Target, prdName string, r *state.Run,
 	return nil
 }
 
-// mergeClaude lets Claude bring the branch onto the base branch. context explains why.
-func mergeClaude(ctx context.Context, t Target, prdName string, r *state.Run, context string, log *logger) error {
+// mergeClaude lets Claude bring the branch onto onto, which the prompt gets as $BASE. context
+// explains why.
+func mergeClaude(ctx context.Context, t Target, prdName string, r *state.Run, onto, context string, log *logger) error {
 	args := r.Branch
 	if context != "" {
 		args += " " + context
 	}
-	s, exitCode, err := runClaude(ctx, t, prdName, r, state.StepMerge, args, log)
+	s, exitCode, err := runClaude(ctx, t, prdName, r, state.StepMerge, args, onto, log)
 	if err == nil {
 		err = checkSummary(s, exitCode)
 	}
@@ -141,13 +180,13 @@ func mergeClaude(ctx context.Context, t Target, prdName string, r *state.Run, co
 		return err
 	}
 	// The report alone is not enough, the branch must really sit on the base branch.
-	if _, err := git.Run(r.Worktree, "merge-base", "--is-ancestor", r.Base, "HEAD"); err != nil {
-		return fmt.Errorf("after the Claude step merge, %s is not on %s", r.Branch, r.Base)
+	if _, err := git.Run(r.Worktree, "merge-base", "--is-ancestor", onto, "HEAD"); err != nil {
+		return fmt.Errorf("after the Claude step merge, %s is not on %s", r.Branch, onto)
 	}
 	if err := requireClean(r.Worktree, "worktree after the Claude step merge"); err != nil {
 		return err
 	}
-	return checkLazydevUntouched(r)
+	return checkLazydevUntouched(r, onto)
 }
 
 // recordRunInfo writes cost and model of the run into the status line of the PRD in the worktree

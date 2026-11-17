@@ -199,7 +199,7 @@ func TestCheckLazydevUntouched(t *testing.T) {
 	r := &state.Run{Worktree: dir, Base: "main"}
 	check := func(want string) {
 		t.Helper()
-		err := checkLazydevUntouched(r)
+		err := checkLazydevUntouched(r, r.Base)
 		got := ""
 		if err != nil {
 			got = err.Error()

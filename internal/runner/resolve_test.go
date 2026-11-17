@@ -44,7 +44,7 @@ func TestAutoUnblockResolves(t *testing.T) {
 	if r.Phase != project.PhaseMerged || r.Error != nil {
 		t.Fatalf("state: %+v", r)
 	}
-	if got := stepNames(r); got != "plan setup implement resolve implement review merge" {
+	if got := stepNames(r); got != "plan setup implement resolve implement verify review merge" {
 		t.Errorf("steps: %s", got)
 	}
 	if r.Resolves() != 1 || !r.Steps[3].OK || r.Steps[3].CostUSD == nil || *r.Steps[3].CostUSD != 0.1 {

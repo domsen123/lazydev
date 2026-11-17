@@ -203,6 +203,7 @@ func TestRun(t *testing.T) {
 	var changes []Summary
 	s, code, err := Run(context.Background(), Options{
 		Dir: dir, Prompt: "# lazydev implement: x", AllowedTools: []string{"Read", "Edit"}, Log: &log,
+		AddDirs:  []string{"/state/a.evidence", "/b"},
 		OnChange: func(s Summary) { changes = append(changes, s) },
 	})
 	if err != nil || code != 3 {
@@ -257,6 +258,7 @@ func TestRun(t *testing.T) {
 		"editor=true\n", "stdin=/dev/null\n", "pwd=" + dir + "\n",
 		"arg=-p\narg=# lazydev implement: x\n", "arg=--output-format\narg=stream-json\narg=--verbose\n",
 		"arg=--allowedTools\narg=Read,Edit\n", "arg=--agents\narg=" + filepath.Join(state.Dir(), "agents.json") + "\n",
+		"arg=--add-dir\narg=/state/a.evidence\narg=--add-dir\narg=/b\n",
 	} {
 		if !strings.Contains(rec, w) {
 			t.Errorf("recorded call lacks %q:\n%s", w, rec)

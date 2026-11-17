@@ -199,6 +199,47 @@ func TestLogViewHeaderDatabases(t *testing.T) {
 	}
 }
 
+func TestLogViewHeaderPullRequestAndEvidence(t *testing.T) {
+	lv := newLogView(1, "p", "checkout")
+	lv.ctx.run = &state.Run{Branch: "feat/checkout", Base: "main", Port: 3500, Phase: project.PhasePR}
+	lv.Resize(120, 12)
+	header := func() string {
+		var out []string
+		for _, l := range lv.headerLines(lv.theme()) {
+			out = append(out, ansi.Strip(l))
+		}
+		return strings.Join(out, "\n")
+	}
+	if got := header(); strings.Contains(got, "pull request") || strings.Contains(got, "evidence") {
+		t.Errorf("header without pull request and evidence:\n%s", got)
+	}
+	lv.ctx.run.PullRequest = "https://github.com/o/r/pull/7"
+	lv.ctx.evidence = "/state/runs/p/checkout.evidence"
+	got := header()
+	for _, want := range []string{"\n pull request https://github.com/o/r/pull/7\n", "\n evidence /state/runs/p/checkout.evidence\n", "verify"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("header lacks %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestLogContextEvidence(t *testing.T) {
+	isolateTUI(t)
+	p := &projectEntry{path: t.TempDir(), runs: map[string]*state.Run{"checkout": {Phase: project.PhaseVerify}}}
+	m := model{projects: []*projectEntry{p}}
+	lv := newLogView(1, "p", "checkout")
+	if ctx := m.logContext(lv); ctx.evidence != "" {
+		t.Errorf("evidence before the folder exists: %q", ctx.evidence)
+	}
+	dir := state.EvidenceDir("p", "checkout")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if ctx := m.logContext(lv); ctx.evidence != dir {
+		t.Errorf("evidence = %q, want %s", ctx.evidence, dir)
+	}
+}
+
 func TestLogTabClosesOnMergeAndDiscard(t *testing.T) {
 	for _, tc := range []struct {
 		name string

@@ -16,14 +16,15 @@ const CLOSED_EVERY = 5
 
 // Change the tag when Snapshot changes: it declines what an earlier version stored.
 const snapshot = atom({ plugin: 'lazydev-runs', key: 'snapshot' } as const, { items: [], error: '', at: 0 } as Snapshot, {
-  shape: 'snapshot-1',
+  shape: 'snapshot-2',
 })
 
-const RUNNING = ['plan', 'setup', 'implement', 'resolve', 'review', 'merge-queue', 'merge']
-const ATTENTION = ['blocked', 'error', 'aborted']
+const RUNNING = ['plan', 'setup', 'implement', 'verify', 'resolve', 'review', 'merge-queue', 'merge']
+// pr waits for a person to merge the pull request on GitHub.
+const ATTENTION = ['blocked', 'error', 'aborted', 'pr']
 
 const SYMBOLS: Record<string, string> = {
-  planned: '○', waiting: '◌', 'merge-queue': '◐', merged: '✓', aborted: '■', error: '✗', discarded: '✗', blocked: '⊘',
+  planned: '○', waiting: '◌', 'merge-queue': '◐', pr: '◑', merged: '✓', aborted: '■', error: '✗', discarded: '✗', blocked: '⊘',
 }
 
 function symbol(phase: string): string {
@@ -34,7 +35,7 @@ function symbol(phase: string): string {
 function color(phase: string): string {
   if (phase === 'merge-queue') return 'warning'
   if (phase === 'resolve') return 'claude'
-  if (RUNNING.includes(phase)) return 'suggestion'
+  if (phase === 'pr' || RUNNING.includes(phase)) return 'suggestion'
   if (phase === 'blocked') return 'warning'
   if (phase === 'error' || phase === 'aborted') return 'error'
   if (phase === 'merged') return 'success'
@@ -223,13 +224,19 @@ export const register: Register = on => {
         </Text>
         <Text color={color(it.phase)}>
           {'  '}
-          {it.phase === 'blocked' ? 'blocked in ' + (it.blocker?.step ?? it.step) : it.phase + (it.step ? ' in ' + it.step : '')}
+          {it.phase === 'blocked'
+            ? 'blocked in ' + (it.blocker?.step ?? it.step)
+            : it.phase === 'pr'
+              ? 'pull request open'
+              : it.phase + (it.step ? ' in ' + it.step : '')}
           <Text dimColor> · {usd(it.cost ?? 0)}</Text>
         </Text>
+        {it.phase === 'pr' && it.pullRequest ? <Text>{'  ' + cut(it.pullRequest, width - 2)}</Text> : ''}
         {(it.blocker?.questions ?? []).map(q => (
           <Text>{'  - ' + cut(q, width - 4)}</Text>
         ))}
         {it.phase !== 'blocked' && it.error ? <Text dimColor>{'  ' + cut(it.error, width - 2)}</Text> : ''}
+        {it.phase === 'pr' && it.note ? <Text color="warning">{'  ' + cut(it.note, width - 2)}</Text> : ''}
       </Box>
     )
 

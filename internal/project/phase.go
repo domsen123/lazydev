@@ -11,15 +11,19 @@ const (
 	PhaseResolve    Phase = "resolve"
 	PhaseSetup      Phase = "setup"
 	PhaseImplement  Phase = "implement"
+	PhaseVerify     Phase = "verify"
 	PhaseReview     Phase = "review"
 	PhaseMergeQueue Phase = "merge-queue"
 	PhaseMerge      Phase = "merge"
-	PhaseMerged     Phase = "merged"
-	PhaseAborted    Phase = "aborted"
-	PhaseError      Phase = "error"
-	PhaseBlocked    Phase = "blocked"
-	PhaseDiscarded  Phase = "discarded"
-	PhaseUnknown    Phase = "unknown"
+	// PhasePR waits for a human to merge the pull request of the run (merge: pr). Its runner lives
+	// but takes no slot.
+	PhasePR        Phase = "pr"
+	PhaseMerged    Phase = "merged"
+	PhaseAborted   Phase = "aborted"
+	PhaseError     Phase = "error"
+	PhaseBlocked   Phase = "blocked"
+	PhaseDiscarded Phase = "discarded"
+	PhaseUnknown   Phase = "unknown"
 )
 
 func (p Phase) Symbol() string {
@@ -28,10 +32,12 @@ func (p Phase) Symbol() string {
 		return "○"
 	case PhaseWaiting:
 		return "◌"
-	case PhasePlan, PhaseSetup, PhaseImplement, PhaseResolve, PhaseReview, PhaseMerge:
+	case PhasePlan, PhaseSetup, PhaseImplement, PhaseVerify, PhaseResolve, PhaseReview, PhaseMerge:
 		return "●"
 	case PhaseMergeQueue:
 		return "◐"
+	case PhasePR:
+		return "◑"
 	case PhaseMerged:
 		return "✓"
 	case PhaseAborted:
@@ -49,10 +55,11 @@ func (p Phase) Done() bool {
 	return p == PhaseMerged || p == PhaseDiscarded
 }
 
-// Active is true for the phases in which a runner works.
+// Active is true for the phases in which a runner lives, so without one they show as aborted. In
+// PhasePR the runner only waits for the pull request.
 func (p Phase) Active() bool {
 	switch p {
-	case PhasePlan, PhaseSetup, PhaseImplement, PhaseResolve, PhaseReview, PhaseMerge:
+	case PhasePlan, PhaseSetup, PhaseImplement, PhaseVerify, PhaseResolve, PhaseReview, PhaseMerge, PhasePR:
 		return true
 	}
 	return false

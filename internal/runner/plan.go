@@ -29,8 +29,8 @@ const planMode = "default"
 // planPhases are the phases of runs the step plan weighs a new PRD against: they work, wait or
 // continue later.
 var planPhases = []project.Phase{
-	project.PhaseWaiting, project.PhasePlan, project.PhaseSetup, project.PhaseImplement,
-	project.PhaseReview, project.PhaseMergeQueue, project.PhaseMerge, project.PhaseBlocked,
+	project.PhaseWaiting, project.PhasePlan, project.PhaseSetup, project.PhaseImplement, project.PhaseVerify,
+	project.PhaseReview, project.PhaseMergeQueue, project.PhaseMerge, project.PhasePR, project.PhaseBlocked,
 }
 
 // plan runs the step plan for the PRD of r.
@@ -47,7 +47,7 @@ func plan(ctx context.Context, t Target, prdName string, r *state.Run, log *logg
 	}
 	log.printf("Open runs: %s", strings.Join(names, ", "))
 	prompt := prompts.Plan(prompts.Vars{Arguments: r.PRD, Base: r.Base, Branch: r.Branch}, runs)
-	s, exitCode, err := callClaude(ctx, t, prdName, r, t.Dir, prompt, planTools, planMode, log)
+	s, exitCode, err := callClaude(ctx, t, prdName, r, t.Dir, prompt, planTools, planMode, nil, log)
 	if err != nil {
 		return exitCode, err
 	}

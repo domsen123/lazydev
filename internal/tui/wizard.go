@@ -268,7 +268,7 @@ func (m model) updateWizard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			w.stepCursor = clamp(w.stepCursor+1, len(marked))
 		case "k", "up":
 			w.stepCursor = clamp(w.stepCursor-1, len(marked))
-		case "1", "2", "3", "4", "5":
+		case "1", "2", "3", "4", "5", "6":
 			s := w.steps[marked[w.stepCursor]]
 			s[key[0]-'1'] = !s[key[0]-'1']
 		case "enter":
@@ -415,7 +415,7 @@ func (m model) viewWizard() string {
 			lines = append(lines, line(i == w.fileCursor, label))
 		}
 	case pageSteps:
-		heading(pageSteps, "Steps per file", "1 create · 2 implement · 3 review · 4 merge · 5 unblock")
+		heading(pageSteps, "Steps per file", "1 create · 2 implement · 3 verify · 4 review · 5 merge · 6 unblock")
 		marked := w.markedFiles()
 		fileW := 0
 		for _, f := range marked {
@@ -479,8 +479,12 @@ func (m model) viewWizard() string {
 		heading(pagePrompts, "Prompts", "Edits apply right away. The workflow reads only these.")
 		for i, step := range repo.Steps {
 			state := "missing"
-			if w.prompts[i] {
+			switch {
+			case w.prompts[i]:
 				state = "present"
+			case step == repo.StepVerify:
+				// verify is opt-in: without its prompt the runner skips the step.
+				state = "missing, step off"
 			}
 			lines = append(lines, line(i == w.promptCursor, pad(step, 10)+pad(repo.Dir+"/"+step+".md", 24)+state))
 		}
@@ -518,7 +522,7 @@ func (w *wizard) keys() string {
 	case w.page == pageKnowledge:
 		return " j/k file · space mark · enter next · backspace back · esc cancel"
 	case w.page == pageSteps:
-		return " j/k file · 1-5 toggle step · enter next · backspace back · esc cancel"
+		return " j/k file · 1-6 toggle step · enter next · backspace back · esc cancel"
 	case w.page == pageDatabases && w.dbPick != nil:
 		return " ↑↓ select · enter choose · esc back"
 	case w.page == pageDatabases:

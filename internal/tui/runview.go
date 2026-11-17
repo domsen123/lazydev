@@ -492,6 +492,8 @@ func (m model) runListView(p *projectEntry, width, height int, focused bool, t t
 			last = runCell{claude.FirstLine(*r.Error), text.Foreground(t.focus)}
 		case r.Note != "":
 			last = runCell{r.Note, text.Foreground(t.focus)}
+		case ph == project.PhasePR && r.PullRequest != "":
+			last = runCell{r.PullRequest, text}
 		}
 		phaseCell := runCell{phases[i], text}
 		if ph == project.PhaseWaiting {

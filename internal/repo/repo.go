@@ -30,7 +30,17 @@ const DefaultBaseBranch = "main"
 
 // Steps are the steps with a prompt of their own, in order. unblock is the dialog of f that
 // resolves a blocked run, no runner step.
-var Steps = []string{"create", "implement", "review", "merge", "unblock"}
+var Steps = []string{"create", "implement", StepVerify, "review", "merge", "unblock"}
+
+// StepVerify is the optional step: without .lazydev/verify.md the runner skips it, and Init does
+// not create the prompt.
+const StepVerify = "verify"
+
+// The values of merge in config.yaml: fast-forward into the base branch or a pull request.
+const (
+	MergeFF = "ff"
+	MergePR = "pr"
+)
 
 // KnowledgeAll is the knowledge key for files every step reads.
 const KnowledgeAll = "all"
@@ -73,6 +83,8 @@ type DatabaseEnv struct {
 // Config is .lazydev/config.yaml. Unknown fields, like the preset of the old lazydev, are ignored.
 type Config struct {
 	BaseBranch string `yaml:"baseBranch,omitempty"`
+	// Merge is how a PRD reaches the base branch: MergeFF (default) or MergePR.
+	Merge string `yaml:"merge,omitempty"`
 	// Knowledge lists per step paths relative to the project that Claude reads first.
 	Knowledge    map[string][]string `yaml:"knowledge,omitempty"`
 	AllowedTools []string            `yaml:"allowedTools,omitempty"`
@@ -86,6 +98,22 @@ func (c Config) Base() string {
 		return DefaultBaseBranch
 	}
 	return c.BaseBranch
+}
+
+// MergeMode is Merge, MergeFF without one.
+func (c Config) MergeMode() string {
+	if c.Merge == "" {
+		return MergeFF
+	}
+	return c.Merge
+}
+
+// validateMerge allows ff, pr or nothing.
+func validateMerge(m string) error {
+	if m != "" && m != MergeFF && m != MergePR {
+		return fmt.Errorf("config.yaml: merge must be %s or %s, not %q", MergeFF, MergePR, m)
+	}
+	return nil
 }
 
 // trusted are the sections that run code, widen Claude's rights or create and drop databases.
@@ -176,6 +204,10 @@ func Read(dir, id string) Info {
 		info.Err = fmt.Errorf("config.yaml: %w", err)
 		return info
 	}
+	if err := validateMerge(info.Config.Merge); err != nil {
+		info.Err = err
+		return info
+	}
 	if err := validateDatabases(info.Config.Databases); err != nil {
 		info.Err = err
 		return info
@@ -200,8 +232,8 @@ func PromptPath(dir, step string) string {
 }
 
 // Init sets up .lazydev/ in the project at dir: config.yaml with the base branch, and the prompts
-// of the simple workflow. It only adds missing files, so a project keeps its own config and
-// prompts, and a deleted file comes back.
+// of the simple workflow except verify, which is opt-in. It only adds missing files, so a project
+// keeps its own config and prompts, and a deleted file comes back.
 func Init(dir string) error {
 	if err := os.MkdirAll(filepath.Join(dir, Dir), 0o755); err != nil {
 		return err
@@ -224,6 +256,9 @@ func Init(dir string) error {
 		}
 	}
 	for _, step := range Steps {
+		if step == StepVerify {
+			continue
+		}
 		if _, err := os.Stat(PromptPath(dir, step)); err == nil {
 			continue
 		}

@@ -63,10 +63,18 @@ func TestSaveLoadRemove(t *testing.T) {
 	}
 	other := LogPath("p", "y", StepSetup)
 	os.WriteFile(other, []byte("x"), 0o644)
+	evidence := EvidenceDir("p", "x")
+	if evidence != filepath.Join(RunsDir("p"), "x.evidence") {
+		t.Errorf("EvidenceDir = %s", evidence)
+	}
+	if err := os.MkdirAll(evidence, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(evidence, "report.md"), []byte("x"), 0o644)
 	if err := Remove("p", "x"); err != nil {
 		t.Fatal(err)
 	}
-	for _, f := range append(files, Path("p", "x")) {
+	for _, f := range append(files, Path("p", "x"), evidence) {
 		if _, err := os.Stat(f); !errors.Is(err, fs.ErrNotExist) {
 			t.Errorf("%s still there: %v", f, err)
 		}
@@ -134,6 +142,14 @@ func TestNextStep(t *testing.T) {
 	}
 	r.StartStep(StepImplement)
 	r.EndStep(0, true)
+	if got := r.NextStep(); got != StepVerify {
+		t.Errorf("after implement: %q", got)
+	}
+	r.StartStep(StepVerify)
+	r.EndStep(0, true)
+	if got := r.NextStep(); got != StepReview {
+		t.Errorf("after verify: %q", got)
+	}
 	r.StartStep(StepReview)
 	r.EndStep(0, true)
 	if got := r.NextStep(); got != StepMerge {

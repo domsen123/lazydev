@@ -116,6 +116,61 @@ func TestWizardDatabasesNavigation(t *testing.T) {
 	}
 }
 
+func TestWizardStepsWithVerify(t *testing.T) {
+	m := wizardModel(t, "")
+	m = press(t, m, keyEnter, keyRunes(" "), keyEnter)
+	if m.wizard.page != pageSteps {
+		t.Fatalf("page %d", m.wizard.page)
+	}
+	view := plainView(m)
+	for _, want := range []string{"1 create · 2 implement · 3 verify · 4 review · 5 merge · 6 unblock", "1-6 toggle step"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view lacks %q:\n%s", want, view)
+		}
+	}
+	f := m.wizard.markedFiles()[0]
+	m = press(t, m, keyRunes("3"), keyRunes("6"))
+	k := m.wizard.knowledge()
+	for _, step := range []string{"create", "implement", "verify", "unblock"} {
+		if !slices.Contains(k[step], f) {
+			t.Errorf("knowledge %s lacks %s: %v", step, f, k)
+		}
+	}
+	if slices.Contains(k["review"], f) || slices.Contains(k["merge"], f) {
+		t.Errorf("knowledge: %v", k)
+	}
+	// All six steps go under all.
+	m = press(t, m, keyRunes("4"), keyRunes("5"))
+	if k := m.wizard.knowledge(); !slices.Equal(k["all"], []string{f}) || len(k) != 1 {
+		t.Errorf("knowledge with all steps: %v", k)
+	}
+}
+
+func TestWizardVerifyPrompt(t *testing.T) {
+	m := wizardModel(t, "")
+	m = press(t, m, keyEnter, keyEnter, keyEnter)
+	if m.wizard.page != pagePrompts {
+		t.Fatalf("page %d", m.wizard.page)
+	}
+	// Init leaves verify.md out, the step is off.
+	if view := plainView(m); !strings.Contains(view, ".lazydev/verify.md") || !strings.Contains(view, "missing, step off") {
+		t.Errorf("view:\n%s", view)
+	}
+	i := slices.Index(repo.Steps, repo.StepVerify)
+	for range i {
+		m = press(t, m, keyRunes("j"))
+	}
+	// r writes the template right away, the prompt is missing.
+	m = press(t, m, keyRunes("r"))
+	data, err := os.ReadFile(repo.PromptPath(m.wizard.path, repo.StepVerify))
+	if err != nil || !strings.Contains(string(data), "$EVIDENCE") {
+		t.Fatalf("verify.md = %q, %v", data, err)
+	}
+	if view := plainView(m); strings.Contains(view, "missing, step off") {
+		t.Errorf("view after r:\n%s", view)
+	}
+}
+
 func TestWizardDatabasesAddRemove(t *testing.T) {
 	m := wizardModel(t, "")
 	m = press(t, m, keyEnter, keyEnter)

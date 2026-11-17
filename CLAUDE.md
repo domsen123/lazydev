@@ -35,7 +35,7 @@ older versions do not build against the newer `x/ansi`.
 |---|---|
 | `tui` | Model, layout, keys, panes, wizard, status picker, run view, docker view. Reads files only |
 | `terminal` | Programs in a PTY, x/vt emulator, key encoding, window title filter |
-| `runner` | Start/queue/stop/discard, steps plan → setup → implement → review → merge, order (`after`), hooks, worktrees, dev server start |
+| `runner` | Start/queue/stop/discard, steps plan → setup → implement → verify → review → merge, order (`after`), hooks, worktrees, dev server start, pull requests (`merge: pr`) |
 | `state` | Run state, step logs, locks, trust, paths under `$XDG_STATE_HOME/lazydev/` |
 | `project` | PRDs, status line, phases, status change with commit |
 | `repo` | `.lazydev/`: config, init with the simple workflow (`workflows/simple/`), trust hash, wizard YAML edits |
@@ -87,6 +87,11 @@ Every step lands in `steps` of the run state and must be repeatable, `s` continu
   step merge, check hook, cost into the PRD, wait for a clean main folder (rebase again if the base moved),
   `git merge --ff-only`, cleanup.
   Merges always run right after the review.
+- `merge: pr` (`pullrequest.go`): rebase onto `origin/<base>`, check, push, `gh pr create`, then phase `pr`
+  without a slot and without the merge lock until the pull request is merged or closed. `gh` runs as
+  `runner.GH`, tests replace it with a fake script (`fakeGHScript` in `helpers_test.go`).
+- `verify` (`verify.go`) runs only with `.lazydev/verify.md`, starts `hooks.dev` for the step and checks
+  the evidence in `runs/<id>/<prd>.evidence/`.
 - Hooks are scripts from `config.yaml` only, there are no presets.
 - `databases` in `config.yaml` (`internal/database`): the setup writes the env files of the worktree and
   creates an empty Postgres database `<name>_<slug>` per entry before the setup hook, the merge recreates them

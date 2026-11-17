@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 
 	"lazydev/internal/repo"
@@ -19,9 +20,26 @@ import (
 //go:embed contract/*.md
 var contracts embed.FS
 
-// Vars are the values of the placeholders $ARGUMENTS, $BASE and $BRANCH.
+// stepReview gets the block of review.pr.md with merge: pr.
+const stepReview = "review"
+
+// Vars are the values of the placeholders $ARGUMENTS, $BASE, $BRANCH, $EVIDENCE and $PORT.
 type Vars struct {
 	Arguments, Base, Branch string
+	// Evidence is the absolute path of the evidence folder of the run, Port the port of the run, 0
+	// for none. The runner sets them for verify and review.
+	Evidence string
+	Port     int
+}
+
+// replacer replaces the placeholders of v, plus the pairs of extra.
+func (v Vars) replacer(extra ...string) *strings.Replacer {
+	port := ""
+	if v.Port > 0 {
+		port = strconv.Itoa(v.Port)
+	}
+	return strings.NewReplacer(append([]string{"$ARGUMENTS", v.Arguments, "$BASE", v.Base, "$BRANCH", v.Branch,
+		"$EVIDENCE", v.Evidence, "$PORT", port}, extra...)...)
 }
 
 // Build builds the prompt of step for the project at dir. The prompt comes from .lazydev/ of the
@@ -44,6 +62,11 @@ func Build(dir, workDir string, cfg repo.Config, step string, v Vars) (string, e
 		return "", err
 	}
 	contract, _ := contracts.ReadFile("contract/" + step + ".md")
+	if step == stepReview && cfg.MergeMode() == repo.MergePR {
+		// With pull requests the review also writes title and description of the pull request.
+		pr, _ := contracts.ReadFile("contract/review.pr.md")
+		contract = append(append(contract, '\n'), pr...)
+	}
 
 	parts := []string{Header(step, v)}
 	if len(knowledge) > 0 {
@@ -54,7 +77,7 @@ func Build(dir, workDir string, cfg repo.Config, step string, v Vars) (string, e
 		}
 		parts = append(parts, b.String())
 	}
-	r := strings.NewReplacer("$ARGUMENTS", v.Arguments, "$BASE", v.Base, "$BRANCH", v.Branch)
+	r := v.replacer()
 	parts = append(parts, r.Replace(stripFrontmatter(string(body))), r.Replace(string(contract)))
 	for i, p := range parts {
 		parts[i] = strings.TrimSpace(p)
@@ -76,7 +99,7 @@ func Plan(v Vars, runs []PlanRun) string {
 	for _, r := range runs {
 		fmt.Fprintf(&list, "- `%s` (Phase %s): `%s`\n", r.Name, r.Phase, r.File)
 	}
-	rep := strings.NewReplacer("$ARGUMENTS", v.Arguments, "$BASE", v.Base, "$BRANCH", v.Branch, "$RUNS", strings.TrimSpace(list.String()))
+	rep := v.replacer("$RUNS", strings.TrimSpace(list.String()))
 	return Header("plan", v) + "\n\n" + strings.TrimSpace(rep.Replace(string(data))) + "\n"
 }
 
@@ -85,7 +108,7 @@ func Plan(v Vars, runs []PlanRun) string {
 // path relative to the worktree.
 func Resolve(v Vars) string {
 	data, _ := contracts.ReadFile("contract/resolve.md")
-	rep := strings.NewReplacer("$ARGUMENTS", v.Arguments, "$BASE", v.Base, "$BRANCH", v.Branch)
+	rep := v.replacer()
 	return Header("resolve", v) + "\n\n" + strings.TrimSpace(rep.Replace(string(data))) + "\n"
 }
 
@@ -97,8 +120,7 @@ func Auto(step string, v Vars) string {
 	if err != nil {
 		return ""
 	}
-	r := strings.NewReplacer("$ARGUMENTS", v.Arguments, "$BASE", v.Base, "$BRANCH", v.Branch)
-	return strings.TrimSpace(r.Replace(string(data))) + "\n"
+	return strings.TrimSpace(v.replacer().Replace(string(data))) + "\n"
 }
 
 // Header is the first line of a prompt. It shows in the log and names the step, e.g.

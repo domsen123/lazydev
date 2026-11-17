@@ -75,7 +75,7 @@ func TestRunPlanWaitsForAfter(t *testing.T) {
 	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
 	}
-	if r := loadRun(t); r.Phase != project.PhaseMerged || len(r.Steps) != 5 {
+	if r := loadRun(t); r.Phase != project.PhaseMerged || len(r.Steps) != 6 {
 		t.Errorf("state after alt merged: %+v", r)
 	}
 }

@@ -5,8 +5,8 @@
 </p>
 
 PRD workflow for Claude Code. You write a PRD with Claude, lazydev implements, reviews and merges it without
-you: every PRD in its own Git worktree with its own port, fast-forwarded into the project's base branch.
-You drive it from any Claude Code session, from the shell or from the optional terminal UI.
+you: every PRD in its own Git worktree with its own port, fast-forwarded into the project's base branch
+or opened as a pull request with `merge: pr`. You drive it from any Claude Code session, from the shell or from the optional terminal UI.
 [SPEC.md](SPEC.md) describes the behavior in full.
 
 ## How it works
@@ -15,8 +15,8 @@ You drive it from any Claude Code session, from the shell or from the optional t
 prd/<area>/<name>.md  (geplant)
   │  lazydev start
   ▼
-plan ─► setup ─► implement ─► review ─► merge  ─►  base branch  (umgesetzt)
-               │                         │
+plan ─► setup ─► implement ─► verify ─► review ─► merge  ─►  base branch  (umgesetzt)
+               │                                   │
                └──── blocked: open questions ────► you or Claude answer ─► continue
 ```
 
@@ -25,11 +25,13 @@ plan ─► setup ─► implement ─► review ─► merge  ─►  base bran
 | plan | Only with other open runs in the project: Claude reads their PRDs and the code, decides whether the PRD runs in parallel or waits until some are merged. Read-only |
 | setup | Worktree on `feat/<prd>`, untracked PRD moved and committed, databases, setup hook |
 | implement | Claude implements the PRD. Success: `## Ergebnis` `umgesetzt` and status `umgesetzt (date)` |
+| verify | Only with `.lazydev/verify.md`: Claude checks the feature in the running app and keeps evidence |
 | review | Claude reviews and commits. Worktree must be clean afterwards |
-| merge | Rebase on the base branch (Claude on conflicts), check hook (Claude on red), cost into the status line, `git merge --ff-only`, teardown hook, cleanup |
+| merge | Rebase on the base branch (Claude on conflicts), check hook (Claude on red), cost into the status line, `git merge --ff-only` (or a pull request with `merge: pr`), teardown hook, cleanup |
 
 - No human between start and merge. Nothing reaches the base branch without a green check hook.
-- Max 3 runs at a time, the rest waits in a queue. Ports from 3500.
+- Max 3 runs at a time, the rest waits in a queue. A run that waits for its pull request takes no slot.
+  Ports from 3500.
 - Every step is repeatable: after an error or a stop, `lazydev start` continues at the failed step.
 - Claude may not touch `.lazydev/`. Prompts, PRD status values and the reports Claude writes stay German.
 
@@ -37,7 +39,8 @@ plan ─► setup ─► implement ─► review ─► merge  ─►  base bran
 
 - Linux (`/proc`, `setsid`, `flock`), Go 1.27+ to build.
 - `git` and [Claude Code](https://claude.com/claude-code) (`claude`) in `PATH`.
-- Optional: `docker` for databases per worktree and the Docker tab, `$VISUAL`/`$EDITOR` for opening files.
+- Optional: `docker` for databases per worktree and the Docker tab, `$VISUAL`/`$EDITOR` for opening files, `gh` (GitHub CLI) for
+  `merge: pr`.
 
 ## Install
 
@@ -74,7 +77,7 @@ The same from the shell:
 lazydev start login-form   # runs in the background, no session needed
 lazydev status             # phase, step, port, cost, blocker questions
 lazydev log login-form -f  # follow the step logs
-lazydev wait               # block until a run blocks, fails, aborts or merges
+lazydev wait               # block until a run blocks, fails, aborts, merges or opens a PR
 ```
 
 ## PRDs
@@ -125,7 +128,7 @@ The merge waits while the main folder is not on the base branch or has changes o
 
 ### Blocked runs
 
-When the PRD leaves a decision open, Claude aborts implement or the merge with open questions. That is no
+When the PRD leaves a decision open, Claude aborts implement, verify or the merge with open questions. That is no
 error: the run ends in phase `blocked`, the PRD in the worktree gets `blockiert (date)` and `## Blocker`.
 
 - **In Claude Code:** the skill runs `lazydev prompt unblock <prd>`, asks you the questions, works the
@@ -135,6 +138,35 @@ error: the run ends in phase `blocked`, the PRD in the worktree gets `blockiert 
   times per run. Questions about data loss, security, public interfaces or costs it may not decide, then the
   run stays blocked.
 - `lazydev start` refuses while the PRD still says `blockiert`.
+
+### Verify in the running app
+
+With `.lazydev/verify.md` (the TUI wizard `i` writes a template on the page Prompts with `r`), the step verify
+runs between implement and review: Claude checks the feature in the running app like a user and puts evidence
+(screenshots, snapshots, API responses, log excerpts) into `~/.local/state/lazydev/runs/<id>/<prd>.evidence/`.
+With `hooks.dev` the runner starts the dev server for the step and stops it afterwards; without it the prompt
+starts the app with commands that end by themselves. The report lists each file under `## Belege`, every file
+must exist, and lazydev keeps the report as `report.md` in the folder. Claude may fix what fails, the review
+commits it. Open questions block the run like implement. Without `verify.md` the log says
+`No .lazydev/verify.md, verify skipped`.
+
+### Pull requests
+
+For a protected base branch, `merge: pr` in `config.yaml` replaces the fast-forward with a pull request on
+GitHub. It needs `gh`, logged in (`gh auth login`), and the remote `origin`.
+
+1. The review also writes title and description to `pr.md` in the evidence folder, after
+   `.github/pull_request_template.md` if the repository has one, with the evidence of verify as text.
+2. The merge fetches `origin/<base>`, rebases onto it, runs the check hook, pushes `feat/<prd>` with
+   `--force-with-lease` and opens the pull request (or updates an open one).
+3. The run waits in phase `pr` (`◑`) without taking a slot and reads the state of the pull request every
+   60 s. Discord gets `⇡ Pull request`, `lazydev wait` reports `pr <id>/<prd>: <url>`.
+4. Merged on GitHub: lazydev cleans up like after a fast-forward and fast-forwards the main folder to
+   `origin/<base>` if it is on the base branch and clean, otherwise the run gets a note. Closed without
+   merge: phase error, `lazydev start` rebases, pushes and opens a new pull request.
+
+lazydev never merges a pull request itself and never deletes the remote branch, GitHub's "Automatically
+delete head branches" does. `lazydev discard` closes an open pull request of the run.
 
 ## Claude Code integration
 
@@ -149,8 +181,8 @@ resolves blockers and answers questions about lazydev from the bundled spec. It 
 ### Mod
 
 `lazydev mod install` adds a pane beside the Claude Code chat, like the agents panel: cost, running and
-waiting runs, then each running PRD with phase, model, port, `3/5 · implement` with progress bar, cost and
-time, blocked runs with their questions, the queue with what each PRD waits for, and the planned PRDs. It
+waiting runs, then each running PRD with phase, model, port, `3/6 · implement` with progress bar, cost and
+time, blocked runs with their questions, the open pull requests, the queue with what each PRD waits for, and the planned PRDs. It
 opens once a run works, waits or is blocked; `/lazydev-runs` toggles it. It reads
 `lazydev status --here --json` every 3 s, so it shows the project of the session's folder only. Lives in
 `~/.claude/skills/lazydev-runs/`, `lazydev mod uninstall` removes it, `/reload-plugins` loads it into a running
@@ -162,12 +194,14 @@ Versioned in the project, the same for everyone. `lazydev add` creates missing f
 
 | File | Content |
 |---|---|
-| `config.yaml` | `baseBranch`, `knowledge`, `allowedTools`, `hooks`, `databases` |
+| `config.yaml` | `baseBranch`, `merge`, `knowledge`, `allowedTools`, `hooks`, `databases` |
 | `create.md`, `implement.md`, `review.md`, `merge.md`, `unblock.md` | Prompts of the steps |
+| `verify.md` | Optional prompt of the step verify. Without it the step is off, `lazydev add` does not create it |
 
 ```yaml
 baseBranch: develop          # default main
-knowledge:                   # files Claude reads first: all, create, implement, review, merge, unblock
+merge: pr                    # ff (default): fast-forward, pr: pull request with gh
+knowledge:                   # files Claude reads first: all, create, implement, verify, review, merge, unblock
   all: [CLAUDE.md]
   implement: [docs/architecture.md]
 allowedTools:                # on top of the built-in tools of each step
@@ -181,9 +215,13 @@ hooks:                       # scripts, relative to the main folder
 
 - Prompt = header + knowledge block + `.lazydev/<step>.md` + built-in contract. The contract cannot be
   changed per project.
-- Hooks get `LAZYDEV_PROJECT`, `LAZYDEV_WORKTREE`, `LAZYDEV_BRANCH`, `LAZYDEV_PORT`, `LAZYDEV_SLUG`. The
-  dev server (`lazydev dev <prd>`) also gets `PORT`.
-- Hooks, `allowedTools` and `databases` need trust: `lazydev trust`. Changing them asks again.
+- Prompts know the placeholders `$ARGUMENTS`, `$BASE`, `$BRANCH`, and for verify and review `$EVIDENCE`
+  (the evidence folder of the run) and `$PORT`.
+- Hooks get `LAZYDEV_PROJECT`, `LAZYDEV_WORKTREE`, `LAZYDEV_BRANCH`, `LAZYDEV_PORT`, `LAZYDEV_SLUG`,
+  `LAZYDEV_EVIDENCE`. The dev server (`lazydev dev <prd>`) also gets `PORT`.
+- Hooks, `allowedTools` and `databases` need trust: `lazydev trust`. Changing them asks again. `merge`
+  needs no trust, it only pushes the PRD's own branch to `origin`.
+- A value of `merge` other than `ff` or `pr` is an error, runs refuse to start.
 
 ### Databases per worktree
 
@@ -238,7 +276,8 @@ trust and come before those of `config.yaml`.
 ## Discord
 
 Runners post to a Discord webhook when a PRD is merged, a step fails or blocks, Claude resolves a blocker, a
-run is stopped or the merge waits for the main folder. No TUI needed.
+run is stopped, the merge waits for the main folder or a run opens its pull request (with the field
+`Pull request`). No TUI needed.
 
 ```json
 {
@@ -269,7 +308,7 @@ lazydev status [<project>] [--all] [--here] [--json]  # PRDs with phase, step, p
 lazydev start [<project>] <prd>                   # start or continue in the background
 lazydev stop [<project>] <prd>
 lazydev discard [--yes] [<project>] <prd>
-lazydev wait [<project>] [--json] [--timeout 30m] # block until a run gets blocked, fails, aborts or merges
+lazydev wait [<project>] [--json] [--timeout 30m] # block until a run gets blocked, fails, aborts, merges or opens a PR
 lazydev log [<project>] <prd> [-f]                # step logs of a run, -f follows them
 lazydev set-status [<project>] <prd> planned|merged|discarded
 lazydev after [<project>] <prd> [<prd>...]        # override plan: start only after these are merged
@@ -289,7 +328,9 @@ lazydev                                           # start the TUI
 - `--auto` makes Claude answer the questions of create or unblock itself and record them under
   `## Entscheidungen`.
 - `wait` is made for an operator session: one line per event (`blocked`, `error`, `aborted`, `merged`,
-  `note`, `resolved`), `idle` when nothing runs or waits, `--json` with the details of `status --json`.
+  `pr`, `note`, `resolved`), `idle` when nothing runs or waits (an open pull request waits for a human and
+  does not count), `--json` with the details of `status --json`, with `pullRequest` and `evidence`.
+- `status` prints `<prd>: pull request <url>` below the table.
 
 ## TUI
 
@@ -320,7 +361,7 @@ CLI does too.
 - Copying (copy mode, mouse drag) takes the tab content only and joins wrapped lines. It goes through OSC 52,
   so it works over SSH. Shift+drag gives the native selection.
 - Pull and push of the git cockpit fail during a running merge, try again after it.
-- Phases: `○` planned, `◌` waiting, `●` working, `◐` merge-queue, `✓` merged, `■` aborted, `✗`
+- Phases: `○` planned, `◌` waiting, `●` working, `◐` merge-queue, `◑` pr, `✓` merged, `■` aborted, `✗`
   error/discarded, `⊘` blocked.
 - `lazydev activity` reports how you use the TUI (time per pane, keys, reaction times after a run blocked or
   merged). `"activity": false` in `settings.json` switches the log off.
@@ -330,7 +371,7 @@ CLI does too.
 | Path | Content |
 |---|---|
 | `~/.config/lazydev/` | `projects.json`, `settings.json` (`theme`, `allowedTools`, `permissionMode`, `discord`, `skill`, `autoUnblock`, `activity`), rights `0600` |
-| `~/.local/state/lazydev/` | `runs/<id>/<prd>.json` and step logs, `trust/`, `locks/`, `usage.json`, `activity.jsonl`, `bin/` |
+| `~/.local/state/lazydev/` | `runs/<id>/<prd>.json` and step logs, `runs/<id>/<prd>.evidence/`, `trust/`, `locks/`, `usage.json`, `activity.jsonl`, `bin/` |
 | `~/.local/share/lazydev/worktrees/<id>/<prd>/` | Worktrees |
 | `~/.claude/skills/lazydev/`, `lazydev-runs/` | Claude Code skill and mod |
 

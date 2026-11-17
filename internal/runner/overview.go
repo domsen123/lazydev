@@ -51,6 +51,10 @@ type Item struct {
 	Resolved int    `json:"resolved,omitempty"`
 	DevPID   int    `json:"devPid,omitempty"`
 	Log      string `json:"log,omitempty"`
+	// PullRequest is the URL of the pull request of the run (merge: pr), Evidence the absolute path
+	// of its evidence folder once it exists.
+	PullRequest string `json:"pullRequest,omitempty"`
+	Evidence    string `json:"evidence,omitempty"`
 }
 
 // StepInfo is one step of the order in a run: its last attempt.
@@ -162,6 +166,10 @@ func fillRun(it *Item, id string, r *state.Run, queue []string) {
 		it.Log = state.LogPath(id, it.PRD, it.Step)
 	}
 	it.DevPID = devserver.PID(id, it.PRD)
+	it.PullRequest = r.PullRequest
+	if dir := state.EvidenceDir(id, it.PRD); fsutil.Exists(dir) {
+		it.Evidence = dir
+	}
 	for _, s := range r.Steps {
 		if s.Name == state.StepResolve && s.OK {
 			it.Resolved++
@@ -196,7 +204,7 @@ func waitingQueue(entries []state.Entry) []string {
 
 // Event is a change "lazydev wait" reports.
 type Event struct {
-	// Kind is the new phase (blocked, error, aborted, merged), "note" for a new note of a run,
+	// Kind is the new phase (blocked, error, aborted, merged, pr), "note" for a new note of a run,
 	// "resolved" when Claude answered the questions of a blocked step (auto-unblock), "idle" when
 	// nothing runs or waits, or "timeout".
 	Kind    string        `json:"kind"`
@@ -208,8 +216,9 @@ type Event struct {
 	Item    *Item         `json:"item,omitempty"`
 }
 
-// eventPhases are the phases that end or halt a run, so an operator has to look.
-var eventPhases = []project.Phase{project.PhaseBlocked, project.PhaseError, project.PhaseAborted, project.PhaseMerged}
+// eventPhases are the phases that end or halt a run, so an operator has to look. In phase pr a
+// human has to merge the pull request.
+var eventPhases = []project.Phase{project.PhaseBlocked, project.PhaseError, project.PhaseAborted, project.PhaseMerged, project.PhasePR}
 
 // Changes compares two overviews and returns the events: a run that reached a phase of
 // eventPhases, and a run with a new note.
@@ -225,8 +234,11 @@ func Changes(before, after []Item) []Event {
 		switch {
 		case (!known || prev.Phase != it.Phase) && slices.Contains(eventPhases, it.Phase) && (known || it.Phase != project.PhaseMerged):
 			text := it.Error
-			if it.Blocker != nil {
+			switch {
+			case it.Blocker != nil:
 				text = strings.Join(it.Blocker.Questions, " | ")
+			case it.Phase == project.PhasePR:
+				text = it.PullRequest
 			}
 			events = append(events, Event{Kind: string(it.Phase), Project: it.Project, PRD: it.PRD, Phase: it.Phase, From: prev.Phase, Text: text, Item: &item})
 		case known && it.Resolved > prev.Resolved:
@@ -238,9 +250,11 @@ func Changes(before, after []Item) []Event {
 	return events
 }
 
-// Busy reports whether a run of items works or waits.
+// Busy reports whether a run of items works or waits. A run in phase pr waits for a human, not for
+// lazydev.
 func Busy(items []Item) bool {
 	return slices.ContainsFunc(items, func(it Item) bool {
-		return it.Phase == project.PhaseWaiting || it.Phase == project.PhaseMergeQueue || it.Phase.Active()
+		return it.Phase == project.PhaseWaiting || it.Phase == project.PhaseMergeQueue ||
+			(it.Phase.Active() && it.Phase != project.PhasePR)
 	})
 }

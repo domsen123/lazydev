@@ -18,8 +18,8 @@ import (
 	"lazydev/internal/state"
 )
 
-// With auto-unblock on for a project ("autoUnblock" in settings.json), a blocked implement or merge
-// does not stop the run right away. The step resolve answers the questions of "## Blocker" in the
+// With auto-unblock on for a project ("autoUnblock" in settings.json), a blocked implement, verify
+// or merge does not stop the run right away. The step resolve answers the questions of "## Blocker" in the
 // worktree without the user, commits the PRD alone and the blocked step runs again. If Claude may
 // not decide a question, or the check of the step fails, the run ends in phase blocked as without
 // auto-unblock.
@@ -114,7 +114,7 @@ func resolveStep(ctx context.Context, t Target, prdName string, r *state.Run, lo
 		return nil, 1, err
 	}
 	prompt := prompts.Resolve(prompts.Vars{Arguments: r.PRD, Base: r.Base, Branch: r.Branch})
-	s, exitCode, err := callClaude(ctx, t, prdName, r, r.Worktree, prompt, resolveTools, mode, log)
+	s, exitCode, err := callClaude(ctx, t, prdName, r, r.Worktree, prompt, resolveTools, mode, nil, log)
 	if err != nil {
 		return nil, exitCode, err
 	}
@@ -138,7 +138,7 @@ func resolveStep(ctx context.Context, t Target, prdName string, r *state.Run, lo
 			return nil, 0, fmt.Errorf("resolve changed %s, it may only change the PRD", l[3:])
 		}
 	}
-	if err := checkLazydevUntouched(r); err != nil {
+	if err := checkLazydevUntouched(r, r.Base); err != nil {
 		return nil, 0, err
 	}
 	d, err := project.Read(r.Worktree, filepath.Join(r.Worktree, r.PRD))

@@ -29,7 +29,7 @@ func TestRunMerges(t *testing.T) {
 	if r.Worktree != wt || r.Branch != "feat/new-token" || r.Base != "main" || r.Slug != "new_token" || r.PRD != prdPath || r.Port < PortBase {
 		t.Errorf("run fields: %+v", r)
 	}
-	if len(r.Steps) != 5 {
+	if len(r.Steps) != 6 {
 		t.Fatalf("steps: %+v", r.Steps)
 	}
 	for i, name := range state.Steps {
@@ -40,8 +40,18 @@ func TestRunMerges(t *testing.T) {
 	if s := r.Steps[2]; s.SessionID != "sess-1" || s.Model != "claude-opus-5-5" || s.CostUSD == nil || *s.CostUSD != 0.5 {
 		t.Errorf("implement: %+v", s)
 	}
-	if s := r.Steps[4]; s.CostUSD != nil {
+	if s := r.Steps[5]; s.CostUSD != nil {
 		t.Errorf("merge without Claude has cost: %+v", s)
+	}
+	// Without .lazydev/verify.md the step verify ends without Claude.
+	if s := r.Steps[3]; s.CostUSD != nil || s.SessionID != "" {
+		t.Errorf("verify without verify.md ran Claude: %+v", s)
+	}
+	if log := read(t, state.LogPath("app", prdName, state.StepVerify)); !strings.Contains(log, "No .lazydev/verify.md, verify skipped") {
+		t.Errorf("verify log:\n%s", log)
+	}
+	if strings.Contains(fakeArgs(t), "# lazydev verify:") {
+		t.Error("Claude ran verify without verify.md")
 	}
 
 	main := target.Dir
@@ -275,7 +285,7 @@ func TestRunImplementBlockedContinues(t *testing.T) {
 		t.Fatal(err)
 	}
 	r = loadRun(t)
-	if r.Phase != project.PhaseMerged || r.Error != nil || len(r.Steps) != 6 {
+	if r.Phase != project.PhaseMerged || r.Error != nil || len(r.Steps) != 7 {
 		t.Errorf("state after the second run: %+v", r)
 	}
 	// The setup ran once, the aborted implement costs too.
@@ -378,7 +388,7 @@ func TestRunCanceled(t *testing.T) {
 	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
 	}
-	if r := loadRun(t); r.Phase != project.PhaseMerged || len(r.Steps) != 6 {
+	if r := loadRun(t); r.Phase != project.PhaseMerged || len(r.Steps) != 7 {
 		t.Errorf("state after the second run: %+v", r)
 	}
 }
