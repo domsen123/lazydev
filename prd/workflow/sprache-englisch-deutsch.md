@@ -1,6 +1,6 @@
 # PRD: Sprache der Prompts und PRDs: Englisch oder Deutsch
 
-> Status: umgesetzt (2026-11-18) · Scope: Neues Feld `language: en | de` in `.lazydev/config.yaml`, Standard `en`. Es wählt die Sprache der eingebauten Verträge, der Vorlagen des einfachen Workflows, der eingebauten Agents und aller Wörter, die lazydev in PRDs und Berichte schreibt (Statuswerte, `## Blocker`, Kosten, Modell). Beim Lesen versteht lazydev immer beide Sprachen, sodass bestehende deutsche PRDs und Berichte weiter funktionieren.
+> Status: umgesetzt (2026-11-18) · Kosten: 15.00 USD · Modell: claude-opus-5-5 · Scope: Neues Feld `language: en | de` in `.lazydev/config.yaml`, Standard `en`. Es wählt die Sprache der eingebauten Verträge, der Vorlagen des einfachen Workflows, der eingebauten Agents und aller Wörter, die lazydev in PRDs und Berichte schreibt (Statuswerte, `## Blocker`, Kosten, Modell). Beim Lesen versteht lazydev immer beide Sprachen, sodass bestehende deutsche PRDs und Berichte weiter funktionieren.
 
 ## Context
 
