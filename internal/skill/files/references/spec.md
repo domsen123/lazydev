@@ -533,7 +533,7 @@ Steps in order, each recorded in the run state:
    snapshots, responses, log excerpts) under `$EVIDENCE` only, compare it with `## Erfolgskriterien`, fix
    what fails in the worktree without committing and run the checks of `CLAUDE.md` again. The report has
    `## Ergebnis` (`verifiziert` or `abgebrochen`), `## Belege` (one line `- <file name>: <what it shows>`
-   per file), `## Geänderte Dateien`, `## Prüfungen`, `## Offene Fragen`, `## Hinweise`, `## Nicht geprüft`.
+   per file; indented lines below an item belong to it), `## Geänderte Dateien`, `## Prüfungen`, `## Offene Fragen`, `## Hinweise`, `## Nicht geprüft`.
    The runner writes the text of the last `result` to `<prd>.evidence/report.md`. Success requires
    `verifiziert`, at least one line under `## Belege` and every file named there in the evidence folder,
    otherwise the error is `verify: <reason>`, e.g. `verify: evidence file list.png missing in <folder>`.

@@ -120,10 +120,18 @@ func checkVerify(report, dir string) error {
 }
 
 // evidenceFiles reads the file names of the lines "- <file>: <what it shows>" under "## Belege".
-// Backticks and a leading path of the evidence folder dir go.
+// Only items at the start of a line count: indented lines, sub-lists included, belong to the item
+// above. Backticks and a leading path of the evidence folder dir go.
 func evidenceFiles(section, dir string) []string {
 	var files []string
-	for _, p := range reportPoints(section) {
+	for line := range strings.SplitSeq(section, "\n") {
+		if !strings.HasPrefix(line, "- ") {
+			continue
+		}
+		p := strings.TrimSpace(strings.TrimPrefix(line, "- "))
+		if p == "" || p == "keine" {
+			continue
+		}
 		name, _, _ := strings.Cut(p, ": ")
 		name = strings.Trim(strings.TrimSpace(name), "`")
 		name = strings.TrimPrefix(name, dir+"/")
