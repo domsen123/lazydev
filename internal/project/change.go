@@ -8,35 +8,34 @@ import (
 	"time"
 
 	"lazydev/internal/git"
+	"lazydev/internal/lang"
 )
 
 // Choice is a status a user can set.
 type Choice struct {
 	Kind StatusKind
-	// Value is the status value in the file, Label its name in the UI and Word its name in
-	// commit messages.
-	Value, Label, Word string
+	// Label is its name in the UI and Word its name in commit messages. The value in the file
+	// depends on the language of the project, see ValueAt.
+	Label, Word string
 }
 
 // Choices are the statuses of the status picker in this order.
 var Choices = []Choice{
-	{StatusPlanned, ValuePlanned, "planned", "planned"},
-	{StatusImplemented, ValueImplemented, "merged", "done"},
-	{StatusDiscarded, ValueDiscarded, "discarded", "discarded"},
+	{StatusPlanned, "planned", "planned"},
+	{StatusImplemented, "merged", "done"},
+	{StatusDiscarded, "discarded", "discarded"},
 }
 
-// ValueAt is the status value of c on day now. umgesetzt and verworfen get the date.
-func (c Choice) ValueAt(now time.Time) string {
-	if c.Kind == StatusPlanned {
-		return c.Value
-	}
-	return fmt.Sprintf("%s (%s)", c.Value, now.Format("2006-01-02"))
+// ValueAt is the status value of c in language l on day now. Implemented and discarded get the
+// date.
+func (c Choice) ValueAt(l lang.Lang, now time.Time) string {
+	return StatusValue(c.Kind, l, now)
 }
 
-// ChangeStatus sets the status of the PRD rel (relative to dir) to choice c. A tracked PRD gets
-// committed alone and without trailer: the main folder must be on base and the file without
-// uncommitted changes, otherwise nothing changes. An untracked PRD only changes.
-func ChangeStatus(dir, base, rel string, c Choice, now time.Time) (committed bool, err error) {
+// ChangeStatus sets the status of the PRD rel (relative to dir) to choice c, written in language
+// l. A tracked PRD gets committed alone and without trailer: the main folder must be on base and
+// the file without uncommitted changes, otherwise nothing changes. An untracked PRD only changes.
+func ChangeStatus(dir, base, rel string, l lang.Lang, c Choice, now time.Time) (committed bool, err error) {
 	tracked := git.IsTracked(dir, rel)
 	if tracked {
 		if branch := git.CurrentBranch(dir); branch != base {
@@ -51,7 +50,7 @@ func ChangeStatus(dir, base, rel string, c Choice, now time.Time) (committed boo
 	if err != nil {
 		return false, err
 	}
-	content, ok := SetStatus(string(data), c.ValueAt(now))
+	content, ok := SetStatus(string(data), c.ValueAt(l, now))
 	if !ok {
 		return false, fmt.Errorf("%s has no status line", rel)
 	}

@@ -7,25 +7,25 @@ import (
 	"time"
 
 	"lazydev/internal/git"
+	"lazydev/internal/lang"
 	"lazydev/internal/project"
 	"lazydev/internal/state"
 )
 
-// recordBlocker sets the status line of the PRD in the worktree to blockiert, writes the open
-// questions as "## Blocker" and commits the PRD alone without Claude. Other uncommitted changes of
-// the step stay uncommitted.
-func recordBlocker(prdName string, r *state.Run, b *blockedError, log *logger) error {
+// recordBlocker sets the status line of the PRD in the worktree to blocked, writes the open
+// questions as "## Blocker" in the language l of the project and commits the PRD alone without
+// Claude. Other uncommitted changes of the step stay uncommitted.
+func recordBlocker(prdName string, r *state.Run, b *blockedError, l lang.Lang, log *logger) error {
 	path := filepath.Join(r.Worktree, r.PRD)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("blocker not recorded in the PRD: %w", err)
 	}
-	value := fmt.Sprintf("%s (%s)", project.ValueBlocked, time.Now().Format("2006-01-02"))
-	updated, ok := project.SetStatus(string(data), value)
+	updated, ok := project.SetStatus(string(data), project.StatusValue(project.StatusBlocked, l, time.Now()))
 	if !ok {
 		return fmt.Errorf("blocker not recorded in the PRD: no status line in %s", r.PRD)
 	}
-	updated = project.SetBlocker(updated, b.step, b.points)
+	updated = project.SetBlocker(updated, b.step, b.points, l)
 	if err := os.WriteFile(path, []byte(updated), 0o644); err != nil {
 		return err
 	}

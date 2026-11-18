@@ -12,10 +12,10 @@ Terminal-UI. [SPEC.md](SPEC.md) beschreibt das Verhalten vollständig (englisch)
 ## So funktioniert es
 
 ```
-prd/<bereich>/<name>.md  (geplant)
+prd/<bereich>/<name>.md  (planned)
   │  lazydev start
   ▼
-plan ─► setup ─► implement ─► verify ─► review ─► merge  ─►  Ziel-Branch  (umgesetzt)
+plan ─► setup ─► implement ─► verify ─► review ─► merge  ─►  Ziel-Branch  (implemented)
                │                                   │
                └──── blockiert: offene Fragen ────► du oder Claude antworten ─► weiter
 ```
@@ -24,7 +24,7 @@ plan ─► setup ─► implement ─► verify ─► review ─► merge  ─
 |---|---|
 | plan | Nur bei anderen offenen Läufen im Projekt: Claude liest deren PRDs und den Code und entscheidet, ob das PRD parallel läuft oder wartet, bis einige gemergt sind. Nur lesend |
 | setup | Worktree auf `feat/<prd>`, ungetracktes PRD verschoben und committet, Datenbanken, Setup-Hook |
-| implement | Claude setzt das PRD um. Erfolg: `## Ergebnis` `umgesetzt` und Status `umgesetzt (Datum)` |
+| implement | Claude setzt das PRD um. Erfolg: `## Result` `implemented` und Status `implemented (Datum)` |
 | verify | Nur mit `.lazydev/verify.md`: Claude prüft das Feature in der laufenden App und sammelt Belege |
 | review | Claude reviewt und committet. Der Worktree muss danach sauber sein |
 | merge | Rebase auf den Ziel-Branch (Claude bei Konflikten), Check-Hook (Claude bei Rot), Kosten in die Statuszeile, `git merge --ff-only` (oder ein Pull Request mit `merge: pr`), Teardown-Hook, Aufräumen |
@@ -34,7 +34,9 @@ plan ─► setup ─► implement ─► verify ─► review ─► merge  ─
   wartet, belegt keinen Slot. Ports ab 3500.
 - Jeder Schritt ist wiederholbar: Nach einem Fehler oder Stopp setzt `lazydev start` beim gescheiterten
   Schritt fort.
-- Claude darf `.lazydev/` nicht anfassen. Prompts, PRD-Statuswerte und Claudes Berichte bleiben deutsch.
+- Claude darf `.lazydev/` nicht anfassen.
+- Prompts, PRDs, Statuswerte und Claudes Berichte sind englisch, `language: de` in `.lazydev/config.yaml`
+  stellt ein Projekt auf Deutsch um (siehe [Sprache](#sprache)).
 
 ## Voraussetzungen
 
@@ -67,10 +69,10 @@ git add .lazydev && git commit -m "chore: add lazydev"
 Dann in einer Claude-Code-Session im Projekt:
 
 1. Feature besprechen, dann „mach daraus ein lazydev PRD“ sagen. Claude stellt nummerierte Fragen mit den
-   Optionen A bis D und schreibt `prd/<bereich>/<name>.md` mit Status `geplant`.
+   Optionen A bis D und schreibt `prd/<bereich>/<name>.md` mit Status `planned`.
 2. „Starte es“ sagen. Claude führt `lazydev start <prd>` aus und überwacht den Lauf mit `lazydev wait`.
 3. Blockiert der Lauf, stellt Claude dir die offenen Fragen, schreibt die Antworten ins PRD und setzt fort.
-4. Nach dem Merge steht im PRD auf dem Ziel-Branch `umgesetzt (Datum) · Kosten: … · Modell: …`.
+4. Nach dem Merge steht im PRD auf dem Ziel-Branch `implemented (Datum) · Cost: … · Model: …`.
 
 Dasselbe aus der Shell:
 
@@ -88,20 +90,32 @@ lazydev wait               # blockiert, bis ein Lauf blockiert, scheitert, abbri
 ```markdown
 # PRD: Login-Formular
 
-> Status: geplant · Scope: …
+> Status: planned · Scope: …
 ```
 
-| Status | Bedeutung |
-|---|---|
-| `geplant` | geplant, kann starten |
-| `blockiert (Datum)` | Lauf wartet auf Antworten, siehe `## Blocker` |
-| `umgesetzt (Datum) · Kosten: x.xx USD · Modell: …` | gemergt |
-| `verworfen (Datum)` | verworfen |
+| Status | Mit `language: de` | Bedeutung |
+|---|---|---|
+| `planned` | `geplant` | geplant, kann starten |
+| `blocked (Datum)` | `blockiert (Datum)` | Lauf wartet auf Antworten, siehe `## Blocker` |
+| `implemented (Datum) · Cost: x.xx USD · Model: …` | `umgesetzt (Datum) · Kosten: x.xx USD · Modell: …` | gemergt |
+| `discarded (Datum)` | `verworfen (Datum)` | verworfen |
 
-Abschnitte, die lazydev und Claude anlegen: `## Blocker` (offene Fragen eines blockierten Laufs),
-`## Entscheidungen` (Fragen, die Claude selbst beantwortet hat, mit Option und Begründung), `## Hinweise` im
-Bericht von implement (Bemerkungen, die nicht blockieren). `lazydev set-status <prd> planned|merged|discarded`
-ändert den Status von Hand und committet ein getracktes PRD.
+Abschnitte, die lazydev und Claude anlegen: `## Blocker` (offene Fragen eines blockierten Laufs, erste Zeile
+`Step: <schritt>`), `## Decisions` (Fragen, die Claude selbst beantwortet hat, mit Option und Begründung),
+`## Notes` im Bericht von implement (Bemerkungen, die nicht blockieren).
+`lazydev set-status <prd> planned|merged|discarded` ändert den Status von Hand und committet ein getracktes PRD.
+
+### Sprache
+
+`language` in `.lazydev/config.yaml` ist `en` (Standard) oder `de`. Es wählt die Sprache der eingebauten
+Verträge, der Vorlagen, die `lazydev add` schreibt, der eingebauten Agents und aller Wörter, die lazydev in
+PRDs schreibt (Statuswerte, `## Blocker` mit `Step:`/`Schritt:`, Kosten und Modell). Beim Lesen versteht
+lazydev immer beide Sprachen, so behalten ältere PRDs ihren Status und ein Schritt scheitert nicht, wenn
+Claude in der anderen Sprache antwortet. Jeder andere Wert ist ein Fehler, Läufe starten nicht.
+
+Bestehende Projekte ohne `language` arbeiten nach dem Update auf Englisch. Ihre `.lazydev/<schritt>.md`
+bleiben, wie sie sind, nur Verträge, Agents und die Wörter, die lazydev schreibt, wechseln. Wer Deutsch
+behalten will, setzt `language: de`, z. B. mit `l` auf der ersten Seite des TUI-Wizards `i`.
 
 ## Läufe
 
@@ -121,7 +135,7 @@ lazydev after login-form              # auf nichts warten
 ```sh
 lazydev stop <prd>             # der Schritt hält einen Abbruch fest
 lazydev start <prd>            # setzt beim gescheiterten, blockierten oder nächsten Schritt fort
-lazydev discard [--yes] <prd>  # Worktree, Branch und Commits weg, PRD zurück auf geplant
+lazydev discard [--yes] <prd>  # Worktree, Branch und Commits weg, PRD zurück auf planned
 ```
 
 Der Merge wartet, solange der Hauptordner nicht auf dem Ziel-Branch steht oder Änderungen außerhalb von
@@ -130,16 +144,16 @@ Der Merge wartet, solange der Hauptordner nicht auf dem Ziel-Branch steht oder �
 ### Blockierte Läufe
 
 Lässt das PRD eine Entscheidung offen, bricht Claude implement, verify oder den Merge mit offenen Fragen ab.
-Das ist kein Fehler: Der Lauf endet in der Phase `blocked`, das PRD im Worktree bekommt `blockiert (Datum)` und
+Das ist kein Fehler: Der Lauf endet in der Phase `blocked`, das PRD im Worktree bekommt `blocked (Datum)` und
 `## Blocker`.
 
 - **In Claude Code:** Der Skill führt `lazydev prompt unblock <prd>` aus, stellt dir die Fragen, arbeitet die
   Antworten ins PRD ein und führt `lazydev start <prd>` aus. „Beantworte die Fragen selbst“ hängt `--auto` an.
 - **Auto-Unblock** (`lazydev auto-unblock on`, pro Projekt): Der Runner lässt Claude die Fragen im Worktree
-  selbst beantworten, hält sie unter `## Entscheidungen` fest und lässt den blockierten Schritt erneut laufen,
+  selbst beantworten, hält sie unter `## Decisions` fest und lässt den blockierten Schritt erneut laufen,
   höchstens 2-mal pro Lauf. Fragen zu Datenverlust, Sicherheit, öffentlichen Schnittstellen oder Kosten darf es
   nicht entscheiden, dann bleibt der Lauf blockiert.
-- `lazydev start` lehnt ab, solange das PRD noch `blockiert` sagt.
+- `lazydev start` lehnt ab, solange das PRD noch `blocked` sagt.
 
 ### Prüfen in der laufenden App
 
@@ -148,7 +162,7 @@ der Schritt verify zwischen implement und review: Claude prüft das Feature in d
 und legt Belege (Screenshots, Snapshots, Antworten der API, Log-Auszüge) in
 `~/.local/state/lazydev/runs/<id>/<prd>.evidence/` ab. Mit `hooks.dev` startet der Runner den Dev-Server für
 den Schritt und stoppt ihn danach, ohne startet der Prompt die App mit Befehlen, die von selbst enden. Der
-Bericht nennt jede Datei unter `## Belege`, jede muss existieren, und lazydev bewahrt den Bericht als
+Bericht nennt jede Datei unter `## Evidence`, jede muss existieren, und lazydev bewahrt den Bericht als
 `report.md` im Ordner auf. Claude darf beheben, was scheitert, das Review committet es. Offene Fragen
 blockieren den Lauf wie bei implement. Ohne `verify.md` steht im Log `No .lazydev/verify.md, verify skipped`.
 
@@ -199,12 +213,13 @@ Liegt versioniert im Projekt, für alle gleich. `lazydev add` legt fehlende Date
 
 | Datei | Inhalt |
 |---|---|
-| `config.yaml` | `baseBranch`, `merge`, `knowledge`, `allowedTools`, `hooks`, `databases` |
+| `config.yaml` | `baseBranch`, `language`, `merge`, `knowledge`, `allowedTools`, `hooks`, `databases` |
 | `create.md`, `implement.md`, `review.md`, `merge.md`, `unblock.md` | Prompts der Schritte |
 | `verify.md` | Optionaler Prompt des Schritts verify. Ohne ihn ist der Schritt aus, `lazydev add` legt ihn nicht an |
 
 ```yaml
 baseBranch: develop          # Standard main
+language: de                 # en (Standard) oder de: Verträge, Vorlagen, Agents und PRD-Wörter
 merge: pr                    # ff (Standard): Fast-Forward, pr: Pull Request mit gh
 knowledge:                   # Dateien, die Claude zuerst liest: all, create, implement, verify, review, merge, unblock
   all: [CLAUDE.md]
@@ -226,7 +241,8 @@ hooks:                       # Skripte, relativ zum Hauptordner
   `LAZYDEV_EVIDENCE`. Der Dev-Server (`lazydev dev <prd>`) bekommt zusätzlich `PORT`.
 - Hooks, `allowedTools` und `databases` brauchen Vertrauen: `lazydev trust`. Ändern sie sich, fragt lazydev
   erneut. `merge` braucht kein Vertrauen, es pusht nur den eigenen Branch des PRDs nach `origin`.
-- Ein anderer Wert von `merge` als `ff` oder `pr` ist ein Fehler, Läufe starten nicht.
+- Ein anderer Wert von `merge` als `ff` oder `pr` ist ein Fehler, Läufe starten nicht. Ebenso ein anderer
+  Wert von `language` als `en` oder `de`. Auch `language` braucht kein Vertrauen.
 
 ### Datenbanken pro Worktree
 
@@ -333,8 +349,9 @@ lazydev                                           # TUI starten
 
 - `<projekt>` ist die ID (Ordnername) oder der Pfad eines Projekts der Liste, `<prd>` der Dateiname ohne
   `.md`. Ohne `<projekt>` gilt das Projekt des aktuellen Ordners, auch im Worktree eines Laufs.
-- `--auto` lässt Claude die Fragen von create oder unblock selbst beantworten und unter `## Entscheidungen`
+- `--auto` lässt Claude die Fragen von create oder unblock selbst beantworten und unter `## Decisions`
   festhalten.
+- `prompt create`, `prompt unblock` und `set-status` nutzen die Sprache des Projekts.
 - `wait` ist für eine Operator-Session gedacht: eine Zeile je Ereignis (`blocked`, `error`, `aborted`,
   `merged`, `pr`, `note`, `resolved`), `idle`, wenn nichts läuft oder wartet (ein offener Pull Request wartet
   auf einen Menschen und zählt nicht), `--json` mit den Details von `status --json`, samt `pullRequest` und
@@ -359,7 +376,7 @@ haben. Alles, was sie mit Läufen macht, kann die CLI auch.
 | `L` / `l` | Log des Laufs als Tab (PRDs / Runs), `z` klappt den Kopf ein |
 | `D` | Dev-Server im Worktree des PRDs an/aus |
 | `c` | Status: planned, merged, discarded |
-| `a` / `d` / `i` | Projekt hinzufügen / entfernen / Wizard für `.lazydev/` (Projects) |
+| `a` / `d` / `i` | Projekt hinzufügen / entfernen / Wizard für `.lazydev/` (Projects), `l` auf seiner ersten Seite wechselt die Sprache |
 | `alt+g` | Git-Cockpit: Fetch, Pull (`--ff-only`), Push, Commit (`add -A`), jeweils als Tab |
 | `alt+v` | Markdown-Viewer der gewählten Datei oder des PRDs, `e` öffnet den Editor |
 | `alt+c` | Kopiermodus: `j/k`, `v` Zeilen wählen, `y` kopieren |

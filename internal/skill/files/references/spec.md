@@ -54,15 +54,17 @@ Folder in the main folder of a project, versioned with it. Nothing can be overri
 
 | File | Content |
 |---|---|
-| `config.yaml` | `baseBranch` (default `main`), `merge` (`ff` default or `pr`, see Pull requests), `knowledge`, `allowedTools`, `hooks` (`setup`, `teardown`, `check`, `dev`), `databases` (see Databases) |
+| `config.yaml` | `baseBranch` (default `main`), `language` (`en` default or `de`, see Language), `merge` (`ff` default or `pr`, see Pull requests), `knowledge`, `allowedTools`, `hooks` (`setup`, `teardown`, `check`, `dev`), `databases` (see Databases) |
 | `<step>.md` | Prompt of `create`, `implement`, `verify` (optional), `review`, `merge`, `unblock` |
 
 - Unknown fields in `config.yaml` are ignored, e.g. `preset` of older versions. Broken YAML is an error shown in
   the details pane, runs refuse to start. So is a value of `merge` other than `ff`, `pr` or empty:
-  `config.yaml: merge must be ff or pr, not "<value>"`.
+  `config.yaml: merge must be ff or pr, not "<value>"`, and a value of `language` other than `en`, `de` or
+  empty: `config.yaml: language must be en or de, not "<value>"`.
 - **Init** creates missing files only: `config.yaml` (empty, or `baseBranch` when the repo has neither `main`
   nor `master` but a checked out branch) and the prompts of the built-in simple workflow except `verify.md`,
-  in new projects too: the step verify is opt-in. It never overwrites. Adding a project, opening the wizard,
+  in new projects too: the step verify is opt-in. The prompts come in the language of `config.yaml`, `en`
+  without file or field. Init never writes `language`. It never overwrites. Adding a project, opening the wizard,
   `n`, `f` and writing a prompt in the wizard run it, so a deleted `.lazydev/` comes back.
 - The workflow reads prompts from `.lazydev/<step>.md` only. A missing prompt fails the step with
   `.lazydev/<step>.md is missing, lazydev add <project folder> or i in the TUI adds it`. Only a missing
@@ -74,20 +76,57 @@ Folder in the main folder of a project, versioned with it. Nothing can be overri
 
 A prompt consists of, separated by blank lines:
 
-1. Header `# lazydev <step>: <argument>`. Without argument `<branch> → <base>`. Logs show it.
-2. Knowledge block `## Pflichtlektüre` listing the files of `knowledge.all` and `knowledge.<step>`, without
-   duplicates. Each file must exist where Claude runs (main folder for create, worktree otherwise, unblock
-   included).
+1. Header `# lazydev <step>: <argument>`, the same in every language. Without argument `<branch> → <base>`.
+   Logs show it.
+2. Knowledge block listing the files of `knowledge.all` and `knowledge.<step>`, without duplicates:
+   `## Required reading` and `Read these files completely before you do anything else:` in `en`,
+   `## Pflichtlektüre` and `Lies diese Dateien vollständig, bevor du etwas anderes tust:` in `de`. Each file
+   must exist where Claude runs (main folder for create, worktree otherwise, unblock included).
 3. `.lazydev/<step>.md` without frontmatter, with `$ARGUMENTS`, `$BASE`, `$BRANCH`, `$EVIDENCE` and `$PORT`
    replaced.
-4. The built-in contract of the step (`internal/prompts/contract/`). It has priority, a project cannot change
-   it. With `merge: pr` the contract of review gets the block `review.pr.md` appended.
+4. The built-in contract of the step in the language of the project (`internal/prompts/contract/en/` or
+   `contract/de/`, same file names). It has priority, a project cannot change it. With `merge: pr` the
+   contract of review gets the block `review.pr.md` appended.
 
 Arguments: create gets the user's description, implement, verify and unblock the PRD path, review none, merge
 the branch plus an optional error context. `$EVIDENCE` is the absolute path of the evidence folder of the run
 (`runs/<id>/<prd>.evidence/`), `$PORT` the port of the run; both are set for verify and review only, empty
-elsewhere. In the merge of `merge: pr`, `$BASE` is `origin/<base>`. Prompts, contracts and PRD status values
-are German.
+elsewhere. In the merge of `merge: pr`, `$BASE` is `origin/<base>`.
+
+### Language
+
+`language` in `config.yaml` picks the language lazydev works in for the project: `en` (default, also without
+the field or with an empty value) or `de`. It belongs to the PRDs in the repository and is the same for the
+whole team, there is no language in `settings.json` and none per PRD. It is not part of the trust hash.
+
+- **Writing** happens in the language of the project only: the built-in contracts, the templates of the simple
+  workflow (`internal/repo/workflows/simple/en/` and `simple/de/`), the built-in agents
+  (`internal/claude/agents/en/` and `agents/de/`), the status values lazydev writes (blocker, `X`, `c`,
+  `set-status`), `## Blocker` with its first line, cost and model in the status line, the context of the Claude
+  step merge after a red check and the arguments of create without description.
+- **Reading** always understands both languages, whatever `language` says: status values with their date,
+  `## Blocker` with `Step:` or `Schritt:`, `Cost:`/`Kosten:` and `Model:`/`Modell:`, the headings and values
+  of the reports, the answer of plan and the empty list `none`/`keine`. The case of result values does not
+  matter. So a project can switch its language without breaking older PRDs, a switch between two steps of a
+  run is fine, and a step does not fail when Claude answers in the other language.
+- Projects without `language` work in English. Their existing `.lazydev/<step>.md` stay as they are (they
+  belong to the project), only contracts, agents and the words lazydev writes switch. A project that keeps
+  German sets `language: de`. lazydev translates no PRD and no prompt.
+
+| Word | `en` | `de` |
+|---|---|---|
+| Status values | `planned`, `implemented (YYYY-MM-DD)`, `discarded (YYYY-MM-DD)`, `blocked (YYYY-MM-DD)` | `geplant`, `umgesetzt (YYYY-MM-DD)`, `verworfen (YYYY-MM-DD)`, `blockiert (YYYY-MM-DD)` |
+| Status line after a merge | `Cost: <x.xx> USD · Model: <model>` | `Kosten: <x.xx> USD · Modell: <model>` |
+| Blocker | `## Blocker`, `Step: <step>` | `## Blocker`, `Schritt: <step>` |
+| Report headings | `## Result`, `## Open questions`, `## Open points`, `## Evidence`, `## Decisions`, `## Notes` | `## Ergebnis`, `## Offene Fragen`, `## Offene Punkte`, `## Belege`, `## Entscheidungen`, `## Hinweise` |
+| Result values | `implemented`, `verified`, `aborted`, `ready for fast-forward`, `resolved` | `umgesetzt`, `verifiziert`, `abgebrochen`, `bereit für Fast-Forward`, `geklärt` |
+| Empty list | `none` | `keine` |
+| Answer of plan | `## Order`, `After: <prd>, …` or `After: none`, `Reason: <sentence>` | `## Reihenfolge`, `Nach: <prd>, …` or `Nach: keine`, `Grund: <sentence>` |
+
+The English create contract makes Claude write the PRD in English with `# PRD: <title>`, the status line with
+`planned`, `## Context`, `## Product decisions (final)`, `## Scope` (**In scope**, **Out of scope**),
+`## Implementation`, `## Technical notes`, `## Success criteria` and, in autonomous mode, `## Decisions`.
+The steps below name the English words, the German ones apply in German projects.
 
 ### Trust
 
@@ -117,9 +156,14 @@ missing `verify.md` shows `missing, step off`) → summary with the resulting `c
 marked knowledge files `enter` goes from knowledge straight to databases, and `backspace` on databases goes
 back to knowledge.
 
+- Page 1 shows `Language: en` or `Language: de` below the list of branches, `l` switches it, the footer says
+  ` j/k branch · l language · enter next · esc cancel`. The summary shows `Language: <lang>` above the
+  resulting `config.yaml`. `o` and `r` on the page Prompts take the template in the language chosen in the
+  wizard. The wizard translates no existing prompt.
 - Without knowledge in `config.yaml`, `CLAUDE.md`, `ARCHITECTURE.md` and `_ARCHITECTURE.md` are preselected.
 - A file marked for all six steps goes under `all`.
-- Saving writes `baseBranch` (left out for `main`), `knowledge` and `databases` only and keeps other fields,
+- Saving writes `baseBranch` (left out for `main`), `language` (`language: de`, left out for `en`, a new key
+  right after `baseBranch`), `knowledge` and `databases` only and keeps other fields,
   order and comments, `merge` too: the wizard does not set it. No change means no write. An unchanged `databases` stays untouched, an empty list
   removes the key. A changed `databases` changes the trust hash, so the next `s` asks for trust.
 
@@ -154,12 +198,15 @@ file of the main folder plus every file from `compose` of the entries (`docker c
 
 - Files `prd/<area>/<name>.md`. Title from the first `# ` heading without `PRD:`. Status line
   `> Status: <value> · <detail>` within the first 20 lines, following `>` lines belong to the detail.
-- Values: `geplant` → planned, `umgesetzt (YYYY-MM-DD)` → merged, `verworfen (YYYY-MM-DD)` → discarded,
-  `blockiert (YYYY-MM-DD)` → blocked, anything else → unknown. After a merge the detail starts with
-  `Kosten: <x.xx> USD · Modell: <model>`.
-- A blocked run ends the PRD in its worktree with the section `## Blocker`: first line `Schritt: implement`,
-  `Schritt: verify` or `Schritt: merge`, a blank line, then the open questions as a list. A new blocker replaces the section up to
-  the next `## ` heading or the end of the file.
+- Values, read in both languages (see Language): `planned`/`geplant` → planned,
+  `implemented (YYYY-MM-DD)`/`umgesetzt (YYYY-MM-DD)` → merged, `discarded (YYYY-MM-DD)`/`verworfen (YYYY-MM-DD)`
+  → discarded, `blocked (YYYY-MM-DD)`/`blockiert (YYYY-MM-DD)` → blocked, anything else → unknown. lazydev
+  writes them in the language of the project. After a merge the detail starts with
+  `Cost: <x.xx> USD · Model: <model>` (`Kosten: … · Modell: …` in `de`). An existing field of the other
+  language gets replaced in its place, not added a second time.
+- A blocked run ends the PRD in its worktree with the section `## Blocker`: first line `Step: implement`,
+  `Step: verify` or `Step: merge` (`Schritt: …` in `de`), a blank line, then the open questions as a list. A
+  new blocker replaces the section up to the next `## ` heading or the end of the file.
 - A PRD that a run moved into its worktree is read from there while the main folder lacks it.
 - Branch: `feat/<name>` if it exists, the base branch for merged PRDs.
 
@@ -167,7 +214,8 @@ file of the main folder plus every file from `compose` of the entries (`docker c
 
 Only for PRDs without run (`<prd> has a run. Discard it first with X.`) and with a status line. Choices
 planned, merged, discarded, the current one marked `(current)`. The current choice changes nothing. Merged and
-discarded get today's date. Only the value before the first `·` changes.
+discarded get today's date. Only the value before the first `·` changes, written in the language of the
+project, e.g. `implemented (2026-10-21)` or `umgesetzt (2026-10-21)`.
 
 - Untracked PRD: file changes, no commit.
 - Tracked PRD: asks `Commit <path>? (y/n)`, then commits that file alone with
@@ -226,7 +274,7 @@ The native selection of the terminal works with Shift held while dragging.
   log line, branch, dev, port, cost, step. PRD and phase stay. Keys: `j/k`, `g/G` move, `l`/`enter` open the
   log tab, `s`, `x`, `X`, `D`, `f` act on the selected run like in the PRDs tab, `i` wizard, `z` zoom. Each project keeps
   its own cursor, which clamps when its run disappears. Without runs, and with the Files tab active, the
-  pane shows the project (title `Project`): base branch with `merge ff` or `merge pr`, trust, prompts present/missing (a missing `verify.md` as `verify off`), hooks,
+  pane shows the project (title `Project`): base branch with `merge ff` or `merge pr` and `language en` or `language de`, trust, prompts present/missing (a missing `verify.md` as `verify off`), hooks,
   databases (`<service> → <file> <key>` per entry, `–` without), knowledge (file → steps), allowed tools.
   Its columns drop from the right too. Tab `Docker`: compose services in file order plus other
   containers of the project (label `com.docker.compose.project.working_dir`), with state, status, ports,
@@ -424,7 +472,7 @@ hint line.
 
 | Tab | Right column |
 |---|---|
-| `General` | Entries `Color theme  ‹ <name> ›` and, with a selected project, `Auto-unblock <project name>  ‹ on/off ›`. Below them the description of the selected entry: `Colors of borders, focus and selection. lazydev saves the choice in settings.json.` or `On: when a run of this project gets blocked, Claude answers the open questions itself, records them under ## Entscheidungen and the run goes on. Questions about data loss, security, public interfaces or costs still stop the run.`, a blank line and `lazydev <version>`. With a newer release known the line is `lazydev <version> · <latest> available, alt+u updates.`, after the update `lazydev <version> · <tag> installed, restart lazydev.` (see Releases) |
+| `General` | Entries `Color theme  ‹ <name> ›` and, with a selected project, `Auto-unblock <project name>  ‹ on/off ›`. Below them the description of the selected entry: `Colors of borders, focus and selection. lazydev saves the choice in settings.json.` or `On: when a run of this project gets blocked, Claude answers the open questions itself, records them under ## Decisions (## Entscheidungen in German projects) and the run goes on. Questions about data loss, security, public interfaces or costs still stop the run.`, a blank line and `lazydev <version>`. With a newer release known the line is `lazydev <version> · <latest> available, alt+u updates.`, after the update `lazydev <version> · <tag> installed, restart lazydev.` (see Releases) |
 | `Discord` | Entries `Notifications  ‹ on/off ›` (global), `Global URL  <url>`, `<project name>  ‹ on/off ›`, `URL for <project name>  <url>`, `Send test`. Without a selected project the two project entries drop out. Below them the description of the selected entry |
 | `Git` | `Fetch, pull, push and commit the main folder of the selected project. Each action runs in a center tab. Also alt+g.` |
 | `Quit` | `Ends lazydev and its terminal tabs. Runners keep working in the background.` |
@@ -496,8 +544,9 @@ Runners save every `rate_limit_event` to `$XDG_STATE_HOME/lazydev/usage.json`. T
 ### New PRD (`n`)
 
 Input `New PRD, what is it about?`. `enter` opens a center tab `create` running `claude "<create prompt>"`
-interactively in the main folder. Empty input asks Claude to ask. The contract makes Claude write
-`prd/<area>/<name>.md` with status `geplant` and nothing else.
+interactively in the main folder. Empty input asks Claude to ask (`New PRD. Ask me what it is about.`, in `de`
+`Neues PRD. Frag mich, worum es geht.`). The contract makes Claude write `prd/<area>/<name>.md` with status
+`planned` (`geplant` in `de`) and nothing else.
 
 ### Run (`s`)
 
@@ -510,19 +559,22 @@ Steps in order, each recorded in the run state:
    `.lazydev/`, header `# lazydev plan: <prd path>`) with the open runs as `` `<name>` (Phase <phase>):
    `<absolute PRD path>` ``, the worktree's PRD when the run moved it there. It runs in the main folder with
    `--permission-mode default` and only `Read,Glob,Grep`, so it changes nothing. Its answer must end with
-   `## Reihenfolge`, a line `Nach: <prd>, …` or `Nach: keine` and `Grund: <sentence>`. Names may carry
-   backticks, area or `.md`; a missing section, a missing `Nach:` line or a name that is no open run fails
-   the step. PRDs that wait for this one, directly or through others, are dropped with a log line, so the
+   `## Order`, a line `After: <prd>, …` or `After: none` and `Reason: <sentence>`, or the German
+   `## Reihenfolge`, `Nach: <prd>, …` or `Nach: keine` and `Grund: <sentence>`; lazydev reads both. Names may
+   carry backticks, area or `.md`; a missing section, a missing `After:` line or a name that is no open run
+   fails the step. PRDs that wait for this one, directly or through others, are dropped with a log line, so the
    order has no cycle. The result goes into `after` and `afterReason` of the run state, the log says
    `Parallel: <reason>` or `After <prds>: <reason>`. Its cost counts like any step.
 2. **setup:** `git worktree add -b feat/<prd> <worktree> <base>` (an existing worktree stays, an existing
    branch without worktree is an error). An untracked PRD moves into the worktree and gets committed as
    `docs(prd): add <prd>`. Then the databases (env files, containers, databases, see Databases), then the
    setup hook.
-3. **implement:** Claude with the PRD path. Success requires `## Ergebnis` `umgesetzt` and the PRD status
-   `umgesetzt (date)` in the worktree. `abgebrochen` with points under `## Offene Fragen` blocks the run (see
-   Blocked runs), `abgebrochen` without them fails with `implement aborted`. `## Hinweise` holds remarks
-   without a decision and changes nothing.
+3. **implement:** Claude with the PRD path. Success requires `## Result` `implemented` and the PRD status
+   `implemented (date)` in the worktree (or the German words, see Language). `aborted` with points under
+   `## Open questions` blocks the run (see Blocked runs), `aborted` without them fails with
+   `implement aborted`. A report without the result section fails with
+   `report of implement without „## Result“`. `## Notes` holds remarks without a decision and changes
+   nothing.
 4. **verify:** only when `.lazydev/verify.md` exists in the main folder. Without it the step ends without
    Claude with the log `No .lazydev/verify.md, verify skipped` and succeeds. Otherwise the runner creates the
    evidence folder `runs/<id>/<prd>.evidence/` (existing files stay, verify overwrites them), starts
@@ -530,14 +582,17 @@ Steps in order, each recorded in the run state:
    step, on error and abort too. Without `hooks.dev` it starts nothing, the prompt starts the app with
    commands that end by themselves. Claude gets the PRD path and the evidence folder through `--add-dir`. The
    contract makes Claude check the feature in the running app like a user, put evidence (screenshots,
-   snapshots, responses, log excerpts) under `$EVIDENCE` only, compare it with `## Erfolgskriterien`, fix
+   snapshots, responses, log excerpts) under `$EVIDENCE` only, compare it with `## Success criteria`, fix
    what fails in the worktree without committing and run the checks of `CLAUDE.md` again. The report has
-   `## Ergebnis` (`verifiziert` or `abgebrochen`), `## Belege` (one line `- <file name>: <what it shows>`
-   per file; indented lines below an item belong to it), `## Geänderte Dateien`, `## Prüfungen`, `## Offene Fragen`, `## Hinweise`, `## Nicht geprüft`.
+   `## Result` (`verified` or `aborted`), `## Evidence` (one line `- <file name>: <what it shows>`
+   per file; indented lines below an item belong to it), `## Changed files`, `## Checks`, `## Open questions`, `## Notes`, `## Not checked`
+   (German contract: `## Ergebnis`, `## Belege`, `## Geänderte Dateien`, `## Prüfungen`, `## Offene Fragen`,
+   `## Hinweise`, `## Nicht geprüft`).
    The runner writes the text of the last `result` to `<prd>.evidence/report.md`. Success requires
-   `verifiziert`, at least one line under `## Belege` and every file named there in the evidence folder,
-   otherwise the error is `verify: <reason>`, e.g. `verify: evidence file list.png missing in <folder>`.
-   `abgebrochen` with points under `## Offene Fragen` blocks the run like implement, without them it fails
+   `verified`, at least one line under `## Evidence` and every file named there in the evidence folder,
+   otherwise the error is `verify: <reason>`, e.g. `verify: evidence file list.png missing in <folder>` or
+   `verify: no evidence under „## Evidence“`.
+   `aborted` with points under `## Open questions` blocks the run like implement, without them it fails
    with `verify aborted`.
 5. **review:** Claude reviews and commits through the agent `committer`. The worktree must be clean. With
    `merge: pr` it also writes `$EVIDENCE/pr.md`: first line `# <title>` (a Conventional Commit in English
@@ -548,12 +603,13 @@ Steps in order, each recorded in the run state:
    a first line `# …` fails with `review wrote no pull request description to <path>`.
 6. **merge:** with `merge: pr` see Pull requests. Otherwise: wait for the project's merge slot (phase merge-queue), stop the dev server. If the PRD is the
    only uncommitted file in the worktree, commit it as `docs(prd): resolve blocker of <prd>`. Require a clean
-   worktree, `git rebase <base>`; on conflict `rebase --abort` and Claude step merge (`bereit für
-   Fast-Forward`, base must be an ancestor, worktree clean; `abgebrochen` with points under `## Offene Punkte`
+   worktree, `git rebase <base>`; on conflict `rebase --abort` and Claude step merge (`ready for
+   fast-forward`, base must be an ancestor, worktree clean; `aborted` with points under `## Open points`
    blocks the run, without them it fails with `merge aborted`). If the branch was not on the base branch
    before the rebase and `databases` are configured, the databases get created again and the setup hook
    runs again (see Databases). Check hook; if red, Claude step merge with the
-   error as context and the check again. Cost and implement model go into the PRD status line, committed as
+   error as context (`Check failed after the rebase: <error>`, in `de`
+   `Prüfung nach dem Rebase fehlgeschlagen: <error>`) and the check again. Cost and implement model go into the PRD status line, committed as
    `docs(prd): record cost of <prd>`. Wait while the main folder is not on the base branch or has changes
    outside untracked `prd/` files and `.lazydev/` (phase merge-queue, note `main folder: …`, checked every
    5 s). If the base branch moved during the wait, rebase and check again from `git rebase <base>`.
@@ -565,7 +621,7 @@ in the worktree. A Claude step succeeds only with exit code 0, a last `result` e
 check. Merges always run automatically.
 
 - `s` on an existing run continues with the failed, blocked or next step. Merged, discarded, already running
-  or waiting PRDs refuse with a message. A run whose PRD in the worktree still says `blockiert` refuses with
+  or waiting PRDs refuse with a message. A run whose PRD in the worktree still says `blocked` or `blockiert` refuses with
   `<prd> is blocked. Resolve it with f first.`. `s` asks `Start|Continue <prd>? (y/n)`.
 - At most 3 runners work at the same time, a runner in phase pr does not count. Above that, the PRD gets
   phase waiting. A runner that ends starts waiting PRDs in start order.
@@ -588,7 +644,7 @@ check. Merges always run automatically.
 - `X` asks, then stops the dev server, closes an open pull request of the run with
   `gh pr close <url> --delete-branch`, runs the teardown hook, drops the databases (also without worktree,
   errors go into the error list), puts a moved PRD back into the main folder with
-  status `geplant` and without `## Blocker`, removes worktree and branch with force and deletes the run state,
+  status `planned` (`geplant` in `de`) and without `## Blocker`, removes worktree and branch with force and deletes the run state,
   logs and the evidence folder.
 
 ### Pull requests
@@ -642,32 +698,35 @@ without rebase and push. Otherwise the merge runs from the start.
 Claude aborts implement, verify or the Claude step merge on purpose when the PRD leaves a decision open. Such a run
 needs a decision of the user, not another attempt.
 
-- **When:** exit code 0, a last `result` without error, `## Ergebnis` `abgebrochen` and at least one point
-  under `## Offene Fragen` (implement, verify) or `## Offene Punkte` (merge) that is not „keine“. Points are the
+- **When:** exit code 0, a last `result` without error, `## Result` `aborted` and at least one point
+  under `## Open questions` (implement, verify) or `## Open points` (merge) that is not `none` (or the German
+  words, see Language). Points are the
   non-empty lines of the section without a leading `- `. Everything else stays phase error: another exit code,
-  missing `## Ergebnis`, `abgebrochen` without points, red checks, the status check, hooks, git errors. Review
+  missing `## Result`, `aborted` without points, red checks, the status check, hooks, git errors. Review
   never blocks.
-- **Run:** the runner sets the status line of the PRD in the worktree to `blockiert (<today>)`, writes
-  `## Blocker` with all points and commits the PRD alone, without Claude and trailer, as
+- **Run:** the runner sets the status line of the PRD in the worktree to `blocked (<today>)` (`blockiert` in
+  `de`), writes `## Blocker` with `Step: <step>` (`Schritt:` in `de`) and all points and commits the PRD
+  alone, without Claude and trailer, as
   `docs(prd): record blocker of <prd>`. Other uncommitted changes of the step stay uncommitted. The step
   ends with `ok: false`, the run gets phase blocked, error `<step> blocked: <first point>` and PID 0. If writing
   or the commit fails, the run gets phase error with that error.
 - **`f`:** in the PRDs tab and in the run list on a run in phase blocked, otherwise the error
   `<prd> is not blocked.`. It runs `.lazydev/` init, builds the prompt of the step `unblock` with the PRD path
   relative to the worktree as `$ARGUMENTS` and opens a center tab `unblock` running
-  `claude "<unblock prompt>" --agents '<agents JSON>'` interactively in the worktree. An interactive
-  claude takes `--agents` as inline JSON only, not as a file path.
+  `claude "<unblock prompt>" --agents '<agents JSON>'` interactively in the worktree, prompt and agents in
+  the language of the project. An interactive claude takes `--agents` as inline JSON only, not as a file path.
 - **Dialog:** the contract makes Claude ask the questions of `## Blocker` numbered with options A to D, wait
   for the answers and work them into the PRD. Then it removes `## Blocker` and sets the status line to
-  `geplant` after `Schritt: implement`, to `umgesetzt (<today>)` after `Schritt: verify` and `Schritt: merge`,
-  because the implementation stands already. It changes only the
-  PRD, commits nothing and ends with `Weiter mit lazydev start <prd> oder s in der TUI.`. The dialog runs
-  outside the runner, the next step checks `.lazydev/` anyway.
+  `planned` after `Step: implement`, to `implemented (<today>)` after `Step: verify` and `Step: merge`
+  (German contract: `geplant`, `umgesetzt`, `Schritt:`), because the implementation stands already. It
+  changes only the PRD, commits nothing and ends with `Continue with lazydev start <prd> or s in the TUI.`
+  (`Weiter mit lazydev start <prd> oder s in der TUI.`). The dialog runs outside the runner, the next step
+  checks `.lazydev/` anyway.
 - **Without the TUI:** `lazydev prompt unblock [--auto] [<project>] <prd>` prints the same prompt with the
   absolute path of the PRD in the worktree as `$ARGUMENTS`, so a Claude Code session in any folder edits
-  the right file (see CLI). `--auto` appends the block `## Autonomer Modus`: Claude answers the questions
-  itself from the conversation and the code, writes them with the chosen option and a reason into
-  `## Entscheidungen`, asks the user only about questions it cannot answer responsibly (data loss, public
+  the right file (see CLI). `--auto` appends the block `## Autonomous mode` (`## Autonomer Modus`): Claude
+  answers the questions itself from the conversation and the code, writes them with the chosen option and a
+  reason into `## Decisions` (`## Entscheidungen`), asks the user only about questions it cannot answer responsibly (data loss, public
   interfaces, running costs, a contradiction to an explicit requirement of the user) and continues the run
   with `lazydev start`.
 - **Auto-unblock:** with `autoUnblock` on for the project (see `settings.json`) and fewer than 2 resolve steps
@@ -675,25 +734,26 @@ needs a decision of the user, not another attempt.
   `Blocked: <error>, Claude resolves it (auto-unblock)`, sends no notification yet and keeps its PID. Then
   the step `resolve` runs, phase resolve, log `<prd>.resolve.jsonl`, recorded in `steps` like a step but
   skipped when the run picks its next step. Claude gets the built-in prompt `resolve` (not part of
-  `.lazydev/`, header `# lazydev resolve: <prd path>`) in the worktree with the permission mode of
-  `settings.json` and only `Read`, `Edit`, `Write`, `Glob`, `Grep` and `git status`, `diff`, `log`, `show`.
+  `.lazydev/`, header `# lazydev resolve: <prd path>`, in the language of the project) in the worktree with
+  the permission mode of `settings.json` and only `Read`, `Edit`, `Write`, `Glob`, `Grep` and `git status`,
+  `diff`, `log`, `show`.
   It answers the questions like a developer of the project, writes each with the chosen option and a reason
-  into `## Entscheidungen`, works them into the PRD, removes `## Blocker` and sets the status line like the
+  into `## Decisions`, works them into the PRD, removes `## Blocker` and sets the status line like the
   dialog. Questions about data loss, security, public interfaces, running costs or a contradiction to an
   explicit requirement of the PRD it may not decide when code and PRD give no clear answer; then it changes
-  nothing and reports `abgebrochen` with them under `## Offene Fragen`.
-  Success needs exit code 0, a last `result` without error, `## Ergebnis` `geklärt`, no new uncommitted
+  nothing and reports `aborted` with them under `## Open questions`.
+  Success needs exit code 0, a last `result` without error, `## Result` `resolved`, no new uncommitted
   change outside the PRD (`resolve changed <path>, it may only change the PRD`), nothing changed under
-  `.lazydev/`, and a PRD without `blockiert` and without `## Blocker`. Then the runner commits the PRD alone
+  `.lazydev/`, and a PRD that is not blocked and has no `## Blocker`. Then the runner commits the PRD alone
   as `docs(prd): resolve blocker of <prd>`, logs every decision as `Decision: <point>` and
   `Resolved, <step> runs again`, posts `resolved` and runs the blocked step again in the same runner.
   Otherwise it logs `Not resolved: <error>` (`Claude may not decide: <questions joined with " | ">` for
-  `abgebrochen`), restores the PRD with `git checkout HEAD -- <prd>`, and the run ends in phase blocked with the
+  `aborted`), restores the PRD with `git checkout HEAD -- <prd>`, and the run ends in phase blocked with the
   error of the block and the `blocked` notification, as without auto-unblock. An abort during resolve
   restores the PRD too and ends in phase aborted. After 2 resolve steps a further block stops the run right
   away. `lazydev auto-unblock [<project>] [on|off]` prints or sets the switch.
 - **Continue:** nothing starts by itself, `s` continues with the blocked step. While the PRD in the worktree
-  still says `blockiert`, the TUI refuses (see Run) and `start` and a runner end with
+  still says `blocked` or `blockiert`, the TUI refuses (see Run) and `start` and a runner end with
   `<prd> is still blocked, resolve it with lazydev prompt unblock <prd> or f in the TUI` without
   changing run state, phase or log. After implement and verify the review commits the changed PRD with the
   rest, before the merge the runner commits it (see merge).
@@ -723,7 +783,7 @@ change in the menu applies to running runners too.
   `Cost` (`x.xx USD`), `Duration` (since the start of the run, `1h 2m 3s` without leading zero parts, e.g.
   `4m 5s`), `Model` (implement model, `–` without). The embed holds no error text. `blocked` adds the field
   `Blocker` (`inline: false`) with all open questions, one per line, cut to 1024 characters with `…` at the end.
-  `resolved` adds the field `Decisions` the same way with the points of `## Entscheidungen` of the report.
+  `resolved` adds the field `Decisions` the same way with the points of `## Decisions` (`## Entscheidungen`) of the report.
   `pr` adds the field `Pull request` (`inline: false`) with the URL.
 - HTTP `POST` with `Content-Type: application/json`, 10 s timeout per attempt, success is a 2xx status. One
   attempt plus 3 retries 5 s apart, every error retries, 4xx too. The delivery runs in the runner and delays
@@ -735,14 +795,17 @@ change in the menu applies to running runners too.
 ### Claude call
 
 `claude -p <prompt> --output-format stream-json --verbose --permission-mode <mode> --allowedTools <list>
---agents <state>/agents.json` in the worktree, stdin `/dev/null`, `GIT_EDITOR=true`. verify and review add
+--agents <agents file>` in the worktree, stdin `/dev/null`, `GIT_EDITOR=true`. The agents file is
+`<state>/agents.json` for `en` and `<state>/agents.de.json` for `de`, so runners of projects in different
+languages do not overwrite each other's agents. verify and review add
 `--add-dir <evidence folder>`, because `acceptEdits` writes without asking only in the working directory. `<mode>` is
 `permissionMode` from `settings.json`. `<list>` holds the built-in git and file tools, then `allowedTools`
 from `settings.json`, then `allowedTools` from `config.yaml`. Duplicates drop out, the first one stays. In
 mode `auto` the list goes to Claude unchanged. Before the line `$ claude …` the step log gets
 `Permissions: <mode>, <n> allowed tools`, `<n>` counts the list without duplicates. Each stream line gets a
 `ts` field in the log, stderr lines become `{"type":"stderr"}`. Session, model and cost go into the step as
-they arrive. The agents `committer` and `structural-completeness-reviewer` are built in.
+they arrive. The agents `committer` and `structural-completeness-reviewer` are built in, in both languages
+with the same names.
 
 ### Hooks and dev server
 
@@ -849,8 +912,10 @@ skill replaces no MCP server and no slash command.
 
 - **Place:** `$CLAUDE_CONFIG_DIR/skills/lazydev/`, without the variable `$HOME/.claude/skills/lazydev/`.
   Global for the user, never in a project. The content belongs to the version of the binary.
-- **Files:** `SKILL.md` (German like the prompts: frontmatter `name: lazydev` and `description` with the
-  triggers, a comment that lazydev manages the file, what lazydev is, the rules for PRDs, a table of
+- **Files:** `SKILL.md` (English: frontmatter `name: lazydev` and `description` with English and German
+  triggers, e.g. "make this a lazydev PRD", „PRD erstellen“ and „mach daraus ein PRD“, so the skill works in
+  both languages; a comment that lazydev manages the file, what lazydev is, the rules for PRDs with the
+  status values of both languages and the note that `language` in `.lazydev/config.yaml` decides, a table of
   tasks, under 80 lines) and `references/spec.md`, a byte-equal copy of `SPEC.md`. Nothing else. The copy
   lives in `internal/skill/files/references/spec.md`, `go generate ./internal/skill` refreshes it and a
   test fails when it differs from `SPEC.md`. The files carry no version and no timestamp.
@@ -869,17 +934,19 @@ skill replaces no MCP server and no slash command.
   `Skill lazydev in <dir> is up to date.` when nothing changed. Exit code 0, errors as `lazydev: <error>`
   with 1.
 - **`lazydev prompt create [--auto] [<description>]`:** prints the create prompt of the project on stdout,
-  the same one `n` builds. The project folder is the main folder of the repository of the working
+  the same one `n` builds, in the language of the project. The project folder is the main folder of the repository of the working
   directory (the parent of `git rev-parse --git-common-dir`, so a worktree of a run counts as its project),
   without a git repository the working directory itself. All arguments join with spaces to `$ARGUMENTS`, without
-  arguments it is `Die Aufgabe ergibt sich aus dem bisherigen Gespräch mit dem Nutzer.`. `$BASE` is the
+  arguments it is `The task follows from the conversation with the user so far.` (in `de`
+  `Die Aufgabe ergibt sich aus dem bisherigen Gespräch mit dem Nutzer.`). `$BASE` is the
   base branch of `config.yaml`, `$BRANCH` the checked out branch. Knowledge files must exist in the
   project folder. The command creates nothing: a folder without `.lazydev/` ends with
   `lazydev: <dir> has no .lazydev/, add the project with lazydev add first` and 1. Errors of `config.yaml`, a
   missing knowledge file or a missing `create.md` end with the error and 1. `--auto` appends the block
-  `## Autonomer Modus` after the contract: Claude answers its numbered questions itself, first from the
-  conversation, then from code, `CLAUDE.md`, `README.md` and existing PRDs, writes each with the chosen
-  option and a reason of one sentence into `## Entscheidungen` of the PRD, and asks the user only questions
+  `## Autonomous mode` (`## Autonomer Modus`) after the contract: Claude answers its numbered questions
+  itself, first from the conversation, then from code, `CLAUDE.md`, `README.md` and existing PRDs, writes
+  each with the chosen option and a reason of one sentence into `## Decisions` (`## Entscheidungen`) of the
+  PRD, and asks the user only questions
   it cannot decide and where a wrong choice is expensive. `prompt unblock` is described under Blocked runs.
   Other steps end with `unknown step: <step>` and the usage, exit code 2.
 - lazydev changes no `CLAUDE.md` of a project.
@@ -966,7 +1033,7 @@ like Claude Code's agents panel. It is opt-in, unlike the skill.
 | `…/runs/<id>/<prd>.<step>.jsonl` | Step log (also `resolve`): stream-json with `ts` and runner lines `{"type":"lazydev","time","text"}` |
 | `…/runs/<id>/<prd>.evidence/` | Evidence of verify, `report.md` (its report) and `pr.md` (review with `merge: pr`). Stays after the merge, `X` deletes it |
 | `…/runs/<id>/<prd>.runner.log`, `.devpid`, `.dev.log` | Runner output, dev server PID and folder, dev server output |
-| `$XDG_STATE_HOME/lazydev/trust/<id>.json`, `usage.json`, `agents.json`, `bin/` | Trust, limits, agents, runner binary |
+| `$XDG_STATE_HOME/lazydev/trust/<id>.json`, `usage.json`, `agents.json`, `agents.de.json`, `bin/` | Trust, limits, agents per language, runner binary |
 | `$XDG_STATE_HOME/lazydev/activity.jsonl` | Activity log of the TUI (see Activity log) |
 | `$XDG_DATA_HOME/lazydev/worktrees/<id>/<prd>/` | Worktrees |
 | `$CLAUDE_CONFIG_DIR/skills/lazydev/` (without the variable `~/.claude/skills/lazydev/`) | Claude Code skill: `SKILL.md`, `references/spec.md` |
@@ -999,9 +1066,9 @@ the PRD file name without `.md`.
 | `after [<project>] <prd> [<prd>…]` | Overrides the order plan chose (see Run): `<prd> starts once <prds> are merged.`, without PRDs `<prd> waits for nothing and starts with the next free slot.` The project is optional only when the first argument is no project. |
 | `stop [<project>] <prd>` | SIGTERM to the runner, a waiting PRD becomes aborted. |
 | `discard [--yes] [<project>] <prd>` | Asks `Delete worktree and branch feat/<prd> of <id>? …`, `--yes` skips the question (see Run, `X`). |
-| `wait [<project>] [--json] [--timeout <duration>]` | Projects like `status`. Reads the overview every second and returns with the events of the first read that has any: a run that reaches blocked, error, aborted or merged (`<kind> <id>/<prd>: <error or questions joined with " \| ">`), a run with a new note (`note <id>/<prd>: <note>`), a run whose resolve step answered the questions of a block (`resolved <id>/<prd>: Claude answered the open questions, see ## Entscheidungen in <file>`) and a run that enters phase pr (`pr <id>/<prd>: <url>`). A PRD seen first as merged gives no event. When no run works, sits in the merge queue or waits, it returns right away with `idle: no run works or waits`, a run in phase pr waits for a human and does not count; after the timeout (Go duration, e.g. `30m`) with `timeout: no event within <duration>`. `--json` prints one object per event: `kind`, `project`, `prd`, `phase`, `from`, `text`, `item` (the object of `status --json`). Always exit code 0. |
+| `wait [<project>] [--json] [--timeout <duration>]` | Projects like `status`. Reads the overview every second and returns with the events of the first read that has any: a run that reaches blocked, error, aborted or merged (`<kind> <id>/<prd>: <error or questions joined with " \| ">`), a run with a new note (`note <id>/<prd>: <note>`), a run whose resolve step answered the questions of a block (`resolved <id>/<prd>: Claude answered the open questions, see ## Decisions in <file>`, `## Entscheidungen` when the PRD has that heading) and a run that enters phase pr (`pr <id>/<prd>: <url>`). A PRD seen first as merged gives no event. When no run works, sits in the merge queue or waits, it returns right away with `idle: no run works or waits`, a run in phase pr waits for a human and does not count; after the timeout (Go duration, e.g. `30m`) with `timeout: no event within <duration>`. `--json` prints one object per event: `kind`, `project`, `prd`, `phase`, `from`, `text`, `item` (the object of `status --json`). Always exit code 0. |
 | `log [<project>] <prd> [-f]` | The step logs of the run in step order as `<time> <step> <kind> <text>`, the entries of the log tab. `-f` (`--follow`) reads new lines every second until the runner ends, then prints `-- <prd> <phase>`. Without run: `<prd> has no run`. |
-| `set-status [<project>] <prd> planned\|merged\|discarded` | The status picker (see Status): same checks, same commit, `Status of <label>: <status>, committed.` A PRD that only its worktree has: `<prd> is in the worktree of its run, its status belongs to the run`. |
+| `set-status [<project>] <prd> planned\|merged\|discarded` | The status picker (see Status): same checks, same commit, the value in the language of the project, `Status of <label>: <status>, committed.` A PRD that only its worktree has: `<prd> is in the worktree of its run, its status belongs to the run`. |
 | `dev [<project>] <prd> [start\|stop]` | Starts or stops the dev server like `D`, without action it toggles. Start prints PID, port and log. Without run: `<prd> has no worktree yet, start it with lazydev start`. |
 | `prompt create [--auto] [<description>]` | See Claude Code skill. |
 | `prompt unblock [--auto] [<project>] <prd>` | Prints the unblock prompt of a blocked run (see Blocked runs). Not blocked: `<prd> is not blocked, phase <phase>`. |

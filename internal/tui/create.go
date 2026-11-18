@@ -7,6 +7,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 
 	"lazydev/internal/claude"
+	"lazydev/internal/lang"
 	"lazydev/internal/prompts"
 	"lazydev/internal/repo"
 )
@@ -52,7 +53,7 @@ func (m *model) createPRD(description string) {
 	}
 	arguments := description
 	if arguments == "" {
-		arguments = "Neues PRD. Frag mich, worum es geht."
+		arguments = lang.For(p.lazydev.Config.Lang()).AskForTask
 	}
 	prompt, err := prompts.Build(p.path, p.path, p.lazydev.Config, "create", prompts.Vars{Arguments: arguments, Base: p.lazydev.Config.Base(), Branch: p.git.branch})
 	if err != nil {

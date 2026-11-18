@@ -9,7 +9,6 @@ import (
 	"slices"
 	"strings"
 
-	"lazydev/internal/claude"
 	"lazydev/internal/config"
 	"lazydev/internal/git"
 	"lazydev/internal/notify"
@@ -26,9 +25,6 @@ import (
 
 // MaxResolves limits the resolve steps of one run, so a PRD that blocks again and again stops.
 const MaxResolves = 2
-
-// resultResolved is the value under "## Ergebnis" of a resolve that answered every question.
-const resultResolved = "geklärt"
 
 // resolveTools let resolve read the worktree and edit the PRD. Bash only reads git.
 var resolveTools = []string{
@@ -102,7 +98,7 @@ func resolve(ctx context.Context, t Target, prdName string, r *state.Run, b *blo
 }
 
 // resolveStep calls Claude with the resolve prompt in the worktree and checks the outcome: the
-// report says geklärt, the PRD is no longer blocked and has no "## Blocker", and Claude changed
+// report says resolved, the PRD is no longer blocked and has no "## Blocker", and Claude changed
 // nothing but the PRD. It returns the decisions of the report.
 func resolveStep(ctx context.Context, t Target, prdName string, r *state.Run, log *logger) ([]string, int, error) {
 	before, err := git.Run(r.Worktree, "status", "--porcelain")
@@ -113,15 +109,16 @@ func resolveStep(ctx context.Context, t Target, prdName string, r *state.Run, lo
 	if err != nil {
 		return nil, 1, err
 	}
-	prompt := prompts.Resolve(prompts.Vars{Arguments: r.PRD, Base: r.Base, Branch: r.Branch})
-	s, exitCode, err := callClaude(ctx, t, prdName, r, r.Worktree, prompt, resolveTools, mode, nil, log)
+	l := t.Lang()
+	prompt := prompts.Resolve(l, prompts.Vars{Arguments: r.PRD, Base: r.Base, Branch: r.Branch})
+	s, exitCode, err := callClaude(ctx, t, prdName, r, r.Worktree, prompt, resolveTools, mode, nil, l, log)
 	if err != nil {
 		return nil, exitCode, err
 	}
 	if err := checkSummary(s, exitCode); err != nil {
 		return nil, exitCode, err
 	}
-	if err := checkReport(s.Result, state.StepResolve, resultResolved, "Offene Fragen"); err != nil {
+	if err := checkReport(s.Result, state.StepResolve, resultResolved, headingOpenQuestions); err != nil {
 		var b *blockedError
 		if errors.As(err, &b) {
 			return nil, 0, fmt.Errorf("Claude may not decide: %s", strings.Join(b.points, " | "))
@@ -146,13 +143,13 @@ func resolveStep(ctx context.Context, t Target, prdName string, r *state.Run, lo
 		return nil, 0, err
 	}
 	if d.Status.Kind == project.StatusBlocked {
-		return nil, 0, fmt.Errorf("status line of %s still says %s", r.PRD, project.ValueBlocked)
+		return nil, 0, fmt.Errorf("status line of %s still says %s", r.PRD, d.Status.Value)
 	}
 	if content, err := os.ReadFile(filepath.Join(r.Worktree, r.PRD)); err != nil {
 		return nil, 0, err
 	} else if _, _, ok := project.Blocker(string(content)); ok {
 		return nil, 0, fmt.Errorf("%s still has ## Blocker", r.PRD)
 	}
-	section, _ := claude.Section(s.Result, "Entscheidungen")
+	section, _ := reportSection(s.Result, headingDecisions)
 	return reportPoints(section), 0, nil
 }

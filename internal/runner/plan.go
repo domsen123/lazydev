@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"lazydev/internal/fsutil"
+	"lazydev/internal/lang"
 	"lazydev/internal/project"
 	"lazydev/internal/prompts"
 	"lazydev/internal/state"
@@ -46,8 +47,9 @@ func plan(ctx context.Context, t Target, prdName string, r *state.Run, log *logg
 		names[i] = c.Name
 	}
 	log.printf("Open runs: %s", strings.Join(names, ", "))
-	prompt := prompts.Plan(prompts.Vars{Arguments: r.PRD, Base: r.Base, Branch: r.Branch}, runs)
-	s, exitCode, err := callClaude(ctx, t, prdName, r, t.Dir, prompt, planTools, planMode, nil, log)
+	l := t.Lang()
+	prompt := prompts.Plan(l, prompts.Vars{Arguments: r.PRD, Base: r.Base, Branch: r.Branch}, runs)
+	s, exitCode, err := callClaude(ctx, t, prdName, r, t.Dir, prompt, planTools, planMode, nil, l, log)
 	if err != nil {
 		return exitCode, err
 	}
@@ -87,28 +89,34 @@ func planCandidates(id, prdName string) []prompts.PlanRun {
 	return runs
 }
 
-// parsePlan reads the section "## Reihenfolge" at the end of the answer: "Nach: <prd>, …" or
-// "Nach: keine" and "Grund: <sentence>". Names may come with backticks, area or ".md"; names not
-// in known are an error, so a typo does not start a PRD too early.
+// parsePlan reads the section "## Order" at the end of the answer: "After: <prd>, …" or
+// "After: none" and "Reason: <sentence>", or their German words "## Reihenfolge", "Nach:", "keine"
+// and "Grund:". Names may come with backticks, area or ".md"; names not in known are an error, so a
+// typo does not start a PRD too early.
 func parsePlan(result string, known []string) (after []string, reason string, err error) {
-	i := strings.LastIndex(result, "## Reihenfolge")
+	i := -1
+	for _, v := range lang.All() {
+		i = max(i, strings.LastIndex(result, "## "+v.Order))
+	}
 	if i < 0 {
-		return nil, "", errors.New("the answer of plan lacks ## Reihenfolge")
+		return nil, "", errors.New("the answer of plan lacks ## Order")
 	}
 	var afterLine string
 	hasAfter := false
 	for l := range strings.SplitSeq(result[i:], "\n") {
 		l = strings.TrimSpace(strings.Trim(strings.TrimSpace(l), "`"))
-		if v, ok := strings.CutPrefix(l, "Nach:"); ok {
-			afterLine, hasAfter = strings.TrimSpace(v), true
-		} else if v, ok := strings.CutPrefix(l, "Grund:"); ok {
-			reason = strings.TrimSpace(v)
+		for _, voc := range lang.All() {
+			if v, ok := strings.CutPrefix(l, voc.After); ok {
+				afterLine, hasAfter = strings.TrimSpace(v), true
+			} else if v, ok := strings.CutPrefix(l, voc.Reason); ok {
+				reason = strings.TrimSpace(v)
+			}
 		}
 	}
 	if !hasAfter {
-		return nil, "", errors.New("the answer of plan lacks the line Nach:")
+		return nil, "", errors.New("the answer of plan lacks the line After:")
 	}
-	if strings.EqualFold(strings.Trim(afterLine, "`. "), "keine") || afterLine == "" {
+	if isNoneFold(strings.Trim(afterLine, "`. ")) || afterLine == "" {
 		return nil, reason, nil
 	}
 	for part := range strings.SplitSeq(afterLine, ",") {
@@ -122,6 +130,11 @@ func parsePlan(result string, known []string) (after []string, reason string, er
 		}
 	}
 	return after, reason, nil
+}
+
+// isNoneFold is true for "none" or "keine" in any case.
+func isNoneFold(s string) bool {
+	return slices.ContainsFunc(lang.All(), func(v lang.Vocab) bool { return strings.EqualFold(s, v.None) })
 }
 
 // dropCycles removes the PRDs from after that wait for prdName themselves, directly or through

@@ -46,8 +46,9 @@ func projectDetailsView(info repo.Info, width, height int, t theme) string {
 		return muted.Render(pad(label, w)) + value
 	}
 
-	base := text.Render(info.Config.Base()) + muted.Render(" · ") + text.Render("merge "+info.Config.MergeMode())
-	project := column{title: "Project", max: 28, rows: []string{field("base", 7, base)}}
+	base := text.Render(info.Config.Base()) + muted.Render(" · ") + text.Render("merge "+info.Config.MergeMode()) +
+		muted.Render(" · ") + text.Render("language "+string(info.Config.Lang()))
+	project := column{title: "Project", max: 40, rows: []string{field("base", 7, base)}}
 	switch info.Trust {
 	case repo.TrustNone:
 		project.rows = append(project.rows, field("trust", 7, muted.Render("–")))

@@ -9,16 +9,25 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 
+	"lazydev/internal/lang"
 	"lazydev/internal/repo"
 )
 
-//go:embed contract/*.md
+// contract/<lang>/ holds the contracts per language, with the same file names.
+//
+//go:embed contract/en/*.md contract/de/*.md
 var contracts embed.FS
+
+// contract reads the contract file name (e.g. "implement.md") in language l.
+func contract(l lang.Lang, name string) ([]byte, error) {
+	return contracts.ReadFile(path.Join("contract", string(l), name))
+}
 
 // stepReview gets the block of review.pr.md with merge: pr.
 const stepReview = "review"
@@ -61,24 +70,26 @@ func Build(dir, workDir string, cfg repo.Config, step string, v Vars) (string, e
 	} else if err != nil {
 		return "", err
 	}
-	contract, _ := contracts.ReadFile("contract/" + step + ".md")
+	l := cfg.Lang()
+	text, _ := contract(l, step+".md")
 	if step == stepReview && cfg.MergeMode() == repo.MergePR {
 		// With pull requests the review also writes title and description of the pull request.
-		pr, _ := contracts.ReadFile("contract/review.pr.md")
-		contract = append(append(contract, '\n'), pr...)
+		pr, _ := contract(l, "review.pr.md")
+		text = append(append(text, '\n'), pr...)
 	}
 
 	parts := []string{Header(step, v)}
 	if len(knowledge) > 0 {
+		voc := lang.For(l)
 		var b strings.Builder
-		b.WriteString("## Pflichtlektüre\n\nLies diese Dateien vollständig, bevor du etwas anderes tust:\n\n")
+		b.WriteString("## " + voc.RequiredReading + "\n\n" + voc.RequiredReadingText + "\n\n")
 		for _, f := range knowledge {
 			b.WriteString("- `" + f + "`\n")
 		}
 		parts = append(parts, b.String())
 	}
 	r := v.replacer()
-	parts = append(parts, r.Replace(stripFrontmatter(string(body))), r.Replace(string(contract)))
+	parts = append(parts, r.Replace(stripFrontmatter(string(body))), r.Replace(string(text)))
 	for i, p := range parts {
 		parts[i] = strings.TrimSpace(p)
 	}
@@ -92,9 +103,9 @@ type PlanRun struct {
 }
 
 // Plan builds the prompt of the step plan. It is built in and not part of .lazydev/: lazydev parses
-// its answer. v.Arguments is the path of the new PRD.
-func Plan(v Vars, runs []PlanRun) string {
-	data, _ := contracts.ReadFile("contract/plan.md")
+// its answer. v.Arguments is the path of the new PRD, l the language of the project.
+func Plan(l lang.Lang, v Vars, runs []PlanRun) string {
+	data, _ := contract(l, "plan.md")
 	var list strings.Builder
 	for _, r := range runs {
 		fmt.Fprintf(&list, "- `%s` (Phase %s): `%s`\n", r.Name, r.Phase, r.File)
@@ -105,18 +116,18 @@ func Plan(v Vars, runs []PlanRun) string {
 
 // Resolve builds the prompt of the step resolve, which answers the questions of a blocked run
 // without the user. Like plan it is built in, lazydev checks its report. v.Arguments is the PRD
-// path relative to the worktree.
-func Resolve(v Vars) string {
-	data, _ := contracts.ReadFile("contract/resolve.md")
+// path relative to the worktree, l the language of the project.
+func Resolve(l lang.Lang, v Vars) string {
+	data, _ := contract(l, "resolve.md")
 	rep := v.replacer()
 	return Header("resolve", v) + "\n\n" + strings.TrimSpace(rep.Replace(string(data))) + "\n"
 }
 
 // Auto is the block a prompt of step gets in autonomous mode ("lazydev prompt <step> --auto"):
 // Claude answers the questions itself instead of asking the user. It goes after the contract and
-// takes precedence over it. Steps without autonomous mode give "".
-func Auto(step string, v Vars) string {
-	data, err := contracts.ReadFile("contract/" + step + ".auto.md")
+// takes precedence over it. Steps without autonomous mode give "". l is the language of the project.
+func Auto(l lang.Lang, step string, v Vars) string {
+	data, err := contract(l, step+".auto.md")
 	if err != nil {
 		return ""
 	}

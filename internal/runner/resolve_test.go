@@ -55,7 +55,7 @@ func TestAutoUnblockResolves(t *testing.T) {
 		t.Errorf("git log:\n%s", logs)
 	}
 	prd := read(t, filepath.Join(target.Dir, prdPath))
-	if !strings.Contains(prd, "## Entscheidungen") || strings.Contains(prd, "## Blocker") {
+	if !strings.Contains(prd, "## Decisions") || strings.Contains(prd, "## Blocker") {
 		t.Errorf("PRD:\n%s", prd)
 	}
 	log := read(t, state.LogPath("app", prdName, state.StepResolve))

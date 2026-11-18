@@ -137,7 +137,7 @@ func publishPullRequest(ctx context.Context, t Target, prdName string, r *state.
 	if err := rebaseAndCheck(ctx, t, prdName, r, "origin/"+r.Base, log); err != nil {
 		return err
 	}
-	if err := recordRunInfo(prdName, r, log); err != nil {
+	if err := recordRunInfo(prdName, r, t.Lang(), log); err != nil {
 		return err
 	}
 	log.printf("$ git push --force-with-lease -u origin %s", r.Branch)

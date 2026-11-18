@@ -148,16 +148,26 @@ func TestCheckSummary(t *testing.T) {
 }
 
 func TestCheckReport(t *testing.T) {
-	const impl, merge = "Offene Fragen", "Offene Punkte"
+	impl, merge := headingOpenQuestions, headingOpenPoints
 	cases := []struct {
-		name, report, step, want, questions, err string
+		name, report, step string
+		want, questions    word
+		err                string
 	}{
+		{"english", "## Result\nimplemented\n\n## Open questions\n- none\n", "implement", resultImplemented, impl, ""},
+		{"english merge ready", "## Result\nReady for fast-forward\n", "merge", resultMergeReady, merge, ""},
+		{"english aborted", "## Result\naborted\n\n## Open questions\n- none\n- Which table?\n", "implement", resultImplemented, impl, "implement blocked: Which table?"},
+		{"english aborted with none", "## Result\naborted\n\n## Open questions\n- none\n", "implement", resultImplemented, impl, "implement aborted"},
+		{"english merge points", "## Result\naborted\n\n## Open points\n- conflict in x\n", "merge", resultMergeReady, merge, "merge blocked: conflict in x"},
+		{"english heading, german value", "## Result\numgesetzt\n", "implement", resultImplemented, impl, ""},
+		{"english resolved", "## Result\nresolved\n", "resolve", resultResolved, impl, ""},
+		{"german resolved", "## Ergebnis\ngeklärt\n", "resolve", resultResolved, impl, ""},
 		{"done", "## Ergebnis\numgesetzt\n", "implement", resultImplemented, impl, ""},
 		{"case and blanks", "Text\n\n## Ergebnis\n\n  Umgesetzt  \n\n## Offene Fragen\n- keine\n", "implement", resultImplemented, impl, ""},
 		{"first line counts", "## Ergebnis\numgesetzt\nmit Details\n", "implement", resultImplemented, impl, ""},
 		{"merge ready", "## Ergebnis\nBereit für Fast-Forward\n", "merge", resultMergeReady, merge, ""},
-		{"no section", "umgesetzt", "implement", resultImplemented, impl, "report of implement without „## Ergebnis“"},
-		{"empty", "", "review", resultImplemented, impl, "report of review without „## Ergebnis“"},
+		{"no section", "umgesetzt", "implement", resultImplemented, impl, "report of implement without „## Result“"},
+		{"empty", "", "review", resultImplemented, impl, "report of review without „## Result“"},
 		{"empty section", "## Ergebnis\n\n## Offene Fragen\n- x\n", "implement", resultImplemented, impl, `unknown result "" in the report of implement`},
 		{"aborted with question", "## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Feld fehlt im PRD\n- zweite\n", "implement", resultImplemented, impl, "implement blocked: Feld fehlt im PRD"},
 		{"keine before a question", "## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- keine\n- Feld fehlt\n", "implement", resultImplemented, impl, "implement blocked: Feld fehlt"},
@@ -180,7 +190,7 @@ func TestCheckReport(t *testing.T) {
 			t.Errorf("%s: %q, want %q", c.name, got, c.err)
 		}
 	}
-	err := checkReport("## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Erste\n\n  Zweite  \n- keine\n", "implement", resultImplemented, "Offene Fragen")
+	err := checkReport("## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Erste\n\n  Zweite  \n- keine\n", "implement", resultImplemented, headingOpenQuestions)
 	var blocked *blockedError
 	if !errors.As(err, &blocked) || blocked.step != "implement" || strings.Join(blocked.points, "|") != "Erste|Zweite" {
 		t.Errorf("blocked: %#v", err)

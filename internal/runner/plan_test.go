@@ -24,6 +24,15 @@ func TestParsePlan(t *testing.T) {
 		{result: "## Reihenfolge\n\nNach: fremd\nGrund: x\n", err: true},
 		{result: "Nach: alt\n", err: true},
 		{result: "## Reihenfolge\n\nGrund: x\n", err: true},
+		{result: "x\n\n## Order\n\nAfter: none\nReason: separate files\n", reason: "separate files"},
+		{result: "## Order\n\nAfter: None.\nReason: x\n", reason: "x"},
+		{result: "## Order\n\nAfter: `alt`, prd/db/schema.md\nReason: migrations\n", want: []string{"alt", "schema"}, reason: "migrations"},
+		{result: "## Order\n\n```\nAfter: alt\nReason: builds on it\n```\n", want: []string{"alt"}, reason: "builds on it"},
+		{result: "## Order\n\nAfter: foreign\nReason: x\n", err: true},
+		{result: "After: alt\n", err: true},
+		{result: "## Order\n\nReason: x\n", err: true},
+		// German lines under an English heading count too.
+		{result: "## Order\n\nNach: alt\nGrund: Migrationen\n", want: []string{"alt"}, reason: "Migrationen"},
 	} {
 		got, reason, err := parsePlan(tc.result, known)
 		if (err != nil) != tc.err || !slices.Equal(got, tc.want) || (!tc.err && reason != tc.reason) {

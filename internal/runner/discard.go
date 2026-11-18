@@ -9,12 +9,13 @@ import (
 
 	"lazydev/internal/devserver"
 	"lazydev/internal/fsutil"
+	"lazydev/internal/lang"
 	"lazydev/internal/project"
 	"lazydev/internal/state"
 )
 
 // Discard throws away the run of a PRD: dev server, open pull request, teardown hook, databases,
-// worktree, branch, state and evidence. A PRD that is missing in the main folder goes back there untracked with status geplant
+// worktree, branch, state and evidence. A PRD that is missing in the main folder goes back there untracked with status planned
 // first. It works without state too, so a half created run can be cleaned up.
 func Discard(t Target, prdName string) error {
 	r, err := state.Load(t.ID, prdName)
@@ -44,7 +45,7 @@ func Discard(t Target, prdName string) error {
 	if err := dropDatabases(t, r, log); err != nil {
 		errs = append(errs, err)
 	}
-	if err := restorePRD(t.Dir, r.Worktree, r.PRD); err != nil {
+	if err := restorePRD(t.Dir, r.Worktree, r.PRD, t.Lang()); err != nil {
 		// Without the PRD saved, the worktree stays, so nothing gets lost.
 		return errors.Join(append(errs, err)...)
 	}
@@ -58,8 +59,9 @@ func Discard(t Target, prdName string) error {
 }
 
 // restorePRD puts the PRD from the worktree back into the main folder if it is missing there, with
-// status geplant and without "## Blocker", because the implementation is gone with the worktree.
-func restorePRD(mainDir, wt, rel string) error {
+// status planned in language l and without "## Blocker", because the implementation is gone with
+// the worktree.
+func restorePRD(mainDir, wt, rel string, l lang.Lang) error {
 	src, dst := filepath.Join(wt, rel), filepath.Join(mainDir, rel)
 	if rel == "" || !fsutil.Exists(src) || fsutil.Exists(dst) {
 		return nil
@@ -71,6 +73,6 @@ func restorePRD(mainDir, wt, rel string) error {
 	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
 		return err
 	}
-	reset, _ := project.SetStatus(string(data), project.ValuePlanned)
+	reset, _ := project.SetStatus(string(data), lang.For(l).Planned)
 	return os.WriteFile(dst, []byte(project.RemoveBlocker(reset)), 0o644)
 }

@@ -20,7 +20,10 @@ const prdName = "new-token"
 
 const prdPath = "prd/auth/new-token.md"
 
-const prdContent = "# PRD: Token\n\n> Status: geplant · Scope: tokens\n\nbody\n"
+const prdContent = "# PRD: Token\n\n> Status: planned · Scope: tokens\n\nbody\n"
+
+// prdContentDE is the PRD with a German status line.
+const prdContentDE = "# PRD: Token\n\n> Status: geplant · Scope: tokens\n\nbody\n"
 
 // hooksConfig is a config.yaml with all hooks, an allowed tool and knowledge. It needs trust.
 const hooksConfig = `knowledge:
@@ -55,17 +58,18 @@ echo "teardown $(pwd -P)" >> "$LAZYDEV_PROJECT/hooks.log"
 )
 
 // fakeScript imitates claude -p. It recognizes the step by the header "# lazydev <step>:" in the
-// first line of the prompt in $2 and appends its arguments to $FAKE_ARGS. FAKE_CLAUDE_MODE: ok
-// (with a note under Hinweise), exit, noresult, error, abort (two open questions, wip.txt stays
-// uncommitted), abortnone (abgebrochen without questions), status (status line stays), dirty
-// (review does not commit),
+// first line of the prompt in $2 and appends its arguments to $FAKE_ARGS. It answers in the language
+// of FAKE_CLAUDE_LANG: de for German, English without value. It reads PRDs of both languages.
+// FAKE_CLAUDE_MODE: ok (with a note under Notes), exit, noresult, error, abort (two open questions,
+// wip.txt stays uncommitted), abortnone (aborted without questions), status (status line stays),
+// dirty (review does not commit),
 // lazydev (implement creates .lazydev/neu.md), sleep (implement sleeps until a signal ends it).
-// abortonce (implement blocks the first time only). FAKE_RESOLVE: ok (default), decline (abgebrochen,
+// abortonce (implement blocks the first time only). FAKE_RESOLVE: ok (default), decline (aborted,
 // scribbles into the PRD), dirty (also writes other.txt).
 // FAKE_MERGE_MODE: ok (rebase -X theirs onto FAKE_MERGE_BASE, main by default), noop (no rebase),
-// abort. FAKE_PLAN is the line "Nach:" of plan, "keine" by default. FAKE_VERIFY: ok (default, writes
+// abort. FAKE_PLAN is the line "After:" of plan, "none" by default. FAKE_VERIFY: ok (default, writes
 // list.png into the evidence folder of the prompt), missing (names list.png without writing it),
-// blockonce (abgebrochen with a question the first time only). FAKE_REVIEW_PR: ok (default, review
+// blockonce (aborted with a question the first time only). FAKE_REVIEW_PR: ok (default, review
 // writes pr.md when the prompt asks for it), none.
 const fakeScript = `#!/bin/sh
 # printf instead of echo, dash's echo turns "\n" into a newline.
@@ -73,6 +77,18 @@ const fakeScript = `#!/bin/sh
 echo '{"type":"system","subtype":"init","session_id":"sess-1","model":"claude-opus-5-5"}'
 echo 'eine Warnung' >&2
 mode="$FAKE_CLAUDE_MODE"
+if [ "$FAKE_CLAUDE_LANG" = de ]; then
+	RES='## Ergebnis'; QUE='## Offene Fragen'; PTS='## Offene Punkte'; NOTES='## Hinweise'; EVI='## Belege'; DEC='## Entscheidungen'
+	NONE=keine; IMPL=umgesetzt; VERI=verifiziert; ABORT=abgebrochen; READY='bereit für Fast-Forward'; SOLVED='geklärt'
+	ORDER='## Reihenfolge'; AFTER='Nach:'; REASON='Grund:'; DONE='umgesetzt (2026-10-20)'; PLANNED=geplant
+else
+	RES='## Result'; QUE='## Open questions'; PTS='## Open points'; NOTES='## Notes'; EVI='## Evidence'; DEC='## Decisions'
+	NONE=none; IMPL=implemented; VERI=verified; ABORT=aborted; READY='ready for fast-forward'; SOLVED='resolved'
+	ORDER='## Order'; AFTER='After:'; REASON='Reason:'; DONE='implemented (2026-10-20)'; PLANNED=planned
+fi
+# result prints a result event with cost $1 and the report $2, whose "\n" stay escaped for JSON.
+result() { printf '{"type":"result","is_error":false,"total_cost_usd":%s,"result":"%s"}\n' "$1" "$2"; }
+implemented() { sed -i "s/^> Status: \(geplant\|planned\)/> Status: $DONE/" "$1"; }
 case "$2" in
 "# lazydev implement: "*)
 	prd=$(printf '%s\n' "$2" | sed -n '1s/^# lazydev implement: //p')
@@ -81,38 +97,38 @@ case "$2" in
 	noresult) exit 0 ;;
 	error) echo '{"type":"result","is_error":true,"result":"Rate limit"}'; exit 0 ;;
 	abort) echo wip > wip.txt
-		printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Feld fehlt im PRD\n- Zweite Frage\n\n## Hinweise\n- einmal cd benutzt\n"}'; exit 0 ;;
+		result 0.2 "$RES\\n$ABORT\\n\\n$QUE\\n- Feld fehlt im PRD\\n- Zweite Frage\\n\\n$NOTES\\n- einmal cd benutzt\\n"; exit 0 ;;
 	abortonce) if [ ! -f "$FAKE_ARGS.aborted" ]; then touch "$FAKE_ARGS.aborted"; echo wip > wip.txt
-			printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Feld fehlt im PRD\n"}'; exit 0
+			result 0.2 "$RES\\n$ABORT\\n\\n$QUE\\n- Feld fehlt im PRD\\n"; exit 0
 		fi
-		sed -i 's/^> Status: geplant/> Status: umgesetzt (2026-10-20)/' "$prd" ;;
-	abortnone) printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- keine\n"}'; exit 0 ;;
+		implemented "$prd" ;;
+	abortnone) result 0.2 "$RES\\n$ABORT\\n\\n$QUE\\n- $NONE\\n"; exit 0 ;;
 	status) ;;
 	sleep) exec sleep 30 ;;
 	lazydev) mkdir -p .lazydev && echo x > .lazydev/neu.md
-		sed -i 's/^> Status: geplant/> Status: umgesetzt (2026-10-20)/' "$prd" ;;
-	*) sed -i 's/^> Status: geplant/> Status: umgesetzt (2026-10-20)/' "$prd" ;;
+		implemented "$prd" ;;
+	*) implemented "$prd" ;;
 	esac
 	echo '{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"x.ts"}}]}}'
-	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.5,"result":"## Ergebnis\numgesetzt\n\n## Offene Fragen\n- keine\n\n## Hinweise\n- einmal cd benutzt\n"}'
+	result 0.5 "$RES\\n$IMPL\\n\\n$QUE\\n- $NONE\\n\\n$NOTES\\n- einmal cd benutzt\\n"
 	;;
 "# lazydev verify: "*)
-	ev=$(printf '%s\n' "$2" | sed -n 's/.*nur unter .\(\/[^ ]*\.evidence\). ab.*/\1/p' | head -n 1)
+	ev=$(printf '%s\n' "$2" | sed -n -e 's/.*nur unter .\(\/[^ ]*\.evidence\). ab.*/\1/p' -e 's/.*only under .\(\/[^ ]*\.evidence\).,.*/\1/p' | head -n 1)
 	case "$FAKE_VERIFY" in
 	missing) ;;
 	blockonce) if [ ! -f "$FAKE_ARGS.verifyblocked" ]; then touch "$FAKE_ARGS.verifyblocked"
-			printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\nabgebrochen\n\n## Belege\n- keine\n\n## Offene Fragen\n- Welcher Browser?\n"}'; exit 0
+			result 0.1 "$RES\\n$ABORT\\n\\n$EVI\\n- $NONE\\n\\n$QUE\\n- Welcher Browser?\\n"; exit 0
 		fi
 		echo png > "$ev/list.png" ;;
 	*) echo png > "$ev/list.png" ;;
 	esac
 	echo fix > verify-fix.txt
-	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.2,"result":"## Ergebnis\nverifiziert\n\n## Belege\n- list.png: die Liste mit Token\n\n## Offene Fragen\n- keine\n"}'
+	result 0.2 "$RES\\n$VERI\\n\\n$EVI\\n- list.png: die Liste mit Token\\n\\n$QUE\\n- $NONE\\n"
 	;;
 "# lazydev review: "*)
 	echo change > review.txt
 	if [ "$mode" != dirty ]; then git add -A && git commit -q -m "feat: review"; fi
-	ev=$(printf '%s\n' "$2" | sed -n 's/.*nach .\(\/[^ ]*\.evidence\)\/pr\.md.*/\1/p' | head -n 1)
+	ev=$(printf '%s\n' "$2" | sed -n -e 's/.*nach .\(\/[^ ]*\.evidence\)\/pr\.md.*/\1/p' -e 's/.*request to .\(\/[^ ]*\.evidence\)\/pr\.md.*/\1/p' | head -n 1)
 	if [ -n "$ev" ] && [ "$FAKE_REVIEW_PR" != none ]; then printf '# feat(auth): add tokens\n\n## Summary\n\nTokens.\n' > "$ev/pr.md"; fi
 	echo '{"type":"result","is_error":false,"total_cost_usd":0.3,"result":"fertig"}'
 	;;
@@ -120,27 +136,27 @@ case "$2" in
 	prd=$(printf '%s\n' "$2" | sed -n '1s/^# lazydev resolve: //p')
 	case "$FAKE_RESOLVE" in
 	decline) echo kaputt >> "$prd"
-		printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Datenverlust möglich\n"}'; exit 0 ;;
+		result 0.1 "$RES\\n$ABORT\\n\\n$QUE\\n- Datenverlust möglich\\n"; exit 0 ;;
 	dirty) echo x > other.txt ;;
 	esac
-	status=geplant
-	if grep -q '^Schritt: verify' "$prd"; then status='umgesetzt (2026-10-20)'; fi
-	sed -i -e "s/^> Status: blockiert ([0-9-]*)/> Status: $status/" -e '/^## Blocker/,$d' "$prd"
-	printf '## Entscheidungen\n\n- Feld: A, passt zum Code\n' >> "$prd"
-	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\ngeklärt\n\n## Entscheidungen\n- Feld fehlt im PRD: A, passt zum Code\n\n## Offene Fragen\n- keine\n"}'
+	status=$PLANNED
+	if grep -q '^\(Schritt\|Step\): verify' "$prd"; then status=$DONE; fi
+	sed -i -e "s/^> Status: \(blockiert\|blocked\) ([0-9-]*)/> Status: $status/" -e '/^## Blocker/,$d' "$prd"
+	printf '%s\n\n- Feld: A, passt zum Code\n' "$DEC" >> "$prd"
+	result 0.1 "$RES\\n$SOLVED\\n\\n$DEC\\n- Feld fehlt im PRD: A, passt zum Code\\n\\n$QUE\\n- $NONE\\n"
 	;;
 "# lazydev plan: "*)
-	printf '{"type":"result","is_error":false,"total_cost_usd":0.05,"result":"Geprüft.\\n\\n## Reihenfolge\\n\\nNach: %s\\nGrund: beide ändern die Tokens\\n"}\n' "${FAKE_PLAN:-keine}"
+	result 0.05 "Geprüft.\\n\\n$ORDER\\n\\n$AFTER ${FAKE_PLAN:-$NONE}\\n$REASON beide ändern die Tokens\\n"
 	;;
 "# lazydev merge: "*)
 	case "$FAKE_MERGE_MODE" in
 	noop) ;;
 	abort)
-		printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\nabgebrochen\n\n## Offene Punkte\n- Konflikt in review.txt\n"}'
+		result 0.1 "$RES\\n$ABORT\\n\\n$PTS\\n- Konflikt in review.txt\\n"
 		exit 0 ;;
 	*) git rebase -q -X theirs "${FAKE_MERGE_BASE:-main}" >/dev/null 2>&1 || true ;;
 	esac
-	printf '%s\n' '{"type":"result","is_error":false,"total_cost_usd":0.1,"result":"## Ergebnis\nbereit für Fast-Forward\n"}'
+	result 0.1 "$RES\\n$READY\\n"
 	;;
 esac
 `
@@ -248,6 +264,7 @@ func isolate(t *testing.T) {
 	t.Setenv("FAKE_CLAUDE_MODE", "ok")
 	t.Setenv("FAKE_MERGE_MODE", "ok")
 	t.Setenv("FAKE_CHECK", "")
+	t.Setenv("FAKE_CLAUDE_LANG", "")
 
 	bin := t.TempDir()
 	fake := filepath.Join(bin, "claude")

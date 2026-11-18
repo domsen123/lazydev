@@ -1,11 +1,15 @@
 package project
 
 import (
+	"fmt"
 	"math"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"time"
+
+	"lazydev/internal/lang"
 )
 
 // StatusKind is what a status line says about a PRD.
@@ -19,26 +23,8 @@ const (
 	StatusBlocked
 )
 
-// Status values in PRD files. They stay German: lazydev's prompts, contracts and existing PRDs use
-// them. umgesetzt, verworfen and blockiert get a date.
-const (
-	ValuePlanned     = "geplant"
-	ValueImplemented = "umgesetzt"
-	ValueDiscarded   = "verworfen"
-	ValueBlocked     = "blockiert"
-)
-
-// The section the runner appends to a blocked PRD and its first line, German like the status values.
-const (
-	blockerHeading = "## Blocker"
-	blockerStep    = "Schritt:"
-)
-
-// Fields of the detail that the runner writes before the merge, German like the status values.
-const (
-	costField  = "Kosten:"
-	modelField = "Modell:"
-)
+// The status values, the section "## Blocker" with its first line and the fields cost and model
+// come from lang: lazydev reads every language and writes the language of the project.
 
 // HeaderScanLines limits the search for the status line to the head of a file.
 const HeaderScanLines = 20
@@ -46,10 +32,10 @@ const HeaderScanLines = 20
 // Status is the parsed line "> Status: <value> · <detail>".
 type Status struct {
 	Kind StatusKind
-	// Value is the part before "·", e.g. "umgesetzt (2026-10-14)".
+	// Value is the part before "·", e.g. "implemented (2026-10-14)".
 	Value string
-	// Date is the date of "umgesetzt (YYYY-MM-DD)", "verworfen (YYYY-MM-DD)" and
-	// "blockiert (YYYY-MM-DD)", empty otherwise.
+	// Date is the date of "implemented (YYYY-MM-DD)", "discarded (YYYY-MM-DD)" and
+	// "blocked (YYYY-MM-DD)" or their German values, empty otherwise.
 	Date string
 	// Detail is the text after "·", e.g. "Scope: backend only".
 	Detail string
@@ -57,10 +43,22 @@ type Status struct {
 
 var (
 	statusLineRe = regexp.MustCompile(`^>\s*Status:\s*(.*)$`)
-	statusDateRe = regexp.MustCompile(`^(?:umgesetzt|verworfen|blockiert)\s*\((\d{4}-\d{2}-\d{2})\)`)
+	statusDateRe = buildDateRe()
 )
 
-// ParseStatusLine recognizes a status line. ok is false for other lines.
+// buildDateRe matches the dated status values of every language, e.g.
+// "(?:implemented|discarded|blocked|umgesetzt|verworfen|blockiert)".
+func buildDateRe() *regexp.Regexp {
+	var words []string
+	for _, v := range lang.All() {
+		for _, w := range []string{v.Implemented, v.Discarded, v.Blocked} {
+			words = append(words, regexp.QuoteMeta(w))
+		}
+	}
+	return regexp.MustCompile(`^(?:` + strings.Join(words, "|") + `)\s*\((\d{4}-\d{2}-\d{2})\)`)
+}
+
+// ParseStatusLine recognizes a status line in any language. ok is false for other lines.
 func ParseStatusLine(line string) (s Status, ok bool) {
 	m := statusLineRe.FindStringSubmatch(strings.TrimSpace(line))
 	if m == nil {
@@ -68,20 +66,44 @@ func ParseStatusLine(line string) (s Status, ok bool) {
 	}
 	value, detail, _ := strings.Cut(m[1], "·")
 	s.Value, s.Detail = strings.TrimSpace(value), strings.TrimSpace(detail)
-	switch {
-	case s.Value == ValuePlanned:
-		s.Kind = StatusPlanned
-	case strings.HasPrefix(s.Value, ValueImplemented):
-		s.Kind = StatusImplemented
-	case strings.HasPrefix(s.Value, ValueDiscarded):
-		s.Kind = StatusDiscarded
-	case strings.HasPrefix(s.Value, ValueBlocked):
-		s.Kind = StatusBlocked
-	}
+	s.Kind = statusKind(s.Value)
 	if d := statusDateRe.FindStringSubmatch(s.Value); d != nil {
 		s.Date = d[1]
 	}
 	return s, true
+}
+
+// statusKind is the kind of a status value in any language.
+func statusKind(value string) StatusKind {
+	for _, v := range lang.All() {
+		switch {
+		case value == v.Planned:
+			return StatusPlanned
+		case strings.HasPrefix(value, v.Implemented):
+			return StatusImplemented
+		case strings.HasPrefix(value, v.Discarded):
+			return StatusDiscarded
+		case strings.HasPrefix(value, v.Blocked):
+			return StatusBlocked
+		}
+	}
+	return StatusUnknown
+}
+
+// StatusValue is the status value of kind in language l on day now: planned without date, the
+// others with "(YYYY-MM-DD)". StatusUnknown gives "".
+func StatusValue(kind StatusKind, l lang.Lang, now time.Time) string {
+	v := lang.For(l)
+	word := map[StatusKind]string{
+		StatusPlanned:     v.Planned,
+		StatusImplemented: v.Implemented,
+		StatusDiscarded:   v.Discarded,
+		StatusBlocked:     v.Blocked,
+	}[kind]
+	if kind == StatusPlanned || word == "" {
+		return word
+	}
+	return fmt.Sprintf("%s (%s)", word, now.Format("2006-01-02"))
 }
 
 // SetStatus sets the value of the first status line. The detail after "·" stays. ok is false
@@ -109,10 +131,12 @@ func SetStatus(content, value string) (string, bool) {
 	return content, false
 }
 
-// SetBlocker writes the section "## Blocker" with the step and the points of a blocked run: at the
-// end of content, or in place of an existing section up to the next "## " heading or the end.
-func SetBlocker(content, step string, points []string) string {
-	section := []string{blockerHeading, "", blockerStep + " " + step, ""}
+// SetBlocker writes the section "## Blocker" in language l with the step and the points of a
+// blocked run: at the end of content, or in place of an existing section up to the next "## "
+// heading or the end.
+func SetBlocker(content, step string, points []string, l lang.Lang) string {
+	v := lang.For(l)
+	section := []string{v.BlockerHeading, "", v.BlockerStep + " " + step, ""}
 	for _, p := range points {
 		section = append(section, "- "+p)
 	}
@@ -164,10 +188,12 @@ func Blocker(content string) (step string, points []string, ok bool) {
 	}
 	for _, l := range lines[start+1 : end] {
 		t := strings.TrimSpace(l)
+		if label, ok := blockerStepLabel(t); ok {
+			step = strings.TrimSpace(strings.TrimPrefix(t, label))
+			continue
+		}
 		switch {
 		case t == "":
-		case strings.HasPrefix(t, blockerStep):
-			step = strings.TrimSpace(strings.TrimPrefix(t, blockerStep))
 		case strings.HasPrefix(t, "- "):
 			points = append(points, strings.TrimPrefix(t, "- "))
 		case len(points) > 0:
@@ -177,9 +203,24 @@ func Blocker(content string) (step string, points []string, ok bool) {
 	return step, points, true
 }
 
+// blockerStepLabel is the label "Step:" or "Schritt:" that line starts with.
+func blockerStepLabel(line string) (string, bool) {
+	for _, v := range lang.All() {
+		if strings.HasPrefix(line, v.BlockerStep) {
+			return v.BlockerStep, true
+		}
+	}
+	return "", false
+}
+
+// isBlockerHeading is true for the heading "## Blocker" of any language.
+func isBlockerHeading(line string) bool {
+	return slices.ContainsFunc(lang.All(), func(v lang.Vocab) bool { return strings.TrimSpace(line) == v.BlockerHeading })
+}
+
 // blockerSection finds the lines of "## Blocker" up to the next "## " heading, end excluded.
 func blockerSection(lines []string) (start, end int, ok bool) {
-	start = slices.IndexFunc(lines, func(l string) bool { return strings.TrimSpace(l) == blockerHeading })
+	start = slices.IndexFunc(lines, isBlockerHeading)
 	if start < 0 {
 		return 0, 0, false
 	}
@@ -192,36 +233,58 @@ func blockerSection(lines []string) (start, end int, ok bool) {
 }
 
 // RunInfo reads cost and model from the first line of the detail, e.g.
-// "Kosten: 4.12 USD · Modell: claude-opus-5-5 · Scope: …". An amount that is no number counts as
-// missing.
+// "Cost: 4.12 USD · Model: claude-opus-5-5 · Scope: …", in any language. An amount that is no
+// number counts as missing.
 func RunInfo(s Status) (cost float64, hasCost bool, model string) {
 	first, _, _ := strings.Cut(s.Detail, "\n")
 	for part := range strings.SplitSeq(first, "·") {
 		part = strings.TrimSpace(part)
-		if v, ok := strings.CutPrefix(part, costField); ok {
+		if v, ok := cutField(part, costField); ok {
 			v = strings.TrimSpace(strings.TrimSuffix(strings.TrimSpace(v), "USD"))
 			if c, err := strconv.ParseFloat(v, 64); err == nil && !math.IsNaN(c) && !math.IsInf(c, 0) {
 				cost, hasCost = c, true
 			}
-		} else if v, ok := strings.CutPrefix(part, modelField); ok {
+		} else if v, ok := cutField(part, modelField); ok {
 			model = strings.TrimSpace(v)
 		}
 	}
 	return cost, hasCost, model
 }
 
-// IsRunInfo is true for the parts of a detail that RunInfo reads.
-func IsRunInfo(part string) bool {
-	return strings.HasPrefix(part, costField) || strings.HasPrefix(part, modelField)
+// costField and modelField pick a field of a vocabulary.
+func costField(v lang.Vocab) string  { return v.Cost }
+func modelField(v lang.Vocab) string { return v.Model }
+
+// cutField removes the label of field in any language from the start of part.
+func cutField(part string, field func(lang.Vocab) string) (string, bool) {
+	for _, v := range lang.All() {
+		if rest, ok := strings.CutPrefix(part, field(v)); ok {
+			return rest, true
+		}
+	}
+	return "", false
 }
 
-// SetRunInfo sets cost and model in the first status line right after the value. Existing fields
-// keep their place. Without model the field "Modell:" goes. ok is false without status line.
-func SetRunInfo(content string, cost float64, model string) (string, bool) {
-	costPart := costField + " " + strconv.FormatFloat(cost, 'f', 2, 64) + " USD"
+// hasField is true if part starts with the label of field in any language.
+func hasField(part string, field func(lang.Vocab) string) bool {
+	_, ok := cutField(part, field)
+	return ok
+}
+
+// IsRunInfo is true for the parts of a detail that RunInfo reads, in any language.
+func IsRunInfo(part string) bool {
+	return hasField(part, costField) || hasField(part, modelField)
+}
+
+// SetRunInfo sets cost and model in language l in the first status line right after the value.
+// Existing fields of any language keep their place and take the words of l. Without model the
+// field goes. ok is false without status line.
+func SetRunInfo(content string, cost float64, model string, l lang.Lang) (string, bool) {
+	v := lang.For(l)
+	costPart := v.Cost + " " + strconv.FormatFloat(cost, 'f', 2, 64) + " USD"
 	modelPart := ""
 	if model != "" {
-		modelPart = modelField + " " + model
+		modelPart = v.Model + " " + model
 	}
 	lines := strings.SplitAfter(content, "\n")
 	for i, line := range lines {
@@ -241,10 +304,13 @@ func SetRunInfo(content string, cost float64, model string) (string, bool) {
 			switch {
 			case part == "":
 				continue
-			case strings.HasPrefix(part, costField):
+			case hasField(part, costField):
+				if costAt >= 0 {
+					continue
+				}
 				part, costAt = costPart, len(parts)
-			case strings.HasPrefix(part, modelField):
-				if modelPart == "" {
+			case hasField(part, modelField):
+				if modelPart == "" || hasModel {
 					continue
 				}
 				part, hasModel = modelPart, true

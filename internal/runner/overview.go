@@ -6,8 +6,10 @@ import (
 	"slices"
 	"strings"
 
+	"lazydev/internal/claude"
 	"lazydev/internal/devserver"
 	"lazydev/internal/fsutil"
+	"lazydev/internal/lang"
 	"lazydev/internal/project"
 	"lazydev/internal/repo"
 	"lazydev/internal/state"
@@ -202,6 +204,18 @@ func waitingQueue(entries []state.Entry) []string {
 	return queue
 }
 
+// decisionsHeading is the heading of the decisions in the PRD at file, "## Decisions" or
+// "## Entscheidungen": the first one the file has, the one of the default language otherwise.
+func decisionsHeading(file string) string {
+	data, _ := os.ReadFile(file)
+	for _, v := range lang.All() {
+		if _, ok := claude.Section(string(data), v.Decisions); ok {
+			return "## " + v.Decisions
+		}
+	}
+	return "## " + lang.For(lang.Default).Decisions
+}
+
 // Event is a change "lazydev wait" reports.
 type Event struct {
 	// Kind is the new phase (blocked, error, aborted, merged, pr), "note" for a new note of a run,
@@ -242,7 +256,7 @@ func Changes(before, after []Item) []Event {
 			}
 			events = append(events, Event{Kind: string(it.Phase), Project: it.Project, PRD: it.PRD, Phase: it.Phase, From: prev.Phase, Text: text, Item: &item})
 		case known && it.Resolved > prev.Resolved:
-			events = append(events, Event{Kind: "resolved", Project: it.Project, PRD: it.PRD, Phase: it.Phase, Text: "Claude answered the open questions, see ## Entscheidungen in " + it.File, Item: &item})
+			events = append(events, Event{Kind: "resolved", Project: it.Project, PRD: it.PRD, Phase: it.Phase, Text: "Claude answered the open questions, see " + decisionsHeading(it.File) + " in " + it.File, Item: &item})
 		case it.Note != "" && it.Note != prev.Note:
 			events = append(events, Event{Kind: "note", Project: it.Project, PRD: it.PRD, Phase: it.Phase, Text: it.Note, Item: &item})
 		}

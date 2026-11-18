@@ -5,6 +5,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"lazydev/internal/lang"
 )
 
 // settingsDir creates a project with config.yaml content.
@@ -127,7 +129,7 @@ func TestSettings(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := settingsDir(t, tt.in)
-			out, changed, err := Settings(dir, tt.base, tt.knowledge, nil)
+			out, changed, err := Settings(dir, tt.base, lang.EN, tt.knowledge, nil)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -170,7 +172,7 @@ extra:
   nested: true
 `
 	dir := settingsDir(t, in)
-	out, changed, err := Settings(dir, "next", map[string][]string{"all": {"CLAUDE.md"}, "implement": {"docs/db.md"}}, nil)
+	out, changed, err := Settings(dir, "next", lang.EN, map[string][]string{"all": {"CLAUDE.md"}, "implement": {"docs/db.md"}}, nil)
 	if err != nil || !changed {
 		t.Fatalf("Settings = %v, %v", changed, err)
 	}
@@ -199,7 +201,7 @@ func TestSettingsDatabases(t *testing.T) {
 
 	// Add: the list goes to the end, comments and hooks stay.
 	dir := settingsDir(t, in)
-	out, changed, err := Settings(dir, "main", nil, []Database{db, test})
+	out, changed, err := Settings(dir, "main", lang.EN, nil, []Database{db, test})
 	if err != nil || !changed {
 		t.Fatalf("Settings = %v, %v", changed, err)
 	}
@@ -212,17 +214,17 @@ func TestSettingsDatabases(t *testing.T) {
 	// Unchanged: no write, the file keeps its formatting.
 	same := "# lazydev\ndatabases: # per worktree\n  - {service: db, env: {file: .env, key: DATABASE_URL}}\nhooks:\n  setup: ./setup.sh\n"
 	dir = settingsDir(t, same)
-	if out, changed, err := Settings(dir, "main", nil, []Database{db}); err != nil || changed || string(out) != same {
+	if out, changed, err := Settings(dir, "main", lang.EN, nil, []Database{db}); err != nil || changed || string(out) != same {
 		t.Errorf("unchanged = %q, %v, %v", out, changed, err)
 	}
 
 	// Remove: an empty list deletes the key, hooks and comments stay.
-	if out, changed, err := Settings(dir, "main", nil, nil); err != nil || !changed || string(out) != "# lazydev\nhooks:\n  setup: ./setup.sh\n" {
+	if out, changed, err := Settings(dir, "main", lang.EN, nil, nil); err != nil || !changed || string(out) != "# lazydev\nhooks:\n  setup: ./setup.sh\n" {
 		t.Errorf("remove = %q, %v, %v", out, changed, err)
 	}
 
 	// Replace in place, in the order given.
-	if out, changed, err := Settings(dir, "main", nil, []Database{test, db}); err != nil || !changed {
+	if out, changed, err := Settings(dir, "main", lang.EN, nil, []Database{test, db}); err != nil || !changed {
 		t.Errorf("replace = %v, %v", changed, err)
 	} else {
 		var c Config
@@ -237,13 +239,44 @@ func TestSettingsDatabases(t *testing.T) {
 
 func TestSettingsErrors(t *testing.T) {
 	setupEnv(t)
-	if _, _, err := Settings(t.TempDir(), "main", nil, nil); err == nil {
+	if _, _, err := Settings(t.TempDir(), "main", lang.EN, nil, nil); err == nil {
 		t.Error("no error without config.yaml")
 	}
 	for _, in := range []string{"baseBranch: [x\n", "- a\n- b\n", "plain\n", "knowledge: [a.md]\n", "databases: db\n"} {
 		dir := settingsDir(t, in)
-		if _, _, err := Settings(dir, "develop", map[string][]string{"all": {"a.md"}}, nil); err == nil || !strings.Contains(err.Error(), "config.yaml") {
+		if _, _, err := Settings(dir, "develop", lang.EN, map[string][]string{"all": {"a.md"}}, nil); err == nil || !strings.Contains(err.Error(), "config.yaml") {
 			t.Errorf("Settings(%q) error = %v", in, err)
 		}
+	}
+}
+
+func TestSettingsLanguage(t *testing.T) {
+	tests := []struct {
+		name, in string
+		base     string
+		l        lang.Lang
+		want     string
+		changed  bool
+	}{
+		{"default stays out", "", "main", lang.EN, "", false},
+		{"german into an empty file", "", "main", lang.DE, "language: de\n", true},
+		{"german after baseBranch", "# lazydev\nbaseBranch: develop\nmerge: pr\n", "develop", lang.DE, "# lazydev\nbaseBranch: develop\nlanguage: de\nmerge: pr\n", true},
+		{"german at the top keeps the comment on top", "# lazydev\nmerge: pr # pull requests\n", "main", lang.DE, "# lazydev\nlanguage: de\nmerge: pr # pull requests\n", true},
+		{"unchanged german", "language: de # team\nmerge: pr\n", "main", lang.DE, "language: de # team\nmerge: pr\n", false},
+		{"english removes the field", "merge: pr\nlanguage: de\nhooks:\n  setup: a.sh\n", "main", lang.EN, "merge: pr\nhooks:\n  setup: a.sh\n", true},
+		{"explicit en counts as en", "language: en\n", "main", lang.EN, "language: en\n", false},
+		{"explicit en to german", "language: en\nmerge: pr\n", "main", lang.DE, "language: de\nmerge: pr\n", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			dir := settingsDir(t, tt.in)
+			out, changed, err := Settings(dir, tt.base, tt.l, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(out) != tt.want || changed != tt.changed {
+				t.Errorf("Settings =\n%q, %v\nwant\n%q, %v", out, changed, tt.want, tt.changed)
+			}
+		})
 	}
 }

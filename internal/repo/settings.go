@@ -8,12 +8,15 @@ import (
 	"strings"
 
 	"gopkg.in/yaml.v3"
+
+	"lazydev/internal/lang"
 )
 
-// Settings returns config.yaml of the project at dir with baseBranch, knowledge and databases set.
-// The default base branch main is left out, an empty databases list removes the key. Other fields,
-// order and comments stay. changed is false if nothing differs.
-func Settings(dir, base string, knowledge map[string][]string, databases []Database) (out []byte, changed bool, err error) {
+// Settings returns config.yaml of the project at dir with baseBranch, language, knowledge and
+// databases set. The default base branch main and the default language en are left out, an empty
+// databases list removes the key. Other fields, order and comments stay. changed is false if
+// nothing differs.
+func Settings(dir, base string, language lang.Lang, knowledge map[string][]string, databases []Database) (out []byte, changed bool, err error) {
 	path := ConfigPath(dir)
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -35,6 +38,15 @@ func Settings(dir, base string, knowledge map[string][]string, databases []Datab
 	if i := keyIndex(root, "baseBranch"); i >= 0 && root.Content[i+1].Value != "" {
 		oldBase = root.Content[i+1].Value
 	}
+	oldLang := lang.Default
+	if i := keyIndex(root, "language"); i >= 0 {
+		if l, err := lang.Parse(root.Content[i+1].Value); err == nil {
+			oldLang = l
+		} else {
+			// An invalid value counts as a change, so saving replaces it.
+			oldLang = ""
+		}
+	}
 	var oldKnowledge map[string][]string
 	if i := keyIndex(root, "knowledge"); i >= 0 {
 		if err := root.Content[i+1].Decode(&oldKnowledge); err != nil {
@@ -50,13 +62,19 @@ func Settings(dir, base string, knowledge map[string][]string, databases []Datab
 	if base == "" {
 		base = DefaultBaseBranch
 	}
+	if language == "" {
+		language = lang.Default
+	}
 	knowledge, oldKnowledge = compactKnowledge(knowledge), compactKnowledge(oldKnowledge)
 	sameKnowledge := equalKnowledge(oldKnowledge, knowledge)
 	sameDatabases := slices.Equal(oldDatabases, databases)
-	if base == oldBase && sameKnowledge && sameDatabases {
+	if base == oldBase && language == oldLang && sameKnowledge && sameDatabases {
 		return data, false, nil
 	}
 	setBaseBranchNode(root, base)
+	if language != oldLang {
+		setLanguageNode(root, language)
+	}
 	if !sameKnowledge {
 		setKnowledgeNode(root, knowledge)
 	}
@@ -140,6 +158,32 @@ func setBaseBranchNode(root *yaml.Node, branch string) {
 			key.HeadComment, root.Content[0].HeadComment = root.Content[0].HeadComment, ""
 		}
 		root.Content = append([]*yaml.Node{key, value}, root.Content...)
+	}
+}
+
+// setLanguageNode sets language in root, right after baseBranch for a new key. The default en is
+// left out.
+func setLanguageNode(root *yaml.Node, l lang.Lang) {
+	idx := keyIndex(root, "language")
+	switch {
+	case l == lang.Default && idx >= 0:
+		deleteKey(root, idx)
+	case l == lang.Default:
+	case idx >= 0:
+		root.Content[idx+1].SetString(string(l))
+	default:
+		value := &yaml.Node{}
+		value.SetString(string(l))
+		key := &yaml.Node{}
+		key.SetString("language")
+		at := 0
+		if i := keyIndex(root, "baseBranch"); i >= 0 {
+			at = i + 2
+		} else if len(root.Content) > 0 {
+			// The comment at the top of the file stays at the top.
+			key.HeadComment, root.Content[0].HeadComment = root.Content[0].HeadComment, ""
+		}
+		root.Content = slices.Insert(root.Content, at, key, value)
 	}
 }
 

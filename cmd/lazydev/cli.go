@@ -548,7 +548,7 @@ func setStatus(args []string) error {
 		return fmt.Errorf("no PRD %s in %s", name, t.ID)
 	}
 	c := project.Choices[i]
-	committed, err := project.ChangeStatus(t.Dir, cfg.Base(), prds[j].Path, c, time.Now())
+	committed, err := project.ChangeStatus(t.Dir, cfg.Base(), prds[j].Path, cfg.Lang(), c, time.Now())
 	if err != nil {
 		return err
 	}
@@ -633,7 +633,7 @@ func promptUnblock(args []string) error {
 		return err
 	}
 	if set["--auto"] {
-		prompt += "\n" + prompts.Auto("unblock", vars)
+		prompt += "\n" + prompts.Auto(cfg.Lang(), "unblock", vars)
 	}
 	fmt.Print(prompt)
 	return nil

@@ -30,7 +30,7 @@ func (m *model) unblockPRD(name string) {
 		m.err = err.Error()
 		return
 	}
-	agents, err := claude.AgentsJSON()
+	agents, err := claude.AgentsJSON(p.lazydev.Config.Lang())
 	if err != nil {
 		m.err = err.Error()
 		return
@@ -39,7 +39,7 @@ func (m *model) unblockPRD(name string) {
 }
 
 // blockedInWorktree is true while the status line of the PRD of the run of name in its worktree
-// says blockiert.
+// says blocked, in any language.
 func (p *projectEntry) blockedInWorktree(name string) bool {
 	r := p.runs[name]
 	return r != nil && project.BlockedIn(r.Worktree, r.PRD)

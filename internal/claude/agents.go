@@ -10,13 +10,14 @@ import (
 	"strings"
 
 	"lazydev/internal/fsutil"
+	"lazydev/internal/lang"
 	"lazydev/internal/state"
 )
 
-// agents/ holds the agents the prompts call, e.g. committer. They are built in, nothing comes
-// from ~/.claude.
+// agents/<lang>/ holds the agents the prompts call, e.g. committer, per language with the same
+// names. They are built in, nothing comes from ~/.claude.
 //
-//go:embed agents/*.md
+//go:embed agents/en/*.md agents/de/*.md
 var agentFiles embed.FS
 
 // Agent is an entry of the JSON for claude --agents.
@@ -27,15 +28,16 @@ type Agent struct {
 	Model       string   `json:"model,omitempty"`
 }
 
-// Agents returns the built-in agents by name.
-func Agents() (map[string]Agent, error) {
-	entries, err := agentFiles.ReadDir("agents")
+// Agents returns the built-in agents in language l by name.
+func Agents(l lang.Lang) (map[string]Agent, error) {
+	dir := path.Join("agents", string(l))
+	entries, err := agentFiles.ReadDir(dir)
 	if err != nil {
 		return nil, err
 	}
 	agents := map[string]Agent{}
 	for _, e := range entries {
-		data, err := agentFiles.ReadFile(path.Join("agents", e.Name()))
+		data, err := agentFiles.ReadFile(path.Join(dir, e.Name()))
 		if err != nil {
 			return nil, err
 		}
@@ -48,10 +50,10 @@ func Agents() (map[string]Agent, error) {
 	return agents, nil
 }
 
-// AgentsJSON returns the built-in agents as one line of JSON. An interactive claude takes
-// --agents inline only, a file path works with -p alone.
-func AgentsJSON() (string, error) {
-	agents, err := Agents()
+// AgentsJSON returns the built-in agents in language l as one line of JSON. An interactive claude
+// takes --agents inline only, a file path works with -p alone.
+func AgentsJSON(l lang.Lang) (string, error) {
+	agents, err := Agents(l)
 	if err != nil {
 		return "", err
 	}
@@ -59,10 +61,20 @@ func AgentsJSON() (string, error) {
 	return string(data), err
 }
 
-// WriteAgents writes the built-in agents to agents.json in the state folder and returns its path.
-// Several runners write the same file, so it goes through a temporary file.
-func WriteAgents() (string, error) {
-	agents, err := Agents()
+// AgentsPath is the file WriteAgents writes for language l: agents.json for the default language,
+// agents.<lang>.json for the others, so runners of projects in different languages do not overwrite
+// each other's agents.
+func AgentsPath(l lang.Lang) string {
+	if l == lang.Default || l == "" {
+		return filepath.Join(state.Dir(), "agents.json")
+	}
+	return filepath.Join(state.Dir(), "agents."+string(l)+".json")
+}
+
+// WriteAgents writes the built-in agents in language l to AgentsPath and returns its path. Several
+// runners write the same file, so it goes through a temporary file.
+func WriteAgents(l lang.Lang) (string, error) {
+	agents, err := Agents(l)
 	if err != nil {
 		return "", err
 	}
@@ -70,7 +82,7 @@ func WriteAgents() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	p := filepath.Join(state.Dir(), "agents.json")
+	p := AgentsPath(l)
 	return p, fsutil.WriteAtomic(p, data, 0o644)
 }
 

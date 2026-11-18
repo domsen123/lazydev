@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"lazydev/internal/lang"
 )
 
 var changeDay = time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
@@ -33,22 +35,44 @@ func readFile(t *testing.T, path string) string {
 }
 
 func TestChoiceValueAt(t *testing.T) {
-	want := map[StatusKind]string{
-		StatusPlanned:     "geplant",
-		StatusImplemented: "umgesetzt (2026-10-21)",
-		StatusDiscarded:   "verworfen (2026-10-21)",
+	want := map[lang.Lang]map[StatusKind]string{
+		lang.DE: {
+			StatusPlanned:     "geplant",
+			StatusImplemented: "umgesetzt (2026-10-21)",
+			StatusDiscarded:   "verworfen (2026-10-21)",
+		},
+		lang.EN: {
+			StatusPlanned:     "planned",
+			StatusImplemented: "implemented (2026-10-21)",
+			StatusDiscarded:   "discarded (2026-10-21)",
+		},
 	}
 	if len(Choices) != 3 {
 		t.Fatalf("Choices = %+v", Choices)
 	}
-	for _, c := range Choices {
-		if got := c.ValueAt(changeDay); got != want[c.Kind] {
-			t.Errorf("%s: ValueAt = %q", c.Label, got)
+	for l, values := range want {
+		for _, c := range Choices {
+			if got := c.ValueAt(l, changeDay); got != values[c.Kind] {
+				t.Errorf("%s %s: ValueAt = %q", l, c.Label, got)
+			}
+			// The value parses back to the same kind.
+			if s, _ := ParseStatusLine("> Status: " + c.ValueAt(l, changeDay)); s.Kind != c.Kind {
+				t.Errorf("%s %s: parses as %v", l, c.Label, s.Kind)
+			}
 		}
-		// The value parses back to the same kind.
-		if s, _ := ParseStatusLine("> Status: " + c.ValueAt(changeDay)); s.Kind != c.Kind {
-			t.Errorf("%s: parses as %v", c.Label, s.Kind)
-		}
+	}
+}
+
+func TestChangeStatusEnglish(t *testing.T) {
+	dir := initRepo(t)
+	writeFile(t, dir, "prd/a/x.md", changePRD)
+	commitAll(t, dir, "init")
+	committed, err := ChangeStatus(dir, "main", "prd/a/x.md", lang.EN, choice(t, StatusImplemented), changeDay)
+	if err != nil || !committed {
+		t.Fatalf("ChangeStatus = %v, %v", committed, err)
+	}
+	if got := readFile(t, filepath.Join(dir, "prd/a/x.md")); got != "# PRD: X\n\n> Status: implemented (2026-10-21) · Scope: a\n\nBody\n" {
+		t.Errorf("file = %q", got)
 	}
 }
 
@@ -59,7 +83,7 @@ func TestChangeStatusUntracked(t *testing.T) {
 	writeFile(t, dir, "prd/a/x.md", changePRD)
 	head := gitRun(t, dir, "rev-parse", "HEAD")
 
-	committed, err := ChangeStatus(dir, "main", "prd/a/x.md", choice(t, StatusImplemented), changeDay)
+	committed, err := ChangeStatus(dir, "main", "prd/a/x.md", lang.DE, choice(t, StatusImplemented), changeDay)
 	if err != nil || committed {
 		t.Fatalf("ChangeStatus = %v, %v", committed, err)
 	}
@@ -75,7 +99,7 @@ func TestChangeStatusUntracked(t *testing.T) {
 func TestChangeStatusUntrackedOutsideGit(t *testing.T) {
 	dir := t.TempDir()
 	writeFile(t, dir, "prd/a/x.md", changePRD)
-	committed, err := ChangeStatus(dir, "main", "prd/a/x.md", choice(t, StatusDiscarded), changeDay)
+	committed, err := ChangeStatus(dir, "main", "prd/a/x.md", lang.DE, choice(t, StatusDiscarded), changeDay)
 	if err != nil || committed {
 		t.Fatalf("ChangeStatus = %v, %v", committed, err)
 	}
@@ -105,7 +129,7 @@ func TestChangeStatusTracked(t *testing.T) {
 			writeFile(t, dir, "staged.md", "staged\n")
 			gitRun(t, dir, "add", "staged.md")
 
-			committed, err := ChangeStatus(dir, "main", "prd/a/x.md", choice(t, tt.kind), changeDay)
+			committed, err := ChangeStatus(dir, "main", "prd/a/x.md", lang.DE, choice(t, tt.kind), changeDay)
 			if err != nil || !committed {
 				t.Fatalf("ChangeStatus = %v, %v", committed, err)
 			}
@@ -132,7 +156,7 @@ func TestChangeStatusWrongBranch(t *testing.T) {
 	gitRun(t, dir, "checkout", "-q", "-b", "other")
 	head := gitRun(t, dir, "rev-parse", "HEAD")
 
-	committed, err := ChangeStatus(dir, "main", "prd/a/x.md", choice(t, StatusImplemented), changeDay)
+	committed, err := ChangeStatus(dir, "main", "prd/a/x.md", lang.DE, choice(t, StatusImplemented), changeDay)
 	if err == nil || committed || !strings.Contains(err.Error(), "other") {
 		t.Fatalf("ChangeStatus = %v, %v", committed, err)
 	}
@@ -159,7 +183,7 @@ func TestChangeStatusUncommittedChanges(t *testing.T) {
 			writeFile(t, dir, "prd/a/x.md", edited)
 			prepare(t, dir)
 
-			committed, err := ChangeStatus(dir, "main", "prd/a/x.md", choice(t, StatusImplemented), changeDay)
+			committed, err := ChangeStatus(dir, "main", "prd/a/x.md", lang.DE, choice(t, StatusImplemented), changeDay)
 			if err == nil || committed || !strings.Contains(err.Error(), "uncommitted") {
 				t.Fatalf("ChangeStatus = %v, %v", committed, err)
 			}
@@ -175,7 +199,7 @@ func TestChangeStatusNoStatusLine(t *testing.T) {
 	writeFile(t, dir, "prd/a/x.md", "# Notes\n")
 	commitAll(t, dir, "init")
 	head := gitRun(t, dir, "rev-parse", "HEAD")
-	committed, err := ChangeStatus(dir, "main", "prd/a/x.md", choice(t, StatusImplemented), changeDay)
+	committed, err := ChangeStatus(dir, "main", "prd/a/x.md", lang.DE, choice(t, StatusImplemented), changeDay)
 	if err == nil || committed {
 		t.Fatalf("ChangeStatus = %v, %v", committed, err)
 	}
@@ -186,7 +210,7 @@ func TestChangeStatusNoStatusLine(t *testing.T) {
 
 func TestChangeStatusMissingFile(t *testing.T) {
 	dir := initRepo(t)
-	if _, err := ChangeStatus(dir, "main", "prd/a/none.md", choice(t, StatusPlanned), changeDay); err == nil {
+	if _, err := ChangeStatus(dir, "main", "prd/a/none.md", lang.DE, choice(t, StatusPlanned), changeDay); err == nil {
 		t.Error("no error for a missing file")
 	}
 }

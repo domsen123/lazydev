@@ -39,7 +39,8 @@ older versions do not build against the newer `x/ansi`.
 | `state` | Run state, step logs, locks, trust, paths under `$XDG_STATE_HOME/lazydev/` |
 | `project` | PRDs, status line, phases, status change with commit |
 | `repo` | `.lazydev/`: config, init with the simple workflow (`workflows/simple/`), trust hash, wizard YAML edits |
-| `prompts` | Prompt = header + knowledge + `.lazydev/<step>.md` + built-in contract (`contract/`) |
+| `prompts` | Prompt = header + knowledge + `.lazydev/<step>.md` + built-in contract (`contract/<lang>/`) |
+| `lang` | Languages `en` (default) and `de`: `Vocab` with every word lazydev reads or writes in PRDs and reports |
 | `claude` | `claude -p` stream-json, summary, log descriptions, built-in agents (`agents/`) |
 | `config` | `projects.json`, `settings.json`, project IDs, path helpers |
 | `database` | Postgres database per worktree: env files, base name, `createdb`/`dropdb` per `docker exec` |
@@ -59,7 +60,7 @@ older versions do not build against the newer `x/ansi`.
   works. `state.IsRunner` checks `/proc/<pid>/cmdline`.
 - `runner.MaxParallel` (3) holds under the lock `locks/start.lock`. An ending runner starts the next waiting
   PRD, not the TUI. The step `plan` (`plan.go`, read-only Claude in the main folder, built-in prompt
-  `contract/plan.md`) sets `after`; a PRD starts its setup only once those are merged or discarded.
+  `contract/<lang>/plan.md`) sets `after`; a PRD starts its setup only once those are merged or discarded.
 - `x` signals the runner only. It cancels its context first, then signals its process group, so the step
   records an abort instead of a killed Claude.
 - `create` is no runner step: `n` opens an interactive Claude Code tab with the create prompt.
@@ -74,13 +75,14 @@ Every step lands in `steps` of the run state and must be repeatable, `s` continu
 - Claude runs as `claude -p … --output-format stream-json --verbose` with stdin `/dev/null` and
   `GIT_EDITOR=true`. All permissions come through `--allowedTools`, new worktrees have no trust dialog.
 - A Claude step succeeds only with exit code 0, a last `result` without error and its check: after
-  implement `## Ergebnis` and the PRD status line, after review a clean worktree. After implement, review
-  and the Claude step merge, `checkLazydevUntouched` makes sure nothing under `.lazydev/` changed.
-- `abgebrochen` with open questions in implement or the Claude step merge is a `blockedError`: phase
-  `blocked`, `## Blocker` and status `blockiert` in the PRD of the worktree (`blocker.go`). `f` in the TUI
+  implement `## Result` and the PRD status line, after review a clean worktree. After implement, review
+  and the Claude step merge, `checkLazydevUntouched` makes sure nothing under `.lazydev/` changed. Reports
+  are read in both languages (`## Result`/`## Ergebnis` and so on).
+- `aborted` with open questions in implement or the Claude step merge is a `blockedError`: phase
+  `blocked`, `## Blocker` and status `blocked` (`blockiert` in `de`) in the PRD of the worktree (`blocker.go`). `f` in the TUI
   opens the dialog `unblock` in the worktree, `s` continues after it.
 - With `autoUnblock` on for the project in `settings.json`, a block runs `resolve` (`resolve.go`, built-in
-  prompt `contract/resolve.md`) in the worktree: it answers the questions, the runner commits the PRD alone
+  prompt `contract/<lang>/resolve.md`) in the worktree: it answers the questions, the runner commits the PRD alone
   and the blocked step runs again, at most `MaxResolves` (2) times. `resolve` is in `steps` but
   `NextStep` skips it.
 - Merge (`merge.go`): `flock` per project, `git rebase <base>`, on conflict `rebase --abort` and the Claude
@@ -108,14 +110,18 @@ logs in `~/.local/state/lazydev/runs/<id>/`, worktrees in `~/.local/share/lazyde
 - Tests isolate via `t.Setenv("XDG_STATE_HOME", t.TempDir())`, `XDG_DATA_HOME` and `XDG_CONFIG_HOME`. Git
   tests set `GIT_AUTHOR_*` and `GIT_COMMITTER_*`.
 - Runner tests run `runner.Run` in the foreground against temporary repos with a fake `claude` script
-  (`claude.Command`). It recognizes the step by the header `# lazydev <step>:` in `$2`. To test new runner
-  scenarios, extend that script. No test spawns a detached runner.
+  (`claude.Command`). It recognizes the step by the header `# lazydev <step>:` in `$2` and answers in the
+  language of `FAKE_CLAUDE_LANG` (`de`, English without value). To test new runner scenarios, extend that
+  script. No test spawns a detached runner.
 - Tests with hooks, allowed tools or databases in `.lazydev/config.yaml` trust the hash with `state.Trust`.
 
 ## Conventions
 
 - All texts are English: UI strings, errors, comments, docs. Exceptions: `README.de.md` is the German version
   of `README.md` with the same content, always change both. Prompts, contracts, agents and PRD status values
-  (`geplant`, `umgesetzt`, `verworfen`, `Kosten:`, `Modell:`) stay German, existing PRDs and prompts use them.
+  exist in English and German under `en/` and `de/` (`internal/prompts/contract/`,
+  `internal/repo/workflows/simple/`, `internal/claude/agents/`), change both. The words lazydev reads from and
+  writes into PRDs and reports come from `internal/lang` only; `language` in `.lazydev/config.yaml` picks the
+  language a project writes, reading always understands both.
 - Commits follow Conventional Commits in English, e.g. `feat(tui): show keys for focus and state`.
 - Commits lazydev makes itself use `git commit` without Claude and without trailer.

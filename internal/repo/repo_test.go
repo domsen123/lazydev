@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"lazydev/internal/lang"
 	"lazydev/internal/state"
 )
 
@@ -69,9 +70,15 @@ func commitAll(t *testing.T, dir, msg string) {
 	gitRun(t, dir, "commit", "-q", "--allow-empty", "-m", msg)
 }
 
+// workflowPrompt is the English template of step.
 func workflowPrompt(t *testing.T, step string) string {
 	t.Helper()
-	data, err := simpleWorkflow.ReadFile("workflows/simple/" + step + ".md")
+	return workflowPromptIn(t, lang.EN, step)
+}
+
+func workflowPromptIn(t *testing.T, l lang.Lang, step string) string {
+	t.Helper()
+	data, err := simpleWorkflow.ReadFile("workflows/simple/" + string(l) + "/" + step + ".md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,9 +86,11 @@ func workflowPrompt(t *testing.T, step string) string {
 }
 
 func TestWorkflowHasAllSteps(t *testing.T) {
-	for _, step := range Steps {
-		if p := workflowPrompt(t, step); strings.TrimSpace(p) == "" {
-			t.Errorf("workflow prompt %s is empty", step)
+	for _, l := range lang.Langs() {
+		for _, step := range Steps {
+			if p := workflowPromptIn(t, l, step); strings.TrimSpace(p) == "" {
+				t.Errorf("workflow prompt %s/%s is empty", l, step)
+			}
 		}
 	}
 	if !slices.Equal(KnowledgeKeys, []string{"all", "create", "implement", "verify", "review", "merge", "unblock"}) {
@@ -204,21 +213,92 @@ func TestWritePrompt(t *testing.T) {
 	setupEnv(t)
 	dir := t.TempDir()
 	writeFile(t, dir, ".lazydev/merge.md", "own\n")
-	if err := WritePrompt(dir, "merge"); err != nil {
+	if err := WritePrompt(dir, "merge", lang.EN); err != nil {
 		t.Fatal(err)
 	}
 	if got := readFile(t, PromptPath(dir, "merge")); got != workflowPrompt(t, "merge") {
 		t.Errorf("merge.md = %q", got)
 	}
-	if err := WritePrompt(dir, "deploy"); err == nil {
+	if err := WritePrompt(dir, "deploy", lang.EN); err == nil {
 		t.Error("no error for an unknown step")
 	}
 	// The template of verify exists for the wizard, Init leaves it out.
-	if err := WritePrompt(dir, StepVerify); err != nil {
+	for _, l := range lang.Langs() {
+		if err := WritePrompt(dir, StepVerify, l); err != nil {
+			t.Fatal(err)
+		}
+		if got := readFile(t, PromptPath(dir, StepVerify)); got != workflowPromptIn(t, l, StepVerify) || !strings.Contains(got, "$EVIDENCE") || !strings.Contains(got, "$PORT") {
+			t.Errorf("verify.md %s = %q", l, got)
+		}
+	}
+	if err := WritePrompt(dir, "merge", lang.DE); err != nil {
 		t.Fatal(err)
 	}
-	if got := readFile(t, PromptPath(dir, StepVerify)); got != workflowPrompt(t, StepVerify) || !strings.Contains(got, "$EVIDENCE") || !strings.Contains(got, "$PORT") {
-		t.Errorf("verify.md = %q", got)
+	if got := readFile(t, PromptPath(dir, "merge")); !strings.HasPrefix(got, "# Branch auf den Ziel-Branch bringen") {
+		t.Errorf("German merge.md = %q", got)
+	}
+}
+
+func TestInitLanguage(t *testing.T) {
+	setupEnv(t)
+	for _, tt := range []struct {
+		config, heading string
+	}{
+		{"", "# Write a PRD\n"},
+		{"language: en\n", "# Write a PRD\n"},
+		{"language: de\n", "# PRD erstellen\n"},
+		// A broken config gives the default.
+		{"language: [\n", "# Write a PRD\n"},
+	} {
+		dir := t.TempDir()
+		if tt.config != "" {
+			writeFile(t, dir, ".lazydev/config.yaml", tt.config)
+		}
+		if err := Init(dir); err != nil {
+			t.Fatal(err)
+		}
+		if got := readFile(t, PromptPath(dir, "create")); !strings.HasPrefix(got, tt.heading) {
+			t.Errorf("%q: create.md starts with %q", tt.config, strings.SplitN(got, "\n", 2)[0])
+		}
+		// Init never writes language.
+		if got := readFile(t, ConfigPath(dir)); got != tt.config {
+			t.Errorf("%q: config.yaml = %q", tt.config, got)
+		}
+	}
+}
+
+func TestEnglishTemplatesHaveNoGermanWords(t *testing.T) {
+	for _, step := range Steps {
+		p := strings.ToLower(workflowPromptIn(t, lang.EN, step))
+		for _, w := range lang.Unique(lang.DE) {
+			if strings.Contains(p, strings.ToLower(w)) {
+				t.Errorf("template en/%s contains the German %q", step, w)
+			}
+		}
+	}
+}
+
+func TestReadLanguage(t *testing.T) {
+	setupEnv(t)
+	for content, want := range map[string]lang.Lang{"": lang.EN, "language: en\n": lang.EN, "language: de\n": lang.DE, "language: \"\"\n": lang.EN} {
+		dir := t.TempDir()
+		writeFile(t, dir, ".lazydev/config.yaml", content)
+		info := Read(dir, "p")
+		if info.Err != nil || info.Config.Lang() != want {
+			t.Errorf("Read(%q) = %+v, Lang %q", content, info, info.Config.Lang())
+		}
+	}
+	dir := t.TempDir()
+	writeFile(t, dir, ".lazydev/config.yaml", "language: fr\n")
+	if info := Read(dir, "p"); info.Err == nil || info.Err.Error() != `config.yaml: language must be en or de, not "fr"` {
+		t.Errorf("Read = %+v", info)
+	}
+	// language runs no code, it does not change the trust hash.
+	if (Config{Language: "de"}).TrustHash() != "" {
+		t.Error("language is part of the trust hash")
+	}
+	if (Config{Language: "fr"}).Lang() != lang.EN || (Config{}).Lang() != lang.EN {
+		t.Error("Lang without a valid value is not en")
 	}
 }
 

@@ -49,7 +49,7 @@ func TestVerifyWritesEvidence(t *testing.T) {
 	if got := read(t, filepath.Join(ev, "list.png")); got != "png\n" {
 		t.Errorf("list.png: %q", got)
 	}
-	if got := read(t, filepath.Join(ev, "report.md")); !strings.HasPrefix(got, "## Ergebnis\nverifiziert\n") || !strings.Contains(got, "- list.png: die Liste mit Token") {
+	if got := read(t, filepath.Join(ev, "report.md")); !strings.HasPrefix(got, "## Result\nverified\n") || !strings.Contains(got, "- list.png: die Liste mit Token") {
 		t.Errorf("report.md:\n%s", got)
 	}
 	// Claude gets the PRD, the port, the evidence folder as --add-dir and the project's prompt.
@@ -101,7 +101,7 @@ func TestVerifyMissingEvidence(t *testing.T) {
 		t.Errorf("state: %+v", r)
 	}
 	// The report stays for a look.
-	if got := read(t, filepath.Join(ev, "report.md")); !strings.Contains(got, "verifiziert") {
+	if got := read(t, filepath.Join(ev, "report.md")); !strings.Contains(got, "verified") {
 		t.Errorf("report.md:\n%s", got)
 	}
 
@@ -136,8 +136,8 @@ func TestVerifyBlockedAndResolved(t *testing.T) {
 			t.Errorf("git log lacks %q:\n%s", s, logs)
 		}
 	}
-	// resolve set the status back to umgesetzt, because the implementation stands.
-	if prd := read(t, filepath.Join(target.Dir, prdPath)); !strings.Contains(prd, "> Status: umgesetzt (2026-10-20)") || strings.Contains(prd, "## Blocker") {
+	// resolve set the status back to implemented, because the implementation stands.
+	if prd := read(t, filepath.Join(target.Dir, prdPath)); !strings.Contains(prd, "> Status: implemented (2026-10-20)") || strings.Contains(prd, "## Blocker") {
 		t.Errorf("PRD:\n%s", prd)
 	}
 	if log := read(t, state.LogPath("app", prdName, state.StepVerify)); !strings.Contains(log, "Blocked: verify blocked: Welcher Browser?, Claude resolves it (auto-unblock)") {
@@ -158,7 +158,7 @@ func TestVerifyBlockedWritesBlocker(t *testing.T) {
 		t.Errorf("state: %+v", r)
 	}
 	prd := read(t, filepath.Join(WorktreePath("app", prdName), prdPath))
-	if !strings.HasSuffix(prd, "## Blocker\n\nSchritt: verify\n\n- Welcher Browser?\n") {
+	if !strings.HasSuffix(prd, "## Blocker\n\nStep: verify\n\n- Welcher Browser?\n") {
 		t.Errorf("PRD in the worktree:\n%s", prd)
 	}
 }
@@ -170,12 +170,15 @@ func TestCheckVerify(t *testing.T) {
 		"## Ergebnis\nverifiziert\n\n## Belege\n- a.png: Liste\n":             "",
 		"## Ergebnis\nverifiziert\n\n## Belege\n- `a.png`: Liste\n":           "",
 		"## Ergebnis\nverifiziert\n\n## Belege\n- " + dir + "/a.png: Liste\n": "",
-		"## Ergebnis\nverifiziert\n\n## Belege\n- keine\n":                    "verify: no evidence under „## Belege“",
-		"## Ergebnis\nverifiziert\n":                                          "verify: no evidence under „## Belege“",
+		"## Ergebnis\nverifiziert\n\n## Belege\n- keine\n":                    "verify: no evidence under „## Evidence“",
+		"## Ergebnis\nverifiziert\n":                                          "verify: no evidence under „## Evidence“",
 		"## Ergebnis\nverifiziert\n\n## Belege\n- a.png: x\n- b.png: y\n":     "verify: evidence file b.png missing in " + dir,
 		"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- keine\n":             "verify aborted",
 		"## Ergebnis\nabgebrochen\n\n## Offene Fragen\n- Welche Seite?\n":     "verify blocked: Welche Seite?",
-		"kein Bericht":             "verify: report of verify without „## Ergebnis“",
+		"## Result\nverified\n\n## Evidence\n- a.png: list\n":                 "",
+		"## Result\nverified\n\n## Evidence\n- none\n":                        "verify: no evidence under „## Evidence“",
+		"## Result\naborted\n\n## Open questions\n- Which page?\n":            "verify blocked: Which page?",
+		"kein Bericht":             "verify: report of verify without „## Result“",
 		"## Ergebnis\numgesetzt\n": `verify: unknown result "umgesetzt" in the report of verify`,
 	} {
 		err := checkVerify(report, dir)

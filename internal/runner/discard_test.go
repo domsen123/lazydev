@@ -18,7 +18,7 @@ func TestDiscardAfterFailedRun(t *testing.T) {
 	failAtReview(t, target)
 	wt := WorktreePath("app", prdName)
 	// The implementation set the status in the worktree.
-	if got := read(t, filepath.Join(wt, prdPath)); !strings.Contains(got, "> Status: umgesetzt (2026-10-20)") {
+	if got := read(t, filepath.Join(wt, prdPath)); !strings.Contains(got, "> Status: implemented (2026-10-20)") {
 		t.Fatalf("PRD in the worktree:\n%s", got)
 	}
 	if err := Discard(target, prdName); err != nil {

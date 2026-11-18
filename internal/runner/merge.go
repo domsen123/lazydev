@@ -11,6 +11,7 @@ import (
 
 	"lazydev/internal/devserver"
 	"lazydev/internal/git"
+	"lazydev/internal/lang"
 	"lazydev/internal/notify"
 	"lazydev/internal/project"
 	"lazydev/internal/repo"
@@ -42,7 +43,7 @@ func merge(ctx context.Context, t Target, prdName string, r *state.Run, log *log
 		if err := rebaseAndCheck(ctx, t, prdName, r, r.Base, log); err != nil {
 			return err
 		}
-		if err := recordRunInfo(prdName, r, log); err != nil {
+		if err := recordRunInfo(prdName, r, t.Lang(), log); err != nil {
 			return err
 		}
 		if err := waitMainClean(ctx, t, prdName, r, log); err != nil {
@@ -152,7 +153,7 @@ func rebaseAndCheck(ctx context.Context, t Target, prdName string, r *state.Run,
 	}
 	if err := runHook(t, r, log, "check"); err != nil {
 		log.printf("Check red: %v", err)
-		if err := mergeClaude(ctx, t, prdName, r, onto, "Prüfung nach dem Rebase fehlgeschlagen: "+err.Error(), log); err != nil {
+		if err := mergeClaude(ctx, t, prdName, r, onto, lang.For(t.Lang()).CheckFailed+" "+err.Error(), log); err != nil {
 			return err
 		}
 		if err := runHook(t, r, log, "check"); err != nil {
@@ -174,7 +175,7 @@ func mergeClaude(ctx context.Context, t Target, prdName string, r *state.Run, on
 		err = checkSummary(s, exitCode)
 	}
 	if err == nil {
-		err = checkReport(s.Result, state.StepMerge, resultMergeReady, "Offene Punkte")
+		err = checkReport(s.Result, state.StepMerge, resultMergeReady, headingOpenPoints)
 	}
 	if err != nil {
 		return err
@@ -189,17 +190,17 @@ func mergeClaude(ctx context.Context, t Target, prdName string, r *state.Run, on
 	return checkLazydevUntouched(r, onto)
 }
 
-// recordRunInfo writes cost and model of the run into the status line of the PRD in the worktree
-// and commits it without Claude. The check does not run again, the commit only changes the PRD.
-// Without a change there is no commit.
-func recordRunInfo(prdName string, r *state.Run, log *logger) error {
+// recordRunInfo writes cost and model of the run in language l into the status line of the PRD in
+// the worktree and commits it without Claude. The check does not run again, the commit only changes
+// the PRD. Without a change there is no commit.
+func recordRunInfo(prdName string, r *state.Run, l lang.Lang, log *logger) error {
 	path := filepath.Join(r.Worktree, r.PRD)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return fmt.Errorf("cost not recorded in the PRD: %w", err)
 	}
 	cost, model := r.Cost(), r.ImplementModel()
-	updated, ok := project.SetRunInfo(string(data), cost, model)
+	updated, ok := project.SetRunInfo(string(data), cost, model, l)
 	if !ok {
 		return fmt.Errorf("cost not recorded in the PRD: no status line in %s", r.PRD)
 	}

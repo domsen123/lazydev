@@ -3,6 +3,9 @@ package project
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"lazydev/internal/lang"
 )
 
 func TestParseStatusLine(t *testing.T) {
@@ -133,7 +136,7 @@ func TestSetBlocker(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := SetBlocker(tt.in, "implement", points); got != tt.want {
+			if got := SetBlocker(tt.in, "implement", points, lang.DE); got != tt.want {
 				t.Errorf("SetBlocker = %q, want %q", got, tt.want)
 			}
 		})
@@ -158,8 +161,17 @@ func TestRemoveBlocker(t *testing.T) {
 	}
 	// Set and remove give the PRD back.
 	in := "# PRD: X\n\n> Status: geplant\n\nbody\n"
-	if got := RemoveBlocker(SetBlocker(in, "merge", []string{"a"})); got != in {
-		t.Errorf("round trip: %q", got)
+	for _, l := range lang.Langs() {
+		if got := RemoveBlocker(SetBlocker(in, "merge", []string{"a"}, l)); got != in {
+			t.Errorf("round trip %s: %q", l, got)
+		}
+	}
+}
+
+func TestSetBlockerEnglish(t *testing.T) {
+	got := SetBlocker("body\n\n## Blocker\n\nSchritt: merge\n\n- alt\n", "implement", []string{"Which table?"}, lang.EN)
+	if want := "body\n\n## Blocker\n\nStep: implement\n\n- Which table?\n"; got != want {
+		t.Errorf("SetBlocker = %q, want %q", got, want)
 	}
 }
 
@@ -192,6 +204,8 @@ func TestIsRunInfo(t *testing.T) {
 	for part, want := range map[string]bool{
 		"Kosten: 1.00 USD": true,
 		"Modell: m":        true,
+		"Cost: 1.00 USD":   true,
+		"Model: m":         true,
 		"Scope: x":         false,
 		" Kosten: 1":       false,
 		"":                 false,
@@ -272,7 +286,7 @@ func TestSetRunInfo(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, ok := SetRunInfo(tt.in, tt.cost, tt.model)
+			got, ok := SetRunInfo(tt.in, tt.cost, tt.model, lang.DE)
 			if got != tt.want || ok != tt.ok {
 				t.Errorf("SetRunInfo = %q, %v; want %q, %v", got, ok, tt.want, tt.ok)
 			}
@@ -281,22 +295,98 @@ func TestSetRunInfo(t *testing.T) {
 }
 
 func TestSetRunInfoRoundTrip(t *testing.T) {
-	out, ok := SetRunInfo("> Status: umgesetzt (2026-10-20) · Scope: a\n", 7.5, "opus")
-	if !ok {
-		t.Fatal("no status line")
+	for _, in := range []string{"> Status: umgesetzt (2026-10-20) · Scope: a\n", "> Status: implemented (2026-10-20) · Scope: a\n"} {
+		for _, l := range lang.Langs() {
+			out, ok := SetRunInfo(in, 7.5, "opus", l)
+			if !ok {
+				t.Fatal("no status line")
+			}
+			s, _ := ParseStatusLine(strings.TrimSuffix(out, "\n"))
+			cost, hasCost, model := RunInfo(s)
+			if cost != 7.5 || !hasCost || model != "opus" || s.Date != "2026-10-20" || s.Kind != StatusImplemented {
+				t.Errorf("round trip %s of %q: %+v, %v, %v, %q", l, in, s, cost, hasCost, model)
+			}
+		}
 	}
-	s, _ := ParseStatusLine(strings.TrimSuffix(out, "\n"))
+}
+
+func TestSetRunInfoLanguages(t *testing.T) {
+	tests := []struct {
+		name, in string
+		l        lang.Lang
+		want     string
+	}{
+		{"english", "> Status: implemented (2026-10-20) · Scope: a\n", lang.EN, "> Status: implemented (2026-10-20) · Cost: 1.00 USD · Model: m · Scope: a\n"},
+		{"german", "> Status: umgesetzt (2026-10-20) · Scope: a\n", lang.DE, "> Status: umgesetzt (2026-10-20) · Kosten: 1.00 USD · Modell: m · Scope: a\n"},
+		{"german fields in an english project", "> Status: umgesetzt (2026-10-14) · Scope: a · Kosten: 0.50 USD · Modell: x\n", lang.EN, "> Status: umgesetzt (2026-10-14) · Scope: a · Cost: 1.00 USD · Model: m\n"},
+		{"english fields in a german project", "> Status: implemented (2026-10-14) · Cost: 0.50 USD · Model: x · Scope: a\n", lang.DE, "> Status: implemented (2026-10-14) · Kosten: 1.00 USD · Modell: m · Scope: a\n"},
+		{"both languages", "> Status: planned · Kosten: 0.50 USD · Cost: 0.70 USD · Model: x\n", lang.EN, "> Status: planned · Cost: 1.00 USD · Model: m\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := SetRunInfo(tt.in, 1, "m", tt.l)
+			if !ok || got != tt.want {
+				t.Errorf("SetRunInfo = %q, %v; want %q", got, ok, tt.want)
+			}
+		})
+	}
+}
+
+func TestParseStatusLineBothLanguages(t *testing.T) {
+	for line, kind := range map[string]StatusKind{
+		"> Status: planned · Scope: a":              StatusPlanned,
+		"> Status: implemented (2026-10-14)":        StatusImplemented,
+		"> Status: discarded (2026-10-14)":          StatusDiscarded,
+		"> Status: blocked (2026-10-14) · Scope: a": StatusBlocked,
+		"> Status: umgesetzt (2026-10-14)":          StatusImplemented,
+		"> Status: blockiert (2026-10-14)":          StatusBlocked,
+	} {
+		s, ok := ParseStatusLine(line)
+		if !ok || s.Kind != kind {
+			t.Errorf("ParseStatusLine(%q) = %+v", line, s)
+		}
+		if kind != StatusPlanned && s.Date != "2026-10-14" {
+			t.Errorf("ParseStatusLine(%q) date = %q", line, s.Date)
+		}
+	}
+	// A German status line reads the same, whatever the project writes.
+	s, _ := ParseStatusLine("> Status: umgesetzt (2026-10-14) · Kosten: 1.00 USD · Modell: x")
 	cost, hasCost, model := RunInfo(s)
-	if cost != 7.5 || !hasCost || model != "opus" || s.Date != "2026-10-20" {
-		t.Errorf("round trip: %+v, %v, %v, %q", s, cost, hasCost, model)
+	if s.Kind != StatusImplemented || s.Date != "2026-10-14" || cost != 1 || !hasCost || model != "x" {
+		t.Errorf("German line: %+v, %v, %v, %q", s, cost, hasCost, model)
+	}
+	s, _ = ParseStatusLine("> Status: implemented (2026-10-14) · Cost: 1.00 USD · Model: x")
+	cost, hasCost, model = RunInfo(s)
+	if s.Kind != StatusImplemented || s.Date != "2026-10-14" || cost != 1 || !hasCost || model != "x" {
+		t.Errorf("English line: %+v, %v, %v, %q", s, cost, hasCost, model)
+	}
+}
+
+func TestStatusValue(t *testing.T) {
+	day := time.Date(2026, 10, 22, 0, 0, 0, 0, time.UTC)
+	if got := StatusValue(StatusBlocked, lang.EN, day); got != "blocked (2026-10-22)" {
+		t.Errorf("EN blocked = %q", got)
+	}
+	if got := StatusValue(StatusBlocked, lang.DE, day); got != "blockiert (2026-10-22)" {
+		t.Errorf("DE blocked = %q", got)
+	}
+	if got := StatusValue(StatusPlanned, lang.EN, day); got != "planned" {
+		t.Errorf("EN planned = %q", got)
+	}
+	if got := StatusValue(StatusUnknown, lang.EN, day); got != "" {
+		t.Errorf("unknown = %q", got)
 	}
 }
 
 func TestBlocker(t *testing.T) {
-	content := SetBlocker("# PRD: X\n\n## Ziel\n\nx\n", "implement", []string{"Welche Tabelle?", "Soll die API\n  versioniert sein?"})
+	content := SetBlocker("# PRD: X\n\n## Ziel\n\nx\n", "implement", []string{"Welche Tabelle?", "Soll die API\n  versioniert sein?"}, lang.DE)
 	step, points, ok := Blocker(content + "## Danach\n")
 	if !ok || step != "implement" || len(points) != 2 || points[0] != "Welche Tabelle?" || points[1] != "Soll die API versioniert sein?" {
 		t.Errorf("Blocker = %q, %q, %v", step, points, ok)
+	}
+	step, points, ok = Blocker(SetBlocker("# PRD: X\n", "verify", []string{"Which table?"}, lang.EN))
+	if !ok || step != "verify" || len(points) != 1 || points[0] != "Which table?" {
+		t.Errorf("English Blocker = %q, %q, %v", step, points, ok)
 	}
 	if _, _, ok := Blocker("# PRD: X\n"); ok {
 		t.Error("Blocker found a section in a PRD without one")

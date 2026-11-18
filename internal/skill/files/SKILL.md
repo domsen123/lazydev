@@ -1,62 +1,65 @@
 ---
 name: lazydev
-description: lazydev und seine PRDs. Nutze diesen Skill bei lazydev, lazydev PRD, PRD erstellen, PRD schreiben, „mach daraus ein PRD“, „make this a lazydev PRD“, Dateien unter prd/, der Statuszeile „> Status:“, .lazydev/config.yaml, Hooks, Worktrees, Runs, Schritten (create, implement, verify, review, merge, unblock), Pull Requests, Läufe starten, überwachen und Blocker lösen, Projekt hinzufügen und Fragen zu lazydev.
+description: lazydev and its PRDs. Use this skill for lazydev, lazydev PRD, write a PRD, create a PRD, "make this a lazydev PRD", "turn this into a PRD", PRD erstellen, PRD schreiben, „mach daraus ein PRD“, files under prd/, the status line "> Status:", .lazydev/config.yaml, hooks, worktrees, runs, steps (create, implement, verify, review, merge, unblock), pull requests, starting and watching runs (Läufe starten, überwachen), resolving blockers (Blocker lösen), adding a project (Projekt hinzufügen) and questions about lazydev.
 ---
 
-<!-- Diese Datei verwaltet lazydev. Sie wird beim Start der TUI, bei "lazydev add" und bei "lazydev skill install" überschrieben. -->
+<!-- lazydev manages this file. The TUI start, "lazydev add" and "lazydev skill install" overwrite it. -->
 
 # lazydev
 
-lazydev setzt PRDs (Product Requirements Documents) mit Claude Code um. Ein PRD beschreibt ein Feature so
-vollständig, dass ein Agent es ohne Mensch umsetzt. lazydev setzt jedes PRD in einem eigenen Git-Worktree
-um: plan → setup → implement → verify → review → merge, und bringt es per Fast-Forward in den Basis-Branch
-des Projekts. `verify` prüft das Feature in der laufenden App und legt Belege ab, nur wenn
-`.lazydev/verify.md` existiert. Mit `merge: pr` in `config.yaml` öffnet der Merge stattdessen einen Pull
-Request mit `gh` und der Lauf wartet in Phase `pr`, bis ein Mensch ihn auf GitHub merged.
-Ein Projekt erkennst du am Ordner `.lazydev/` mit `config.yaml` und den Prompts der Schritte, die PRDs
-liegen unter `prd/<bereich>/<name>.md`.
+lazydev implements PRDs (Product Requirements Documents) with Claude Code. A PRD describes a feature so
+completely that an agent implements it without a human. lazydev implements each PRD in its own Git
+worktree: plan → setup → implement → verify → review → merge, and fast-forwards it into the base branch
+of the project. `verify` checks the feature in the running app and keeps evidence, only when
+`.lazydev/verify.md` exists. With `merge: pr` in `config.yaml` the merge opens a pull request with `gh`
+instead and the run waits in phase `pr` until a human merges it on GitHub.
+You recognize a project by the folder `.lazydev/` with `config.yaml` and the prompts of the steps, the PRDs
+live under `prd/<area>/<name>.md`.
 
-Alles geht über die Kommandozeile `lazydev`. Die TUI (`lazydev` ohne Argumente) ist optional. Schick den
-Nutzer nie in die TUI, um eine Taste zu drücken, sondern nutze den passenden Befehl.
+Everything goes through the command line `lazydev`. The TUI (`lazydev` without arguments) is optional.
+Never send the user to the TUI to press a key, use the matching command.
 
-## Regeln
+## Rules
 
-- Schreibe PRDs nur unter `prd/`. Implementiere nichts, wenn der Nutzer ein PRD will.
-- Ändere nichts unter `.lazydev/`. Der Ordner gehört lazydev und ist für alle im Team gleich.
-- Jedes PRD beginnt mit `# PRD: <Titel>` und direkt danach der Statuszeile
-  `> Status: <wert> · Scope: <Kurzfassung>`. Werte: `geplant`, `umgesetzt (YYYY-MM-DD)`,
-  `verworfen (YYYY-MM-DD)`, `blockiert (YYYY-MM-DD)`. Ein neues PRD bekommt `geplant`.
-- Starte, stoppe oder verwirf einen Lauf nur, wenn der Nutzer das will. `discard` löscht Commits, frag
-  vorher.
-- `<projekt>` ist optional: Ohne Angabe gilt das Projekt des aktuellen Ordners, auch aus einem Worktree.
-  `<prd>` ist der Dateiname ohne `.md`.
+- Write PRDs only under `prd/`. Implement nothing when the user wants a PRD.
+- Change nothing under `.lazydev/`. The folder belongs to lazydev and is the same for the whole team.
+- `language` in `.lazydev/config.yaml` decides the language of the prompts, the PRDs and the status
+  values: `en` (default, also without the field) or `de`. Write a PRD in that language.
+- Every PRD starts with `# PRD: <title>` and right after it the status line
+  `> Status: <value> · Scope: <summary>`. Values with `en`: `planned`, `implemented (YYYY-MM-DD)`,
+  `discarded (YYYY-MM-DD)`, `blocked (YYYY-MM-DD)`. With `de`: `geplant`, `umgesetzt (YYYY-MM-DD)`,
+  `verworfen (YYYY-MM-DD)`, `blockiert (YYYY-MM-DD)`. A new PRD gets `planned` or `geplant`. lazydev
+  reads both languages, older PRDs keep their values.
+- Start, stop or discard a run only when the user wants it. `discard` deletes commits, ask first.
+- `<project>` is optional: without it, the project of the current folder applies, also from a worktree.
+  `<prd>` is the file name without `.md`.
 
-## Aufgaben
+## Tasks
 
-| Aufgabe | So gehst du vor |
+| Task | How |
 |---|---|
-| Projekt in lazydev aufnehmen | `lazydev add [<pfad>]`, ohne Pfad das Repository des aktuellen Ordners. Legt `.lazydev/` an. |
-| PRD schreiben, auch aus dem bisherigen Gespräch | Führe im Projekt `lazydev prompt create "<Kurzfassung in einem Satz>"` aus. Die Ausgabe ist der vollständige Create-Prompt. Folge ihr Schritt für Schritt, inklusive der nummerierten Klärungsfragen mit den Optionen A bis D, und warte auf die Antworten. Ohne Argument ergibt sich die Aufgabe aus dem Gespräch. Soll der Nutzer nicht gefragt werden („beantworte die Fragen selbst“), hänge `--auto` an. |
-| Stand der PRDs und Läufe | `lazydev status [<projekt>] [--json]`: Phase, Schritt, Port, Kosten, Fehler und die Fragen blockierter Läufe. `--all` zeigt auch erledigte PRDs. |
-| Lauf starten, fortsetzen, stoppen, verwerfen | `lazydev start [<projekt>] <prd>`, `lazydev stop …`, `lazydev discard --yes …`. Höchstens 3 Läufe arbeiten gleichzeitig, weitere warten in der Queue und starten von selbst. `start` setzt nach Fehler oder Abbruch beim fehlgeschlagenen Schritt fort. Starte neue PRDs einfach, auch wenn andere laufen: Der erste Schritt `plan` entscheidet selbst, ob das PRD parallel läuft oder auf andere wartet. |
-| Reihenfolge ändern | `lazydev after [<projekt>] <prd> [<prd>…]` überschreibt die Entscheidung von `plan`, ohne PRDs wartet es auf nichts. `lazydev status` zeigt `waiting → <prds>` und den Grund. |
-| Läufe überwachen | `lazydev wait [<projekt>] [--json] [--timeout 30m]` blockiert, bis ein Lauf blockiert, fehlschlägt, abbricht, gemergt wird, einen Pull Request öffnet (`pr`) oder einen Hinweis bekommt, und gibt die Ereignisse aus. `idle` heißt: nichts läuft oder wartet, ein offener Pull Request wartet auf einen Menschen und zählt nicht. In Claude Code eignet sich dafür das Werkzeug `Monitor` oder ein Hintergrund-Befehl. |
-| Log eines Laufs | `lazydev log [<projekt>] <prd>`, `-f` folgt ihm bis zum Ende des Laufs. |
-| Läufe in Claude Code sehen | `lazydev mod install` installiert das Pane `lazydev-runs` (Queue, Schritte, Kosten, Blocker), `/lazydev-runs` blendet es ein. Neue Sessions laden es, eine laufende mit `/reload-plugins`. |
-| Blocker automatisch lösen lassen | `lazydev auto-unblock [<projekt>] on` lässt den Runner blockierte Läufe selbst klären (höchstens 2-mal pro Lauf), `off` schaltet es ab. Nur auf Wunsch des Nutzers. |
-| Blockierten Lauf lösen | `lazydev prompt unblock [<projekt>] <prd>` gibt den Unblock-Prompt aus, das PRD steht darin mit absolutem Pfad im Worktree. Folge ihm. Mit `--auto` beantwortest du die Fragen selbst. Danach `lazydev start <projekt> <prd>`. |
-| PRD-Status von Hand setzen | `lazydev set-status [<projekt>] <prd> planned\|merged\|discarded`, committet das PRD. |
-| Dev-Server im Worktree | `lazydev dev [<projekt>] <prd> [start\|stop]`, der Port steht in `lazydev status`. |
-| Hooks oder Datenbanken vertrauen | `lazydev trust [<projekt>]` fragt den Nutzer interaktiv. Bitte ihn, es selbst auszuführen. |
-| Fragen zu PRDs: Format, Statuszeile, `## Blocker`, Branch | Lies `## PRDs` in `references/spec.md`. |
-| Fragen zu `.lazydev/`: `config.yaml`, Prompts, Knowledge, Trust | Lies `## .lazydev/` in `references/spec.md`. |
-| Fragen zu Läufen: Schritte, Worktrees, Merge, Hooks, Dev-Server, Discord | Lies `## Workflow` und `## Processes` in `references/spec.md`. |
-| Fragen zur Kommandozeile und zu Dateien | Lies `## CLI` und `## Data` in `references/spec.md`. |
-| Fragen zur TUI: Panes, Tasten, Git-Cockpit, Menü | Lies `## UI` in `references/spec.md`. |
+| Add a project to lazydev | `lazydev add [<path>]`, without path the repository of the current folder. Creates `.lazydev/`. |
+| Write a PRD, also from the conversation so far | Run `lazydev prompt create "<summary in one sentence>"` in the project. The output is the complete create prompt in the language of the project. Follow it step by step, including the numbered clarifying questions with the options A to D, and wait for the answers. Without argument the task follows from the conversation. If the user should not be asked ("answer the questions yourself"), add `--auto`. |
+| State of PRDs and runs | `lazydev status [<project>] [--json]`: phase, step, port, cost, errors and the questions of blocked runs. `--all` also shows done PRDs. |
+| Start, continue, stop, discard a run | `lazydev start [<project>] <prd>`, `lazydev stop …`, `lazydev discard --yes …`. At most 3 runs work at the same time, more wait in the queue and start by themselves. `start` continues at the failed step after an error or abort. Just start new PRDs, also while others run: the first step `plan` decides itself whether the PRD runs in parallel or waits for others. |
+| Change the order | `lazydev after [<project>] <prd> [<prd>…]` overrides the decision of `plan`, without PRDs it waits for nothing. `lazydev status` shows `waiting → <prds>` and the reason. |
+| Watch runs | `lazydev wait [<project>] [--json] [--timeout 30m]` blocks until a run blocks, fails, aborts, gets merged, opens a pull request (`pr`) or gets a note, and prints the events. `idle` means: nothing works or waits, an open pull request waits for a human and does not count. In Claude Code the tool `Monitor` or a background command fits. |
+| Log of a run | `lazydev log [<project>] <prd>`, `-f` follows it until the run ends. |
+| See runs in Claude Code | `lazydev mod install` installs the pane `lazydev-runs` (queue, steps, cost, blockers), `/lazydev-runs` shows it. New sessions load it, a running one with `/reload-plugins`. |
+| Let blockers resolve automatically | `lazydev auto-unblock [<project>] on` lets the runner resolve blocked runs itself (at most 2 times per run), `off` switches it off. Only when the user wants it. |
+| Resolve a blocked run | `lazydev prompt unblock [<project>] <prd>` prints the unblock prompt, the PRD stands in it with its absolute path in the worktree. Follow it. With `--auto` you answer the questions yourself. Then `lazydev start <project> <prd>`. |
+| Set the PRD status by hand | `lazydev set-status [<project>] <prd> planned\|merged\|discarded`, writes the value in the language of the project and commits the PRD. |
+| Dev server in the worktree | `lazydev dev [<project>] <prd> [start\|stop]`, the port is in `lazydev status`. |
+| Trust hooks or databases | `lazydev trust [<project>]` asks the user interactively. Ask them to run it themselves. |
+| Questions about PRDs: format, status line, `## Blocker`, branch | Read `## PRDs` in `references/spec.md`. |
+| Questions about `.lazydev/`: `config.yaml`, language, prompts, knowledge, trust | Read `## .lazydev/` in `references/spec.md`. |
+| Questions about runs: steps, worktrees, merge, hooks, dev server, Discord | Read `## Workflow` and `## Processes` in `references/spec.md`. |
+| Questions about the command line and files | Read `## CLI` and `## Data` in `references/spec.md`. |
+| Questions about the TUI: panes, keys, git cockpit, menu | Read `## UI` in `references/spec.md`. |
 
-`references/spec.md` ist die vollständige Spezifikation von lazydev. Lies nur den Abschnitt, der zur
-Aufgabe passt, nicht die ganze Datei.
+`references/spec.md` is the complete specification of lazydev. Read only the section that fits the task,
+not the whole file.
 
-Fehlt `lazydev` im `PATH`, weise den Nutzer darauf hin, dass er lazydev installieren muss
-(https://github.com/domsen123/lazydev). Baue Prompts und das PRD-Format dann nicht aus dem Gedächtnis
-nach, die Prompts gehören zum Projekt und zur Version von lazydev.
+If `lazydev` is missing in `PATH`, tell the user to install lazydev
+(https://github.com/domsen123/lazydev). Do not rebuild prompts and the PRD format from memory then, the
+prompts belong to the project and to the version of lazydev.

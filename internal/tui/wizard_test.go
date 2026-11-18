@@ -171,6 +171,50 @@ func TestWizardVerifyPrompt(t *testing.T) {
 	}
 }
 
+func TestWizardLanguage(t *testing.T) {
+	m := wizardModel(t, "merge: pr\n")
+	if view := plainView(m); !strings.Contains(view, "Language: en") {
+		t.Errorf("page 1 lacks the language:\n%s", view)
+	}
+	if keys := m.wizard.keys(); !strings.Contains(keys, "l language") {
+		t.Errorf("footer: %q", keys)
+	}
+	m = press(t, m, keyRunes("l"))
+	if view := plainView(m); !strings.Contains(view, "Language: de") {
+		t.Errorf("l did not switch:\n%s", view)
+	}
+	// o and r on the page Prompts take the template of the chosen language.
+	m = press(t, m, keyEnter, keyEnter, keyEnter)
+	if m.wizard.page != pagePrompts {
+		t.Fatalf("page %d", m.wizard.page)
+	}
+	m = press(t, m, keyRunes("r"), keyRunes("y"))
+	if data, _ := os.ReadFile(repo.PromptPath(m.wizard.path, "create")); !strings.HasPrefix(string(data), "# PRD erstellen") {
+		t.Errorf("create.md after r: %q", data)
+	}
+	m = press(t, m, keyEnter)
+	if view := plainView(m); !strings.Contains(view, "Language: de") || !strings.Contains(view, "language: de") {
+		t.Errorf("summary:\n%s", view)
+	}
+	m = press(t, m, keyEnter)
+	if got, _ := os.ReadFile(repo.ConfigPath(m.projects[0].path)); string(got) != "language: de\nmerge: pr\n" {
+		t.Errorf("config.yaml = %q", got)
+	}
+
+	// Back to en removes the field.
+	m.openWizard()
+	if m.wizard.lang != "de" {
+		t.Fatalf("wizard lang %q", m.wizard.lang)
+	}
+	m = press(t, m, keyRunes("l"), keyEnter, keyEnter, keyEnter, keyEnter, keyEnter)
+	if m.wizard != nil {
+		t.Fatalf("wizard still open: %s", m.err)
+	}
+	if got, _ := os.ReadFile(repo.ConfigPath(m.projects[0].path)); string(got) != "merge: pr\n" {
+		t.Errorf("config.yaml = %q", got)
+	}
+}
+
 func TestWizardDatabasesAddRemove(t *testing.T) {
 	m := wizardModel(t, "")
 	m = press(t, m, keyEnter, keyEnter)

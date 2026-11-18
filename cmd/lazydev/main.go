@@ -13,6 +13,7 @@ import (
 	"lazydev/internal/fsutil"
 	"lazydev/internal/git"
 	"lazydev/internal/gitcmd"
+	"lazydev/internal/lang"
 	"lazydev/internal/project"
 	"lazydev/internal/prompts"
 	"lazydev/internal/repo"
@@ -253,7 +254,7 @@ func promptCreate(args []string) error {
 	}
 	arguments := strings.Join(args, " ")
 	if arguments == "" {
-		arguments = "Die Aufgabe ergibt sich aus dem bisherigen Gespräch mit dem Nutzer."
+		arguments = lang.For(info.Config.Lang()).NoDescription
 	}
 	vars := prompts.Vars{Arguments: arguments, Base: info.Config.Base(), Branch: git.CurrentBranch(dir)}
 	prompt, err := prompts.Build(dir, dir, info.Config, "create", vars)
@@ -261,7 +262,7 @@ func promptCreate(args []string) error {
 		return err
 	}
 	if set["--auto"] {
-		prompt += "\n" + prompts.Auto("create", vars)
+		prompt += "\n" + prompts.Auto(info.Config.Lang(), "create", vars)
 	}
 	fmt.Print(prompt)
 	return nil

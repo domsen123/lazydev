@@ -35,7 +35,7 @@ type PRD struct {
 	Tracked bool
 	// Branch is "feat/<name>" if it exists, the base branch for merged PRDs, empty otherwise.
 	Branch string
-	// Cost stands in the status line after a merge, 0 without "Kosten:".
+	// Cost stands in the status line after a merge, 0 without "Cost:" or "Kosten:".
 	Cost float64
 	// ModTime is the modification time of the file.
 	ModTime time.Time
@@ -152,7 +152,7 @@ func Read(root, path string) (PRD, error) {
 	return d, sc.Err()
 }
 
-// BlockedIn is true while the status line of the PRD at prd, relative to worktree, says blockiert.
+// BlockedIn is true while the status line of the PRD at prd, relative to worktree, says blocked or blockiert.
 func BlockedIn(worktree, prd string) bool {
 	if worktree == "" || prd == "" {
 		return false

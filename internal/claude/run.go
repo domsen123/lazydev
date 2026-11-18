@@ -14,6 +14,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"lazydev/internal/lang"
 )
 
 // Command starts Claude Code. Tests replace it with a fake.
@@ -46,6 +48,8 @@ type Options struct {
 	Log io.Writer
 	// OnChange runs once session, model or result are known, e.g. to save the state.
 	OnChange func(Summary)
+	// Lang picks the language of the built-in agents, empty means lang.Default.
+	Lang lang.Lang
 }
 
 // Event holds the fields of a stream-json event lazydev evaluates.
@@ -94,7 +98,11 @@ func (s *Summary) Add(e Event) (changed bool) {
 // Run starts claude and waits for its end. exitCode is -1 if claude does not start or ends by a
 // signal. If ctx ends, claude gets SIGTERM.
 func Run(ctx context.Context, o Options) (s Summary, exitCode int, err error) {
-	agents, err := WriteAgents()
+	l := o.Lang
+	if l == "" {
+		l = lang.Default
+	}
+	agents, err := WriteAgents(l)
 	if err != nil {
 		return s, -1, err
 	}

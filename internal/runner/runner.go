@@ -20,6 +20,7 @@ import (
 	"lazydev/internal/config"
 	"lazydev/internal/fsutil"
 	"lazydev/internal/git"
+	"lazydev/internal/lang"
 	"lazydev/internal/notify"
 	"lazydev/internal/project"
 	"lazydev/internal/repo"
@@ -78,6 +79,13 @@ func FindDir(dir string) (Target, error) {
 func (t Target) Repo() (repo.Config, error) {
 	info := repo.Read(t.Dir, t.ID)
 	return info.Config, info.Err
+}
+
+// Lang is the language of the project, lang.Default with a broken config.yaml. lazydev writes the
+// words of PRDs in it and picks contracts and agents by it.
+func (t Target) Lang() lang.Lang {
+	cfg, _ := t.Repo()
+	return cfg.Lang()
 }
 
 // CheckTrust makes sure hooks, allowed tools and databases of config.yaml are trusted.
@@ -399,7 +407,7 @@ func runStep(ctx context.Context, t Target, prdName string, r *state.Run, step s
 
 	var blocked *blockedError
 	if ctx.Err() == nil && errors.As(err, &blocked) {
-		if recErr := recordBlocker(prdName, r, blocked, log); recErr != nil {
+		if recErr := recordBlocker(prdName, r, blocked, t.Lang(), log); recErr != nil {
 			err = recErr
 		} else if blocked.resolve = canResolve(t, r); blocked.resolve {
 			// The runner goes on with the step resolve, it notifies once that is decided.

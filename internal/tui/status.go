@@ -10,6 +10,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"lazydev/internal/lang"
 	"lazydev/internal/project"
 )
 
@@ -21,7 +22,9 @@ const statusPickerWidth = 46
 
 // statusPicker is the open picker. current is the index of the current value, -1 for another one.
 type statusPicker struct {
-	dir, base  string
+	dir, base string
+	// lang is the language the value goes into the file in.
+	lang       lang.Lang
 	rel, label string
 	tracked    bool
 	current    int
@@ -48,11 +51,12 @@ func (m *model) openStatusPicker() {
 		m.err = err.Error()
 		return
 	}
-	if _, ok := project.SetStatus(string(data), project.ValuePlanned); !ok {
+	cfg := p.lazydev.Config
+	if _, ok := project.SetStatus(string(data), lang.For(cfg.Lang()).Planned); !ok {
 		m.err = d.Label() + " has no status line."
 		return
 	}
-	s := &statusPicker{dir: p.path, base: p.lazydev.Config.Base(), rel: d.Path, label: d.Label(), tracked: d.Tracked, current: -1}
+	s := &statusPicker{dir: p.path, base: cfg.Base(), lang: cfg.Lang(), rel: d.Path, label: d.Label(), tracked: d.Tracked, current: -1}
 	for i, c := range project.Choices {
 		if c.Kind == d.Status.Kind {
 			s.current, s.cursor = i, i
@@ -99,7 +103,7 @@ func (m model) updateStatus(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 func changeStatus(s *statusPicker) tea.Cmd {
 	return func() tea.Msg {
 		c := project.Choices[s.cursor]
-		committed, err := project.ChangeStatus(s.dir, s.base, s.rel, c, time.Now())
+		committed, err := project.ChangeStatus(s.dir, s.base, s.rel, s.lang, c, time.Now())
 		if err != nil {
 			return actionMsg{err: err}
 		}

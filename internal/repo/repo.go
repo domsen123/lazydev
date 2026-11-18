@@ -13,12 +13,14 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"slices"
 	"strings"
 
 	"gopkg.in/yaml.v3"
 
+	"lazydev/internal/lang"
 	"lazydev/internal/state"
 )
 
@@ -51,7 +53,9 @@ var KnowledgeKeys = append([]string{KnowledgeAll}, Steps...)
 // workflows/simple/ holds the prompts Init copies into projects. They started as the "einfach"
 // workflow of the old lazydev.
 //
-//go:embed workflows/simple/*.md
+// workflows/simple/<lang>/ holds them per language.
+//
+//go:embed workflows/simple/en/*.md workflows/simple/de/*.md
 var simpleWorkflow embed.FS
 
 // Hooks are scripts the runner starts in the worktree. Relative paths start at the main folder.
@@ -83,6 +87,9 @@ type DatabaseEnv struct {
 // Config is .lazydev/config.yaml. Unknown fields, like the preset of the old lazydev, are ignored.
 type Config struct {
 	BaseBranch string `yaml:"baseBranch,omitempty"`
+	// Language picks the language of contracts, templates, agents and the words lazydev writes into
+	// PRDs: en (default) or de.
+	Language string `yaml:"language,omitempty"`
 	// Merge is how a PRD reaches the base branch: MergeFF (default) or MergePR.
 	Merge string `yaml:"merge,omitempty"`
 	// Knowledge lists per step paths relative to the project that Claude reads first.
@@ -106,6 +113,15 @@ func (c Config) MergeMode() string {
 		return MergeFF
 	}
 	return c.Merge
+}
+
+// Lang is Language, lang.Default without one or with an invalid one. Read rejects invalid values.
+func (c Config) Lang() lang.Lang {
+	l, err := lang.Parse(c.Language)
+	if err != nil {
+		return lang.Default
+	}
+	return l
 }
 
 // validateMerge allows ff, pr or nothing.
@@ -208,6 +224,10 @@ func Read(dir, id string) Info {
 		info.Err = err
 		return info
 	}
+	if _, err := lang.Parse(info.Config.Language); err != nil {
+		info.Err = fmt.Errorf("config.yaml: %w", err)
+		return info
+	}
 	if err := validateDatabases(info.Config.Databases); err != nil {
 		info.Err = err
 		return info
@@ -255,6 +275,7 @@ func Init(dir string) error {
 			return err
 		}
 	}
+	l := ConfigLang(dir)
 	for _, step := range Steps {
 		if step == StepVerify {
 			continue
@@ -262,16 +283,31 @@ func Init(dir string) error {
 		if _, err := os.Stat(PromptPath(dir, step)); err == nil {
 			continue
 		}
-		if err := WritePrompt(dir, step); err != nil {
+		if err := WritePrompt(dir, step, l); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// WritePrompt writes the prompt of the simple workflow for step into .lazydev/, overwriting it.
-func WritePrompt(dir, step string) error {
-	data, err := simpleWorkflow.ReadFile("workflows/simple/" + step + ".md")
+// ConfigLang is the language of config.yaml of the project at dir, lang.Default without file, without
+// field or with a broken file.
+func ConfigLang(dir string) lang.Lang {
+	data, err := os.ReadFile(ConfigPath(dir))
+	if err != nil {
+		return lang.Default
+	}
+	var c Config
+	if yaml.Unmarshal(data, &c) != nil {
+		return lang.Default
+	}
+	return c.Lang()
+}
+
+// WritePrompt writes the prompt of the simple workflow for step in language l into .lazydev/,
+// overwriting it.
+func WritePrompt(dir, step string, l lang.Lang) error {
+	data, err := simpleWorkflow.ReadFile(path.Join("workflows/simple", string(l), step+".md"))
 	if err != nil {
 		return err
 	}

@@ -105,7 +105,7 @@ func TestPullRequestMerged(t *testing.T) {
 	if got, want := runGit(t, target.Dir, "rev-parse", "main"), runGit(t, origin, "rev-parse", "main"); got != want {
 		t.Errorf("main at %s, origin/main at %s", got, want)
 	}
-	if got := read(t, filepath.Join(target.Dir, prdPath)); !strings.Contains(got, "Kosten: 0.80 USD") {
+	if got := read(t, filepath.Join(target.Dir, prdPath)); !strings.Contains(got, "Cost: 0.80 USD") {
 		t.Errorf("PRD on main:\n%s", got)
 	}
 	log := read(t, state.LogPath("app", prdName, state.StepMerge))

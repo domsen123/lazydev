@@ -13,19 +13,51 @@ import (
 	"lazydev/internal/config"
 	"lazydev/internal/fsutil"
 	"lazydev/internal/git"
+	"lazydev/internal/lang"
 	"lazydev/internal/project"
 	"lazydev/internal/prompts"
 	"lazydev/internal/repo"
 	"lazydev/internal/state"
 )
 
-// Values under "## Ergebnis" in the reports of the Claude steps, set by the contracts.
-const (
-	resultImplemented = "umgesetzt"
-	resultVerified    = "verifiziert"
-	resultAborted     = "abgebrochen"
-	resultMergeReady  = "bereit für fast-forward"
+// word picks a word of a vocabulary. Reports are read in every language, so a step does not fail
+// when Claude answers in the other one.
+type word func(lang.Vocab) string
+
+// The headings and values of the reports of the Claude steps, set by the contracts.
+var (
+	headingResult        word = func(v lang.Vocab) string { return v.Result }
+	headingOpenQuestions word = func(v lang.Vocab) string { return v.OpenQuestions }
+	headingOpenPoints    word = func(v lang.Vocab) string { return v.OpenPoints }
+	headingEvidence      word = func(v lang.Vocab) string { return v.Evidence }
+	headingDecisions     word = func(v lang.Vocab) string { return v.Decisions }
+	resultImplemented    word = func(v lang.Vocab) string { return v.ResultImplemented }
+	resultVerified       word = func(v lang.Vocab) string { return v.ResultVerified }
+	resultAborted        word = func(v lang.Vocab) string { return v.ResultAborted }
+	resultMergeReady     word = func(v lang.Vocab) string { return v.ResultMergeReady }
+	resultResolved       word = func(v lang.Vocab) string { return v.ResultResolved }
 )
+
+// reportSection is the section of report under the heading w in any language, the first language
+// that has it wins.
+func reportSection(report string, w word) (string, bool) {
+	for _, v := range lang.All() {
+		if s, ok := claude.Section(report, w(v)); ok {
+			return s, true
+		}
+	}
+	return "", false
+}
+
+// is reports whether s is the word w of any language, ignoring case.
+func (w word) is(s string) bool {
+	return slices.ContainsFunc(lang.All(), func(v lang.Vocab) bool { return strings.EqualFold(s, w(v)) })
+}
+
+// isNone is true for the point of an empty list, "none" or "keine".
+func isNone(p string) bool {
+	return slices.ContainsFunc(lang.All(), func(v lang.Vocab) bool { return p == v.None })
+}
 
 // The files of the evidence folder that lazydev writes or reads itself.
 const (
@@ -57,7 +89,7 @@ func claudeStep(ctx context.Context, t Target, prdName string, r *state.Run, ste
 	}
 	switch step {
 	case state.StepImplement:
-		if err := checkReport(s.Result, step, resultImplemented, "Offene Fragen"); err != nil {
+		if err := checkReport(s.Result, step, resultImplemented, headingOpenQuestions); err != nil {
 			return 0, err
 		}
 		d, err := project.Read(r.Worktree, filepath.Join(r.Worktree, r.PRD))
@@ -65,7 +97,8 @@ func claudeStep(ctx context.Context, t Target, prdName string, r *state.Run, ste
 			return 0, err
 		}
 		if d.Status.Kind != project.StatusImplemented {
-			return 0, fmt.Errorf("status line of %s is %q instead of „%s (date)“", r.PRD, d.Status.Value, project.ValueImplemented)
+			cfg, _ := t.Repo()
+			return 0, fmt.Errorf("status line of %s is %q instead of „%s (date)“", r.PRD, d.Status.Value, lang.For(cfg.Lang()).Implemented)
 		}
 	case state.StepVerify:
 		if err := os.WriteFile(filepath.Join(evidence, evidenceReport), []byte(s.Result), 0o644); err != nil {
@@ -96,20 +129,20 @@ func usesEvidence(step string) bool {
 	return step == state.StepVerify || step == state.StepReview
 }
 
-// checkVerify checks the report of verify: verifiziert, at least one file under "## Belege" and each
+// checkVerify checks the report of verify: verified, at least one file under "## Evidence" and each
 // of them in the evidence folder dir.
 func checkVerify(report, dir string) error {
-	if err := checkReport(report, state.StepVerify, resultVerified, "Offene Fragen"); err != nil {
+	if err := checkReport(report, state.StepVerify, resultVerified, headingOpenQuestions); err != nil {
 		var b *blockedError
 		if errors.As(err, &b) || err.Error() == state.StepVerify+" aborted" {
 			return err
 		}
 		return fmt.Errorf("verify: %w", err)
 	}
-	section, _ := claude.Section(report, "Belege")
+	section, _ := reportSection(report, headingEvidence)
 	files := evidenceFiles(section, dir)
 	if len(files) == 0 {
-		return errors.New("verify: no evidence under „## Belege“")
+		return errors.New("verify: no evidence under „## Evidence“")
 	}
 	for _, f := range files {
 		if !fsutil.Exists(filepath.Join(dir, f)) {
@@ -119,7 +152,7 @@ func checkVerify(report, dir string) error {
 	return nil
 }
 
-// evidenceFiles reads the file names of the lines "- <file>: <what it shows>" under "## Belege".
+// evidenceFiles reads the file names of the lines "- <file>: <what it shows>" under "## Evidence".
 // Only items at the start of a line count: indented lines, sub-lists included, belong to the item
 // above. Backticks and a leading path of the evidence folder dir go.
 func evidenceFiles(section, dir string) []string {
@@ -129,7 +162,7 @@ func evidenceFiles(section, dir string) []string {
 			continue
 		}
 		p := strings.TrimSpace(strings.TrimPrefix(line, "- "))
-		if p == "" || p == "keine" {
+		if p == "" || isNone(p) {
 			continue
 		}
 		name, _, _ := strings.Cut(p, ": ")
@@ -170,12 +203,12 @@ func runClaude(ctx context.Context, t Target, prdName string, r *state.Run, step
 	if err != nil {
 		return claude.Summary{}, 1, err
 	}
-	return callClaude(ctx, t, prdName, r, r.Worktree, prompt, tools, mode, addDirs, log)
+	return callClaude(ctx, t, prdName, r, r.Worktree, prompt, tools, mode, addDirs, cfg.Lang(), log)
 }
 
-// callClaude runs claude -p with prompt in dir, addDirs as further folders Claude may work in.
-// Session, model and cost go into the last step as they come.
-func callClaude(ctx context.Context, t Target, prdName string, r *state.Run, dir, prompt string, tools []string, mode string, addDirs []string, log *logger) (claude.Summary, int, error) {
+// callClaude runs claude -p with prompt in dir, addDirs as further folders Claude may work in, l
+// the language of the built-in agents. Session, model and cost go into the last step as they come.
+func callClaude(ctx context.Context, t Target, prdName string, r *state.Run, dir, prompt string, tools []string, mode string, addDirs []string, l lang.Lang, log *logger) (claude.Summary, int, error) {
 	baseCost := 0.0
 	if c := r.LastStep().CostUSD; c != nil {
 		baseCost = *c
@@ -186,6 +219,7 @@ func callClaude(ctx context.Context, t Target, prdName string, r *state.Run, dir
 		AllowedTools:   tools,
 		PermissionMode: mode,
 		AddDirs:        addDirs,
+		Lang:           l,
 		Log:            log,
 		OnChange: func(s claude.Summary) {
 			last := r.LastStep()
@@ -252,18 +286,19 @@ func (e *blockedError) Error() string {
 	return fmt.Sprintf("%s blocked: %s", e.step, e.points[0])
 }
 
-// checkReport checks "## Ergebnis" in the report of a step. If it is abgebrochen with points in the
-// section questions, the error is a *blockedError.
-func checkReport(report, step, want, questions string) error {
-	res, ok := claude.Section(report, "Ergebnis")
+// checkReport checks "## Result" in the report of a step, in any language. If it is aborted with
+// points in the section questions, the error is a *blockedError.
+func checkReport(report, step string, want, questions word) error {
+	res, ok := reportSection(report, headingResult)
 	if !ok {
-		return fmt.Errorf("report of %s without „## Ergebnis“", step)
+		return fmt.Errorf("report of %s without „## Result“", step)
 	}
-	switch v := strings.ToLower(claude.FirstLine(res)); v {
-	case want:
+	v := strings.ToLower(claude.FirstLine(res))
+	switch {
+	case want.is(v):
 		return nil
-	case resultAborted:
-		q, _ := claude.Section(report, questions)
+	case resultAborted.is(v):
+		q, _ := reportSection(report, questions)
 		if points := reportPoints(q); len(points) > 0 {
 			return &blockedError{step: step, points: points}
 		}
@@ -273,12 +308,12 @@ func checkReport(report, step, want, questions string) error {
 	}
 }
 
-// reportPoints are the lines of a report section without "- ", empty lines and „keine“.
+// reportPoints are the lines of a report section without "- ", empty lines and "none" or „keine“.
 func reportPoints(section string) []string {
 	var points []string
 	for line := range strings.SplitSeq(section, "\n") {
 		p := strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(line), "- "))
-		if p != "" && p != "keine" {
+		if p != "" && !isNone(p) {
 			points = append(points, p)
 		}
 	}

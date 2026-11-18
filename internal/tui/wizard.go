@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"lazydev/internal/fsutil"
+	"lazydev/internal/lang"
 	"lazydev/internal/repo"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -17,8 +18,8 @@ import (
 
 // The wizard edits .lazydev/ of the selected project: base branch, knowledge files, steps per file,
 // databases, prompts and a summary. Adding a project creates .lazydev/, and the wizard brings back
-// missing files. It writes baseBranch, knowledge and databases only and keeps other fields, order
-// and comments of config.yaml.
+// missing files. It writes baseBranch, language, knowledge and databases only and keeps other
+// fields, order and comments of config.yaml.
 
 const (
 	pageBranch = iota
@@ -50,6 +51,9 @@ type wizard struct {
 	branchCursor int
 	// base is the base branch of config.yaml, used without local branches.
 	base string
+	// lang is the language of the project, l on the first page switches it. Saving writes it, o and
+	// r on the page Prompts take their templates in it.
+	lang lang.Lang
 
 	files      []string
 	fileCursor int
@@ -108,7 +112,7 @@ func (m *model) openWizard() {
 }
 
 func newWizard(dir string, cfg repo.Config) *wizard {
-	w := &wizard{path: dir, name: filepath.Base(dir), base: cfg.Base(),
+	w := &wizard{path: dir, name: filepath.Base(dir), base: cfg.Base(), lang: cfg.Lang(),
 		marked: map[string]bool{}, steps: map[string][]bool{}, untracked: map[string]bool{}}
 	// Folders without git have no branches and no candidates, the wizard still edits the rest.
 	w.branches, _ = repo.LocalBranches(dir)
@@ -152,6 +156,12 @@ func (w *wizard) selectedBranch() string {
 		return w.base
 	}
 	return w.branches[w.branchCursor]
+}
+
+// nextLang switches to the next language, after the last one back to the first.
+func (w *wizard) nextLang() {
+	langs := lang.Langs()
+	w.lang = langs[(slices.Index(langs, w.lang)+1)%len(langs)]
 }
 
 // toggle marks f or removes the mark. Newly marked files apply to create and implement.
@@ -239,6 +249,8 @@ func (m model) updateWizard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			w.branchCursor = clamp(w.branchCursor+1, len(w.branches))
 		case "k", "up":
 			w.branchCursor = clamp(w.branchCursor-1, len(w.branches))
+		case "l":
+			w.nextLang()
 		case "enter":
 			w.page = pageKnowledge
 		}
@@ -298,7 +310,7 @@ func (m model) updateWizard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 			// .lazydev/ may be gone since the wizard opened. Init brings it back first.
 			w.err = repo.Init(w.path)
 			if w.err == nil {
-				w.preview, w.changed, w.err = repo.Settings(w.path, w.selectedBranch(), w.knowledge(), w.databaseList())
+				w.preview, w.changed, w.err = repo.Settings(w.path, w.selectedBranch(), w.lang, w.knowledge(), w.databaseList())
 			}
 			w.page = pageSummary
 		case "backspace":
@@ -315,12 +327,12 @@ func (m model) updateWizard(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// writePrompt writes the prompt of the simple workflow for step into .lazydev/, which it creates
-// again if it is gone.
+// writePrompt writes the prompt of the simple workflow for step in the language chosen in the
+// wizard into .lazydev/, which it creates again if it is gone.
 func (m *model) writePrompt(step string) {
 	err := repo.Init(m.wizard.path)
 	if err == nil {
-		err = repo.WritePrompt(m.wizard.path, step)
+		err = repo.WritePrompt(m.wizard.path, step, m.wizard.lang)
 	}
 	if err != nil {
 		m.err = err.Error()
@@ -397,6 +409,7 @@ func (m model) viewWizard() string {
 			}
 			lines = append(lines, line(i == w.branchCursor, label))
 		}
+		lines = append(lines, "", text.Render("Language: "+string(w.lang)))
 	case pageKnowledge:
 		heading(pageKnowledge, "Knowledge files", "Claude reads marked files before anything else.")
 		if len(w.files) == 0 {
@@ -493,6 +506,7 @@ func (m model) viewWizard() string {
 		}
 	case pageSummary:
 		heading(pageSummary, "Summary", "Enter saves. lazydev does not commit.")
+		lines = append(lines, text.Render("Language: "+string(w.lang)), "")
 		switch {
 		case w.err != nil:
 			lines = append(lines, text.Foreground(t.focus).Render(ansi.Truncate(w.err.Error(), inner, "…")))
@@ -518,7 +532,7 @@ func (w *wizard) keys() string {
 	case w.confirmReset:
 		return " y overwrite · n keep"
 	case w.page == pageBranch:
-		return " j/k branch · enter next · esc cancel"
+		return " j/k branch · l language · enter next · esc cancel"
 	case w.page == pageKnowledge:
 		return " j/k file · space mark · enter next · backspace back · esc cancel"
 	case w.page == pageSteps:

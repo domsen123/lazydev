@@ -140,7 +140,7 @@ func TestStartBlocked(t *testing.T) {
 		t.Errorf("err %q, question %v", m.err, m.question)
 	}
 	// After the dialog the PRD is planned again and s asks as usual.
-	resolved, _ := project.SetStatus(project.RemoveBlocker(blockedPRD), project.ValuePlanned)
+	resolved, _ := project.SetStatus(project.RemoveBlocker(blockedPRD), "planned")
 	if err := os.WriteFile(filepath.Join(wt, blockedPRDPath), []byte(resolved), 0o644); err != nil {
 		t.Fatal(err)
 	}

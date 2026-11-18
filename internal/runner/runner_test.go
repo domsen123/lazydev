@@ -61,7 +61,7 @@ func TestRunMerges(t *testing.T) {
 	if runGit(t, main, "rev-list", "--merges", "--count", "HEAD") != "0" {
 		t.Error("merge commit on main")
 	}
-	if got := read(t, filepath.Join(main, prdPath)); !strings.Contains(got, "> Status: umgesetzt (2026-10-20) · Kosten: 0.80 USD · Modell: claude-opus-5-5 · Scope: tokens\n") {
+	if got := read(t, filepath.Join(main, prdPath)); !strings.Contains(got, "> Status: implemented (2026-10-20) · Cost: 0.80 USD · Model: claude-opus-5-5 · Scope: tokens\n") {
 		t.Errorf("PRD on main:\n%s", got)
 	}
 	if got := runGit(t, main, "status", "--porcelain"); got != "" {
@@ -109,7 +109,7 @@ func TestRunMerges(t *testing.T) {
 	args := fakeArgs(t)
 	for _, s := range []string{
 		"-p\n# lazydev implement: prd/auth/new-token.md\n", "# lazydev review: feat/new-token → main\n",
-		"## Regeln von lazydev", "## Pflichtlektüre", "- `CLAUDE.md`", "--output-format\nstream-json\n--verbose\n",
+		"## Rules of lazydev", "## Required reading", "- `CLAUDE.md`", "--output-format\nstream-json\n--verbose\n",
 		"Bash(git status:*),", "Bash(make test:*)", "--agents\n" + filepath.Join(state.Dir(), "agents.json") + "\n",
 		"GIT_EDITOR=true", "PWD=" + realWT + "\n",
 	} {
@@ -134,7 +134,7 @@ func TestRunWithoutConfig(t *testing.T) {
 	if r := loadRun(t); r.Phase != project.PhaseMerged {
 		t.Errorf("phase %s", r.Phase)
 	}
-	if args := fakeArgs(t); strings.Contains(args, "## Pflichtlektüre") {
+	if args := fakeArgs(t); strings.Contains(args, "## Required reading") {
 		t.Errorf("knowledge block without knowledge:\n%s", args)
 	}
 	if fsutil.Exists(filepath.Join(target.Dir, "hooks.log")) {
@@ -253,8 +253,8 @@ func TestRunImplementBlockedContinues(t *testing.T) {
 		t.Errorf("steps: %+v", r.Steps)
 	}
 	wt := WorktreePath("app", prdName)
-	want := "# PRD: Token\n\n> Status: blockiert (" + today() + ") · Scope: tokens\n\nbody\n\n" +
-		"## Blocker\n\nSchritt: implement\n\n- Feld fehlt im PRD\n- Zweite Frage\n"
+	want := "# PRD: Token\n\n> Status: blocked (" + today() + ") · Scope: tokens\n\nbody\n\n" +
+		"## Blocker\n\nStep: implement\n\n- Feld fehlt im PRD\n- Zweite Frage\n"
 	if got := read(t, filepath.Join(wt, prdPath)); got != want {
 		t.Errorf("PRD in the worktree:\n%s", got)
 	}
@@ -279,7 +279,7 @@ func TestRunImplementBlockedContinues(t *testing.T) {
 		t.Error("state or log changed while blocked")
 	}
 
-	resolveBlocker(t, project.ValuePlanned)
+	resolveBlocker(t, "planned")
 	t.Setenv("FAKE_CLAUDE_MODE", "ok")
 	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
@@ -292,7 +292,7 @@ func TestRunImplementBlockedContinues(t *testing.T) {
 	if got := strings.Count(read(t, filepath.Join(target.Dir, "hooks.log")), "setup "); got != 1 {
 		t.Errorf("setup hook ran %d times", got)
 	}
-	if got := read(t, filepath.Join(target.Dir, prdPath)); !strings.Contains(got, "Kosten: 1.00 USD · Modell: claude-opus-5-5") {
+	if got := read(t, filepath.Join(target.Dir, prdPath)); !strings.Contains(got, "Cost: 1.00 USD · Model: claude-opus-5-5") {
 		t.Errorf("PRD on main:\n%s", got)
 	}
 }
@@ -305,7 +305,7 @@ func TestRunStepFailures(t *testing.T) {
 		{"abortnone", state.StepImplement, "implement aborted"},
 		{"noresult", state.StepImplement, "claude ended without result event"},
 		{"error", state.StepImplement, "claude reports an error: Rate limit"},
-		{"status", state.StepImplement, `status line of prd/auth/new-token.md is "geplant" instead of „umgesetzt (date)“`},
+		{"status", state.StepImplement, `status line of prd/auth/new-token.md is "planned" instead of „implemented (date)“`},
 		{"dirty", state.StepReview, "worktree after the review not clean:  M prd/auth/new-token.md, ?? review.txt"},
 		{"lazydev", state.StepImplement, ".lazydev/ changed in the worktree: .lazydev/neu.md"},
 	}

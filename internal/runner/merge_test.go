@@ -70,7 +70,7 @@ func TestMergeConflictRunsClaude(t *testing.T) {
 		t.Errorf("review.txt: %q", got)
 	}
 	// Implement, the failed and the second review and the Claude step merge add up.
-	if got := read(t, filepath.Join(main, prdPath)); !strings.Contains(got, "Kosten: 1.20 USD · Modell: claude-opus-5-5") {
+	if got := read(t, filepath.Join(main, prdPath)); !strings.Contains(got, "Cost: 1.20 USD · Model: claude-opus-5-5") {
 		t.Errorf("PRD on main:\n%s", got)
 	}
 	log := read(t, state.LogPath("app", prdName, state.StepMerge))
@@ -115,15 +115,15 @@ func TestMergeClaudeBlocked(t *testing.T) {
 		t.Errorf("last commit: %q", got)
 	}
 	prd := read(t, filepath.Join(wt, prdPath))
-	if !strings.Contains(prd, "> Status: blockiert ("+today()+") · Scope: tokens") ||
-		!strings.HasSuffix(prd, "## Blocker\n\nSchritt: merge\n\n- Konflikt in review.txt\n") {
+	if !strings.Contains(prd, "> Status: blocked ("+today()+") · Scope: tokens") ||
+		!strings.HasSuffix(prd, "## Blocker\n\nStep: merge\n\n- Konflikt in review.txt\n") {
 		t.Errorf("PRD in the worktree:\n%s", prd)
 	}
 	if got := runGit(t, target.Dir, "log", "-1", "--format=%s"); got != "main: review.txt" {
 		t.Errorf("main moved: %q", got)
 	}
 
-	resolveBlocker(t, "umgesetzt ("+today()+")")
+	resolveBlocker(t, "implemented ("+today()+")")
 	t.Setenv("FAKE_MERGE_MODE", "ok")
 	if err := Run(context.Background(), target, prdName); err != nil {
 		t.Fatal(err)
@@ -135,7 +135,7 @@ func TestMergeClaudeBlocked(t *testing.T) {
 	if !strings.Contains(got, "docs(prd): record cost of new-token\ndocs(prd): resolve blocker of new-token\ndocs(prd): record blocker of new-token\n") {
 		t.Errorf("main: %q", got)
 	}
-	if got := read(t, filepath.Join(target.Dir, prdPath)); strings.Contains(got, "## Blocker") || !strings.Contains(got, "> Status: umgesetzt ("+today()+")") {
+	if got := read(t, filepath.Join(target.Dir, prdPath)); strings.Contains(got, "## Blocker") || !strings.Contains(got, "> Status: implemented ("+today()+")") {
 		t.Errorf("PRD on main:\n%s", got)
 	}
 	if log := read(t, state.LogPath("app", prdName, state.StepMerge)); !strings.Contains(log, "Commit: docs(prd): resolve blocker of new-token") {
@@ -164,7 +164,7 @@ func TestMergeCheckRedOnceRunsClaude(t *testing.T) {
 		t.Errorf("phase: %s", r.Phase)
 	}
 	args := fakeArgs(t)
-	if !strings.Contains(args, "-p\n# lazydev merge: feat/new-token Prüfung nach dem Rebase fehlgeschlagen: check hook ended with exit code 1\n") {
+	if !strings.Contains(args, "-p\n# lazydev merge: feat/new-token Check failed after the rebase: check hook ended with exit code 1\n") {
 		t.Errorf("claude args:\n%s", args)
 	}
 	if got := strings.Count(read(t, filepath.Join(target.Dir, "hooks.log")), "check "); got != 2 {

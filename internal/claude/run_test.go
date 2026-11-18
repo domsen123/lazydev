@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"lazydev/internal/lang"
 	"lazydev/internal/state"
 )
 
@@ -105,29 +106,51 @@ func TestWithTimestamp(t *testing.T) {
 }
 
 func TestAgents(t *testing.T) {
-	agents, err := Agents()
+	for _, l := range lang.Langs() {
+		agents, err := Agents(l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		c, ok := agents["committer"]
+		if !ok {
+			t.Fatalf("%s: committer missing: %v", l, agents)
+		}
+		if c.Model != "haiku" || !slices.Equal(c.Tools, []string{"Bash", "Read", "Grep", "Glob"}) ||
+			c.Description == "" || strings.HasPrefix(c.Prompt, "---") || c.Prompt == "" {
+			t.Errorf("%s: committer: %+v", l, c)
+		}
+		r, ok := agents["structural-completeness-reviewer"]
+		if !ok {
+			t.Fatalf("%s: structural-completeness-reviewer missing: %v", l, agents)
+		}
+		// Escaped newlines in the description become real ones, the description keeps its ": ".
+		if r.Model != "sonnet" || r.Tools != nil || !strings.Contains(r.Description, "\n\nExamples:\n") ||
+			strings.Contains(r.Description, `\n`) || r.Prompt == "" {
+			t.Errorf("%s: reviewer: model %q tools %v description %q", l, r.Model, r.Tools, r.Description)
+		}
+		if len(agents) != 2 {
+			t.Errorf("%s: agents: %d", l, len(agents))
+		}
+	}
+	de, _ := Agents(lang.DE)
+	en, _ := Agents(lang.EN)
+	if !strings.Contains(de["committer"].Prompt, "Du committest") || !strings.Contains(en["committer"].Prompt, "You commit all changes") {
+		t.Error("committer is not in the language asked for")
+	}
+}
+
+func TestEnglishAgentsHaveNoGermanWords(t *testing.T) {
+	agents, err := Agents(lang.EN)
 	if err != nil {
 		t.Fatal(err)
 	}
-	c, ok := agents["committer"]
-	if !ok {
-		t.Fatalf("committer missing: %v", agents)
-	}
-	if c.Model != "haiku" || !slices.Equal(c.Tools, []string{"Bash", "Read", "Grep", "Glob"}) ||
-		c.Description == "" || strings.HasPrefix(c.Prompt, "---") || c.Prompt == "" {
-		t.Errorf("committer: %+v", c)
-	}
-	r, ok := agents["structural-completeness-reviewer"]
-	if !ok {
-		t.Fatalf("structural-completeness-reviewer missing: %v", agents)
-	}
-	// Escaped newlines in the description become real ones, the description keeps its ": ".
-	if r.Model != "sonnet" || r.Tools != nil || !strings.Contains(r.Description, "\n\nExamples:\n") ||
-		strings.Contains(r.Description, `\n`) || r.Prompt == "" {
-		t.Errorf("reviewer: model %q tools %v description %q", r.Model, r.Tools, r.Description)
-	}
-	if len(agents) != 2 {
-		t.Errorf("agents: %d", len(agents))
+	for name, a := range agents {
+		text := strings.ToLower(a.Description + "\n" + a.Prompt)
+		for _, w := range lang.Unique(lang.DE) {
+			if strings.Contains(text, strings.ToLower(w)) {
+				t.Errorf("agent en/%s contains the German %q", name, w)
+			}
+		}
 	}
 }
 
@@ -147,23 +170,33 @@ func TestParseAgentErrors(t *testing.T) {
 
 func TestWriteAgents(t *testing.T) {
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
-	p, err := WriteAgents()
-	if err != nil {
-		t.Fatal(err)
+	paths := map[lang.Lang]string{
+		lang.EN: filepath.Join(state.Dir(), "agents.json"),
+		lang.DE: filepath.Join(state.Dir(), "agents.de.json"),
 	}
-	if p != filepath.Join(state.Dir(), "agents.json") {
-		t.Errorf("path: %s", p)
+	for l, want := range paths {
+		p, err := WriteAgents(l)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if p != want {
+			t.Errorf("%s: path %s", l, p)
+		}
 	}
-	data, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var agents map[string]Agent
-	if err := json.Unmarshal(data, &agents); err != nil {
-		t.Fatal(err)
-	}
-	if agents["committer"].Model != "haiku" || len(agents) != 2 {
-		t.Errorf("agents.json: %s", data)
+	// Both files stay side by side, each in its language.
+	for l, p := range paths {
+		data, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var agents map[string]Agent
+		if err := json.Unmarshal(data, &agents); err != nil {
+			t.Fatal(err)
+		}
+		want, _ := Agents(l)
+		if agents["committer"].Model != "haiku" || len(agents) != 2 || agents["committer"].Prompt != want["committer"].Prompt {
+			t.Errorf("%s: %s", p, data)
+		}
 	}
 }
 
@@ -278,6 +311,26 @@ func TestRunWithoutResult(t *testing.T) {
 	s, code, err := Run(context.Background(), Options{Dir: t.TempDir(), Log: &log})
 	if err != nil || code != 0 || s.HasResult {
 		t.Errorf("summary %+v, exit %d, %v", s, code, err)
+	}
+}
+
+func TestRunAgentsOfLanguage(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	tmp := t.TempDir()
+	script := filepath.Join(tmp, "claude")
+	os.WriteFile(script, []byte("#!/bin/sh\nfor a in \"$@\"; do echo \"$a\"; done > \"$FAKE_OUT\"\n"), 0o755)
+	out := filepath.Join(tmp, "out")
+	t.Setenv("FAKE_OUT", out)
+	old := Command
+	Command = []string{script}
+	t.Cleanup(func() { Command = old })
+
+	if _, _, err := Run(context.Background(), Options{Dir: tmp, Log: &bytes.Buffer{}, Lang: lang.DE}); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(out)
+	if !strings.Contains(string(data), "--agents\n"+filepath.Join(state.Dir(), "agents.de.json")+"\n") {
+		t.Errorf("German run without agents.de.json:\n%s", data)
 	}
 }
 

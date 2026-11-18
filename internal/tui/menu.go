@@ -58,7 +58,7 @@ var tabDescriptions = [menuTabs]string{
 // itemDescriptions describe the entries of the right column.
 var itemDescriptions = map[menuItem]string{
 	itemTheme:         "Colors of borders, focus and selection. lazydev saves the choice in settings.json.",
-	itemAutoUnblock:   "On: when a run of this project gets blocked, Claude answers the open questions itself, records them under ## Entscheidungen and the run goes on. Questions about data loss, security, public interfaces or costs still stop the run.",
+	itemAutoUnblock:   "On: when a run of this project gets blocked, Claude answers the open questions itself, records them under ## Decisions (## Entscheidungen in German projects) and the run goes on. Questions about data loss, security, public interfaces or costs still stop the run.",
 	itemNotifications: "Runners post to Discord when a PRD is merged, fails, gets blocked, gets unblocked by Claude, gets aborted, waits for the main folder or opens a pull request.",
 	itemGlobalURL:     "Webhook URL for all projects. Stored in settings.json, never in a repository.",
 	itemProject:       "Off mutes this project only.",
