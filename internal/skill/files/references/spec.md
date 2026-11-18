@@ -784,8 +784,10 @@ databases:
   `-f` (`compose.yaml`, `compose.yml`, `docker-compose.yaml`, `docker-compose.yml`). With `compose` lazydev
   runs `docker compose -f <compose>` in the main folder. lazydev looks for no other files by itself.
 - **User:** `POSTGRES_USER` of the `environment` of the service in `docker compose config --format json`,
-  `postgres` without it. lazydev needs no password, every command runs through `docker exec` in the
-  container.
+  `postgres` without it. lazydev needs no password, every command runs through `docker exec -u postgres` in
+  the container: the Postgres images run the server as the operating system user `postgres`, so a cluster
+  with peer authentication on the socket (`initdb --auth-local=peer`) accepts the role `postgres`, and one
+  with trust accepts every role.
 - **Container:** the running container with the labels `com.docker.compose.project.working_dir` equal to the
   folder of the compose file (the main folder for the default file) and `com.docker.compose.service` equal to
   `service`. If none runs (setup, recreation), lazydev runs `docker compose [-f <compose>] up -d <service>` in

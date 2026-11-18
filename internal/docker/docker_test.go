@@ -189,7 +189,7 @@ printf '%s\n' "$*" >> "$FAKE_DOCKER_ARGS"
 case "$1" in
 ps) echo '{"Names":"p-db-1","State":"running","Labels":"com.docker.compose.service=db,com.docker.compose.project.working_dir=/p"}'
 	echo '{"Names":"p-old-1","State":"exited","Labels":"com.docker.compose.service=old,com.docker.compose.project.working_dir=/p"}' ;;
-exec) shift 2; [ "$1" = fail ] && { echo "boom" >&2; echo "second" >&2; exit 1; }; echo "out $*" ;;
+exec) shift 4; [ "$1" = fail ] && { echo "boom" >&2; echo "second" >&2; exit 1; }; echo "out $*" ;;
 compose) echo '{"services":{"db":{"image":"postgres"}}}' ;;
 esac
 `
@@ -211,11 +211,14 @@ func TestFakeBinary(t *testing.T) {
 			t.Errorf("RunningContainer(%s, %s) = %v, %v", tc.dir, tc.service, ok, err)
 		}
 	}
-	if out, err := Exec("p-db-1", "psql", "-c", "x"); err != nil || out != "out psql -c x\n" {
+	if out, err := Exec("p-db-1", "postgres", "psql", "-c", "x"); err != nil || out != "out psql -c x\n" {
 		t.Errorf("Exec = %q, %v", out, err)
 	}
-	if _, err := Exec("p-db-1", "fail"); err == nil || err.Error() != "docker exec: boom" {
+	if _, err := Exec("p-db-1", "postgres", "fail"); err == nil || err.Error() != "docker exec: boom" {
 		t.Errorf("Exec error = %v", err)
+	}
+	if args, _ := os.ReadFile(filepath.Join(dir, "args")); !strings.Contains(string(args), "exec -u postgres p-db-1 psql -c x\n") {
+		t.Errorf("Exec ran docker with %q, want exec -u postgres p-db-1 psql -c x", args)
 	}
 	if err := Up(t.TempDir(), "dev.yml", "db"); err != nil {
 		t.Error(err)

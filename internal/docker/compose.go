@@ -112,9 +112,9 @@ func Up(dir, file, service string) error {
 	return err
 }
 
-// Exec runs args in the container and returns its stdout.
-func Exec(container string, args ...string) (string, error) {
-	return run("", append([]string{"exec", container}, args...)...)
+// Exec runs args in the container as the operating system user and returns its stdout.
+func Exec(container, user string, args ...string) (string, error) {
+	return run("", append([]string{"exec", "-u", user, container}, args...)...)
 }
 
 // composeArgs builds "compose [-f file] <args>".

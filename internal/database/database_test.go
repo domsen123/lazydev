@@ -37,7 +37,9 @@ compose)
 	up) eval s=\${$#}; mkdir -p "$d/up"; printf '%s' "$wd" > "$d/up/$s" ;;
 	esac ;;
 exec)
-	c="$2"; shift 2
+	shift
+	[ "$1" = -u ] && shift 2
+	c="$1"; shift
 	eval last=\${$#}
 	mkdir -p "$d/dbs/$c"
 	case "$1" in
@@ -132,7 +134,7 @@ func TestPrepareStartsServiceAndCreates(t *testing.T) {
 		}
 	}
 	calls, _ := os.ReadFile(filepath.Join(d, "calls"))
-	if !strings.Contains(string(calls), "exec c-db createdb -U app app_login_form") || strings.Count(string(calls), "up -d") != 1 {
+	if !strings.Contains(string(calls), "exec -u postgres c-db createdb -U app app_login_form") || strings.Count(string(calls), "up -d") != 1 {
 		t.Errorf("calls:\n%s", calls)
 	}
 
@@ -215,7 +217,7 @@ func TestPrepareComposeFile(t *testing.T) {
 	}
 	// Without POSTGRES_USER the user is postgres.
 	calls, _ := os.ReadFile(filepath.Join(d, "calls"))
-	if !strings.Contains(string(calls), "exec c-db-test createdb -U postgres app_test_x") {
+	if !strings.Contains(string(calls), "exec -u postgres c-db-test createdb -U postgres app_test_x") {
 		t.Errorf("calls:\n%s", calls)
 	}
 }
@@ -262,7 +264,7 @@ func TestDrop(t *testing.T) {
 		t.Error("wrong databases dropped")
 	}
 	calls, _ := os.ReadFile(filepath.Join(d, "calls"))
-	if string(calls) != "exec c dropdb --if-exists --force -U u app_x\n" {
+	if string(calls) != "exec -u postgres c dropdb --if-exists --force -U u app_x\n" {
 		t.Errorf("calls:\n%s", calls)
 	}
 }

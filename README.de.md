@@ -251,7 +251,7 @@ databases:
   Worktree `…/app_login_form?sslmode=disable`. Ein einfacher Wert wie `app_test` wird zu `app_test_login_form`.
 - Das Setup kopiert die Env-Dateien in den Worktree, startet einen gestoppten Service, legt die Datenbanken an
   und führt dann den Setup-Hook aus. User ist `POSTGRES_USER` des Service, sonst `postgres`, alles per
-  `docker exec`.
+  `docker exec -u postgres`, damit auch Cluster mit Peer-Authentifizierung am Socket funktionieren.
 - Ist der Ziel-Branch vor dem Merge weitergezogen, laufen Datenbanken und Setup-Hook vor dem Check erneut.
 - Merge und Verwerfen löschen sie nach dem Teardown-Hook, nur Namen, die auf `_<slug>` enden.
 

@@ -168,7 +168,9 @@ compose)
 	up) eval s=\${$#}; mkdir -p "$d/up"; printf '%s' "$wd" > "$d/up/$s" ;;
 	esac ;;
 exec)
-	c="$2"; shift 2
+	shift
+	[ "$1" = -u ] && shift 2
+	c="$1"; shift
 	eval last=\${$#}
 	mkdir -p "$d/dbs/$c"
 	case "$1" in

@@ -244,7 +244,8 @@ databases:
 - `DATABASE_URL="postgres://app:secret@localhost:5432/app?sslmode=disable"` and slug `login_form` give the
   worktree `…/app_login_form?sslmode=disable`. A plain value like `app_test` becomes `app_test_login_form`.
 - Setup copies the env files into the worktree, starts a stopped service, creates the databases, then runs
-  the setup hook. User is `POSTGRES_USER` of the service, else `postgres`, everything via `docker exec`.
+  the setup hook. User is `POSTGRES_USER` of the service, else `postgres`, everything via
+  `docker exec -u postgres`, so clusters with peer authentication on the socket work too.
 - If the base branch moved before the merge, the databases and the setup hook run again before the check.
 - Merge and discard drop them after the teardown hook, only names ending in `_<slug>`.
 
